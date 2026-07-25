@@ -29,6 +29,21 @@ const updateManifestURL = "https://github.com/nonbili/meron/releases/latest/down
 // (a root-owned install, an unreadable DMG).
 const releasesPageURL = "https://github.com/nonbili/meron/releases/latest"
 
+// releaseTagURLPrefix builds the link to one desktop release. The repo also
+// publishes `android/v*` tags, so once a known desktop version is in hand the
+// exact tag beats the `releases/latest` pointer, which follows whichever
+// release was published most recently regardless of platform.
+const releaseTagURLPrefix = "https://github.com/nonbili/meron/releases/tag/v"
+
+// releasesURLFor points at the specific release when the check succeeded, and
+// falls back to the latest-release page when it didn't.
+func releasesURLFor(version string) string {
+	if version == "" {
+		return releasesPageURL
+	}
+	return releaseTagURLPrefix + strings.TrimPrefix(version, "v")
+}
+
 const (
 	updateStateIdle        = "idle"
 	updateStateChecking    = "checking"
@@ -109,7 +124,7 @@ func (u *updater) statusLocked() updateStatusPayload {
 		Downloaded:     u.downloaded,
 		Total:          u.total,
 		Error:          u.errMessage,
-		ReleasesURL:    releasesPageURL,
+		ReleasesURL:    releasesURLFor(u.latest),
 	}
 }
 

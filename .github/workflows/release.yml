@@ -415,6 +415,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
+          # The updater's manifest lives behind releases/latest/download/, so a
+          # desktop release must always own the latest pointer.
+          make_latest: true
           body_path: note.txt
           generate_release_notes: true
           files: dist/*
