@@ -14,33 +14,33 @@
 
   <description>
     <ul>
+      <li>Kanban and chat views</li>
       <li>Email over IMAP/SMTP, with threaded conversations and a rich-text composer</li>
       <li>RSS / Atom feeds alongside your mail</li>
       <li>OAuth sign-in (e.g. Gmail) plus password auth with mailbox autodiscovery</li>
       <li>Encrypted local storage (SQLite via SQLCipher), with credentials kept in the OS keyring</li>
       <li>Native notifications and system tray integration</li>
-      <li>Kanban board and gallery views for organizing and viewing message attachments</li>
     </ul>
   </description>
 
   <keywords>
     <keyword>email</keyword>
+    <keyword>kanban</keyword>
     <keyword>mail</keyword>
     <keyword>rss</keyword>
     <keyword>feed</keyword>
     <keyword>imap</keyword>
-    <keyword>kanban</keyword>
   </keywords>
 
   <launchable type="desktop-id">jp.nonbili.meron.desktop</launchable>
   <screenshots>
-    <screenshot type="default">
-      <image>https://raw.githubusercontent.com/nonbili/meron/25c4752e0597018d98e55b8b5d5f87c153bc646c/screenshots/unified-inbox.png</image>
-      <caption>Unified inbox</caption>
-    </screenshot>
     <screenshot>
       <image>https://raw.githubusercontent.com/nonbili/meron/25c4752e0597018d98e55b8b5d5f87c153bc646c/screenshots/kanban-board.png</image>
       <caption>Kanban board</caption>
+    </screenshot>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/nonbili/meron/25c4752e0597018d98e55b8b5d5f87c153bc646c/screenshots/unified-inbox.png</image>
+      <caption>Unified inbox</caption>
     </screenshot>
     <screenshot>
       <image>https://raw.githubusercontent.com/nonbili/meron/25c4752e0597018d98e55b8b5d5f87c153bc646c/screenshots/media-gallery.png</image>
@@ -56,13 +56,20 @@
     </screenshot>
   </screenshots>
 
-  <url type="homepage">https://github.com/nonbili/meron</url>
+  <url type="homepage">https://meron.im</url>
   <url type="vcs-browser">https://github.com/nonbili/meron</url>
   <url type="bugtracker">https://github.com/nonbili/meron/issues</url>
 
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.13" date="2026-07-25">
+      <description>
+        <ul>
+          <li>Hide autosaved quick reply draft while sending reply</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.12" date="2026-07-24">
       <description>
         <ul>

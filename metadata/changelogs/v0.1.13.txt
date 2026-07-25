@@ -1,0 +1,3 @@
+- Support in-app auto updates for DMG, AppImage, and Windows builds
+- Support package-managed update opt-out
+- Hide autosaved quick reply draft while sending reply
