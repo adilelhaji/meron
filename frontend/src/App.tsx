@@ -23,6 +23,7 @@ import { AppToast } from './components/toast/AppToast'
 import { AppConfirm } from './components/dialog/AppConfirm'
 import { MacTitleBar } from './components/titlebar/MacTitleBar'
 import { ConnectivityBanner } from './components/banner/ConnectivityBanner'
+import { UpdateBanner } from './components/banner/UpdateBanner'
 import { SetupScreen } from './components/setup/SetupScreen'
 import { AccountDialog } from './components/dialog/AccountDialog'
 import { SettingsDialog } from './components/dialog/SettingsDialog'
@@ -64,6 +65,7 @@ export default function App() {
     <div className="flex h-full w-full flex-col bg-app text-primary">
       <MacTitleBar />
       <ConnectivityBanner />
+      <UpdateBanner />
       <main ref={mainRef} className="flex min-h-0 w-full flex-1 overflow-hidden">
         <ErrorBoundary label="side navigation">
           <SideNav />

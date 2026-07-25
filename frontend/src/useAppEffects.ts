@@ -9,12 +9,18 @@ import { accounts$ } from './states/accounts'
 import { closeKanbanBoard, kanban$ } from './states/kanban'
 import { setSyncError, clearSyncErrorFor } from './states/connectivity'
 import { settings$, applyDocumentLanguage } from './states/settings'
+import { applyUpdateStatus, loadUpdateStatus, runUpdateCheck } from './states/update'
+import type { UpdateStatus } from './lib/update'
 import i18n, { resolveI18nLanguageFromWebLocale } from './lib/i18n'
 
 const SEARCH_DEBOUNCE_MS = 300
 const DEFAULT_RSS_SYNC_INTERVAL_MINUTES = 60
 const MIN_RSS_SYNC_INTERVAL_MINUTES = 5
 const MAX_RSS_SYNC_INTERVAL_MINUTES = 1440
+// Long enough that a new release doesn't interrupt the first minute of use, and
+// the boot sync has the network to itself.
+const UPDATE_FIRST_CHECK_DELAY_MS = 30_000
+const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 // All of App's side effects: startup boot/sync, per-selection read-state resets,
 // RSS periodic sync, native event wiring (mailto, notifications, new mail/sync),
@@ -32,6 +38,7 @@ export function useAppEffects() {
   const startupSyncDone = useRef(false)
   const language = useValue(settings$.language)
   const showUnreadBadge = useValue(settings$.showUnreadAccountBadge)
+  const autoUpdateCheck = useValue(settings$.autoUpdateCheck)
 
   useEffect(() => {
     const systemLanguage = resolveI18nLanguageFromWebLocale(navigator.language) || 'en'
@@ -127,6 +134,32 @@ export function useAppEffects() {
       if (typeof offMailto === 'function') offMailto()
     }
   }, [])
+
+  // The updater's state machine lives in Go and pushes its whole status on every
+  // transition, including download progress.
+  useEffect(() => {
+    void loadUpdateStatus()
+    const eventsOn = (window as any).runtime?.EventsOn
+    if (!eventsOn) return
+    const offUpdate = eventsOn('update.status', (status: UpdateStatus) => {
+      applyUpdateStatus(status)
+    })
+    return () => {
+      if (typeof offUpdate === 'function') offUpdate()
+    }
+  }, [])
+
+  // Background release polling. Finding an update only surfaces a banner; the
+  // download never starts without the user asking for it.
+  useEffect(() => {
+    if (!autoUpdateCheck) return
+    const first = window.setTimeout(() => void runUpdateCheck(), UPDATE_FIRST_CHECK_DELAY_MS)
+    const repeat = window.setInterval(() => void runUpdateCheck(), UPDATE_CHECK_INTERVAL_MS)
+    return () => {
+      window.clearTimeout(first)
+      window.clearInterval(repeat)
+    }
+  }, [autoUpdateCheck])
 
   useEffect(() => {
     const eventsOn = (window as any).runtime?.EventsOn

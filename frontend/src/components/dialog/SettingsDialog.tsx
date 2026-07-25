@@ -20,6 +20,7 @@ import {
   Pause,
   BellOff,
   ScrollText,
+  RefreshCw,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { importOpml, exportOpml } from '../../states/feeds'
@@ -37,6 +38,7 @@ import {
   type SendShortcut,
 } from '../../states/settings'
 import { createKanbanBoard } from '../../states/kanban'
+import { update$ } from '../../states/update'
 import type { Account } from '../../types'
 import { Avatar } from '../avatar/Avatar'
 import { IconButton } from '../button/IconButton'
@@ -433,9 +435,32 @@ function GeneralSection() {
         />
       </SettingsGroup>
 
+      <UpdatesGroup />
       <StorageGroup />
       <LogsGroup />
     </div>
+  )
+}
+
+// Only meaningful where the app can actually replace itself; store-managed and
+// dev builds get no toggle at all rather than one that does nothing.
+function UpdatesGroup() {
+  const { t } = useTranslation()
+  const status = useValue(update$.status)
+  const autoUpdateCheck = useValue(settings$.autoUpdateCheck)
+
+  if (!status.supported) return null
+
+  return (
+    <SettingsGroup title={t('settings.sections.updates')}>
+      <ToggleRow
+        icon={<RefreshCw size={15} />}
+        title={t('settings.updates.autoCheck')}
+        hint={t('settings.updates.autoCheckHint')}
+        checked={autoUpdateCheck}
+        onChange={() => settings$.autoUpdateCheck.set(!autoUpdateCheck)}
+      />
+    </SettingsGroup>
   )
 }
 

@@ -6,6 +6,7 @@ import { ui$ } from '../../states/ui'
 import { openExternal } from '../../lib/native'
 import { Button } from '../button/Button'
 import { IconButton } from '../button/IconButton'
+import { UpdateSection } from './UpdateSection'
 import logo from '../../assets/logo.png'
 import wailsConfig from '../../../../wails.json'
 
@@ -81,6 +82,8 @@ export function AboutDialog() {
               {t('changelog.title')}
             </Button>
           </div>
+
+          <UpdateSection />
 
           <div className="mt-6 w-full rounded-2xl border border-border/70 bg-raised/70 p-4">
             <div className="flex items-center justify-center gap-2 text-xs font-bold text-primary">

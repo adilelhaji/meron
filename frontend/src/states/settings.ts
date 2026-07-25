@@ -59,6 +59,10 @@ export type Settings = {
   showUnifiedInboxInSideNav: boolean
   /** Whether the Starred view button appears in the desktop side navigation. */
   showStarredInSideNav: boolean
+  /** Whether to poll for new releases in the background (see states/update.ts). */
+  autoUpdateCheck: boolean
+  /** Version whose update banner the user dismissed, so it doesn't nag. */
+  dismissedUpdateVersion: string | null
   language: SupportedI18nLanguage | null
 }
 
@@ -83,6 +87,8 @@ const DB_KEY = {
   hiddenSideNavAccounts: 'hidden_sidenav_accounts',
   showUnifiedInboxInSideNav: 'show_unified_inbox_in_sidenav',
   showStarredInSideNav: 'show_starred_in_sidenav',
+  autoUpdateCheck: 'auto_update_check',
+  dismissedUpdateVersion: 'dismissed_update_version',
   language: 'language',
 } satisfies Record<keyof Settings, string>
 
@@ -178,6 +184,8 @@ export const settings$ = observable<Settings>({
   hiddenSideNavAccounts: [],
   showUnifiedInboxInSideNav: true,
   showStarredInSideNav: false,
+  autoUpdateCheck: true,
+  dismissedUpdateVersion: null,
   language: null,
 })
 
@@ -401,6 +409,15 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
 
     if (typeof prefs[DB_KEY.showStarredInSideNav] === 'boolean') {
       settings$.showStarredInSideNav.set(prefs[DB_KEY.showStarredInSideNav] as boolean)
+    }
+
+    if (typeof prefs[DB_KEY.autoUpdateCheck] === 'boolean') {
+      settings$.autoUpdateCheck.set(prefs[DB_KEY.autoUpdateCheck] as boolean)
+    }
+
+    const dismissedUpdate = prefs[DB_KEY.dismissedUpdateVersion]
+    if (typeof dismissedUpdate === 'string' || dismissedUpdate === null) {
+      settings$.dismissedUpdateVersion.set(dismissedUpdate)
     }
 
     const language = normalizeI18nLanguage(prefs[DB_KEY.language] as string | null | undefined)

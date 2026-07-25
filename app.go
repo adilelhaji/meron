@@ -35,6 +35,11 @@ type App struct {
 
 	mailtoMu      sync.Mutex
 	pendingMailto []string
+
+	updaterOnce        sync.Once
+	updater            *updater
+	updateChannelOnce  sync.Once
+	updateChannelValue updateChannel
 }
 
 func NewApp() *App {
@@ -49,6 +54,10 @@ func (a *App) Startup(ctx context.Context) {
 	if wailsRuntime.Environment(ctx).BuildType != "dev" {
 		installDesktopEntry()
 	}
+	// A staged update either landed on the last quit or was abandoned; either
+	// way it is re-downloadable, so start clean.
+	sweepReplacedExecutable()
+	cleanupUpdateCache()
 	a.startTray()
 	a.logf("startup: core path=%s", coreBinaryPath())
 	a.sidecar = NewSidecar(coreBinaryPath(), a.logWriter())
@@ -129,6 +138,14 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.traySetUnread(payload)
 	case "changelog.fetch":
 		return a.changelogFetch()
+	case "update.status":
+		return a.updateStatus()
+	case "update.check":
+		return a.updateCheck()
+	case "update.download":
+		return a.updateDownload()
+	case "update.install":
+		return a.updateInstall()
 	case "log.read":
 		return a.logRead()
 	case "log.export":
