@@ -25,8 +25,9 @@ const (
 type updateChannel struct {
 	// Kind is one of the channel* constants above.
 	Kind string
-	// Managed is true when a store (Snap, Flathub, Microsoft Store) owns
-	// updates. The updater stays out of the way and the UI says so.
+	// Managed is true when a package manager owns updates, either because a
+	// store was detected or MERON_DISABLE_SELF_UPDATE opted out explicitly.
+	// The updater stays out of the way and the UI says so.
 	Managed bool
 	// Target is what an update replaces: the .app bundle root on macOS, the
 	// AppImage file on Linux, the executable elsewhere. Empty when Managed.
@@ -55,7 +56,17 @@ func detectChannel() updateChannel {
 
 // detectChannelFrom is the testable core of detectChannel: everything it needs
 // about the host is passed in.
-func detectChannelFrom(goos, exe string, getenv func(string) string) updateChannel {
+func detectChannelFrom(goos, exe string, getenv func(string) string) (channel updateChannel) {
+	// Package maintainers can opt out without patching the source. Keep the
+	// detected kind and target for diagnostics, but report the installation as
+	// externally managed so the UI hides self-update controls and network checks
+	// are skipped.
+	defer func() {
+		if envFlagEnabled(getenv("MERON_DISABLE_SELF_UPDATE")) {
+			channel.Managed = true
+		}
+	}()
+
 	// Store-managed packagings first — each exports a telltale variable into
 	// the app's environment, and inside those sandboxes the paths below would
 	// otherwise look like an ordinary install.
@@ -96,6 +107,15 @@ func detectChannelFrom(goos, exe string, getenv func(string) string) updateChann
 	}
 
 	return updateChannel{Kind: channelUnknown}
+}
+
+func envFlagEnabled(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 // appBundleRoot walks up from a macOS executable at

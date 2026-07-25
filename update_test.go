@@ -331,6 +331,24 @@ func TestUpdaterCheckSkipsManagedChannel(t *testing.T) {
 	}
 }
 
+func TestUpdaterCheckSkipsEnvironmentDisabledUpdates(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("environment-disabled build fetched the update manifest")
+	}))
+	defer server.Close()
+	t.Setenv("MERON_UPDATE_MANIFEST_URL", server.URL)
+	t.Setenv("MERON_DISABLE_SELF_UPDATE", "1")
+
+	got, err := (&App{}).ensureUpdater().check()
+	if err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	after := got.(updateStatusPayload)
+	if after.Supported || !after.Managed || after.State != updateStateIdle {
+		t.Fatalf("unexpected status: %+v", after)
+	}
+}
+
 func waitForUpdateState(t *testing.T, u *updater, want string) {
 	t.Helper()
 	for i := 0; i < 200; i++ {

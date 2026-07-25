@@ -36,6 +36,12 @@ bun run build         # build the desktop app
 bun run build:release # full release build (scripts/build.sh)
 ```
 
+### Linux packaging
+
+Package-managed builds should launch Meron with
+`MERON_DISABLE_SELF_UPDATE=1`. This disables release polling and self-update
+controls so updates remain owned by the package manager.
+
 ## Testing
 
 Run the full suite (Go, Rust, i18n, and frontend):

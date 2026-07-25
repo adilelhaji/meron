@@ -26,7 +26,7 @@ import (
 const updateManifestURL = "https://github.com/nonbili/meron/releases/latest/download/latest.json"
 
 // releasesPageURL is where the UI sends users whose channel can't self-update
-// (a root-owned install, an unreadable DMG, a store build).
+// (a root-owned install, an unreadable DMG).
 const releasesPageURL = "https://github.com/nonbili/meron/releases/latest"
 
 const (

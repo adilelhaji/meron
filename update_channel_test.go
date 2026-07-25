@@ -53,6 +53,15 @@ func TestDetectChannelFrom(t *testing.T) {
 			wantTarget: "/opt/meron/meron",
 		},
 		{
+			name:        "package-maintainer opt-out",
+			goos:        "linux",
+			exe:         "/usr/bin/meron",
+			env:         map[string]string{"MERON_DISABLE_SELF_UPDATE": "1"},
+			wantKind:    channelTarball,
+			wantManaged: true,
+			wantTarget:  "/usr/bin/meron",
+		},
+		{
 			name:        "appx runs from the store directory",
 			goos:        "windows",
 			exe:         `C:\Program Files\WindowsApps\Meron_0.1.12_x64__abc\meron.exe`,
@@ -100,6 +109,25 @@ func TestDetectChannelFrom(t *testing.T) {
 				t.Errorf("Target = %q, want %q", got.Target, tc.wantTarget)
 			}
 		})
+	}
+}
+
+func TestSelfUpdateOptOutValues(t *testing.T) {
+	for _, value := range []string{"1", "true", "TRUE", " yes ", "on"} {
+		channel := detectChannelFrom("linux", "/usr/bin/meron", envMap(map[string]string{
+			"MERON_DISABLE_SELF_UPDATE": value,
+		}))
+		if !channel.Managed || channel.SelfUpdatable() {
+			t.Errorf("value %q did not disable self-update: %+v", value, channel)
+		}
+	}
+	for _, value := range []string{"", "0", "false", "no", "off", "garbage"} {
+		channel := detectChannelFrom("linux", "/usr/bin/meron", envMap(map[string]string{
+			"MERON_DISABLE_SELF_UPDATE": value,
+		}))
+		if channel.Managed || !channel.SelfUpdatable() {
+			t.Errorf("value %q unexpectedly disabled self-update: %+v", value, channel)
+		}
 	}
 }
 
