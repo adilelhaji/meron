@@ -1078,10 +1078,6 @@ internal fun MailRouteContent(
                                     onToggleStar = ::toggleStar,
                                     onArchive = ::archiveOrRemove,
                                     onDelete = ::deleteThread,
-                                    onCopyFeedUrl = { thread ->
-                                        services.copyText("Feed URL", thread.feedUrl)
-                                        status = "Copied feed URL"
-                                    },
                                     selectedThreadIds = selectedMailThreadIds,
                                     selectionActive = mailSelectionActive,
                                     onToggleSelected = { thread ->

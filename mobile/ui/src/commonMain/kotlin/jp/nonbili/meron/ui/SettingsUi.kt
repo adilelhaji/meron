@@ -845,7 +845,14 @@ internal fun SettingsAccountRow(
         }
     SettingsRow(
         icon = if (accountSummaryIsRss(account)) Icons.Filled.RssFeed else Icons.Filled.Inbox,
-        leading = { AccountBadgeAvatar(label = label, avatarUrl = account.avatarUrl, size = 40.dp) },
+        leading = {
+            AccountBadgeAvatar(
+                label = label,
+                avatarUrl = account.avatarUrl,
+                size = 40.dp,
+                fallbackIcon = accountAvatarFallbackIcon(account),
+            )
+        },
         title = label,
         subtitle =
             listOfNotNull(

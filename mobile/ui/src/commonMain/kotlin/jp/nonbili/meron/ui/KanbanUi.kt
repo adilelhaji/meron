@@ -419,7 +419,7 @@ internal fun KanbanHeaderSearchField(
                 columns.forEach { column ->
                     DropdownMenuItem(
                         text = { Text(columnTitle(column, accounts, foldersByAccount), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                        leadingIcon = { Avatar(columnAvatarLabel(column, accounts), 22.dp) },
+                        leadingIcon = { Avatar(columnAvatarLabel(column, accounts), 22.dp, columnAvatarFallbackIcon(column, accounts)) },
                         onClick = {
                             scopeMenuOpen = false
                             onSearchScopeChange(kanbanColumnKey(column))
@@ -735,7 +735,6 @@ internal fun KanbanColumn(
                             },
                             onLongPress = { onLongPress(thread) },
                             onToggleStar = { onToggleStar(thread) },
-                            onCopyFeedUrl = null,
                         )
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     }
@@ -781,7 +780,7 @@ internal fun KanbanColumnHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Avatar(columnAvatarLabel(column, accounts), 26.dp)
+        Avatar(columnAvatarLabel(column, accounts), 26.dp, columnAvatarFallbackIcon(column, accounts))
         Row(
             Modifier.weight(1f),
             verticalAlignment = Alignment.CenterVertically,
@@ -874,7 +873,7 @@ internal fun KanbanMinimizedColumn(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Avatar(columnAvatarLabel(column, accounts), 26.dp)
+            Avatar(columnAvatarLabel(column, accounts), 26.dp, columnAvatarFallbackIcon(column, accounts))
             CollapsedColumnTitle(columnTitle(column, accounts, foldersByAccount))
             if (unread > 0) {
                 KanbanUnreadBadge(unread)
@@ -944,6 +943,14 @@ internal fun KanbanUnreadBadge(
             maxLines = 1,
         )
     }
+}
+
+internal fun columnAvatarFallbackIcon(
+    column: KanbanColumnSpec,
+    accounts: List<AccountSummary>,
+): ImageVector? {
+    if (column.accountId == UNIFIED_ACCOUNT_ID) return null
+    return accounts.firstOrNull { it.id == column.accountId }?.let(::accountAvatarFallbackIcon)
 }
 
 internal fun columnAvatarLabel(
@@ -1104,7 +1111,12 @@ internal fun AccountHeaderDialogRow(
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.width(6.dp))
-        AccountBadgeAvatar(label = label, avatarUrl = account.avatarUrl, size = 22.dp)
+        AccountBadgeAvatar(
+            label = label,
+            avatarUrl = account.avatarUrl,
+            size = 22.dp,
+            fallbackIcon = accountAvatarFallbackIcon(account),
+        )
         Spacer(Modifier.width(9.dp))
         Text(
             label,

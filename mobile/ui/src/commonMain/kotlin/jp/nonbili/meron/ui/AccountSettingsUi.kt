@@ -47,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.semantics.contentDescription
@@ -165,6 +166,7 @@ internal fun SettingsAccountDetailPage(
                     name = accountTitle,
                     url = avatarUrl,
                     onPick = onPickAvatar,
+                    fallbackIcon = accountAvatarFallbackIcon(account),
                 )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -483,6 +485,7 @@ internal fun AccountAvatarEditor(
     url: String,
     onPick: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    fallbackIcon: ImageVector? = null,
 ) {
     var image by remember(url) { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(url) {
@@ -508,7 +511,7 @@ internal fun AccountAvatarEditor(
                 contentScale = ContentScale.Crop,
             )
         } else {
-            Avatar(name, 64.dp)
+            Avatar(name, 64.dp, fallbackIcon)
         }
         if (onPick != null) {
             Box(

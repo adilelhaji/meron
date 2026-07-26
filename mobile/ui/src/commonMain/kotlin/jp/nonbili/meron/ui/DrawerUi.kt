@@ -306,6 +306,7 @@ internal fun MailDrawer(
                                 label = label,
                                 avatarUrl = account.avatarUrl,
                                 size = 24.dp,
+                                fallbackIcon = accountAvatarFallbackIcon(account),
                             )
                         },
                         title = label,

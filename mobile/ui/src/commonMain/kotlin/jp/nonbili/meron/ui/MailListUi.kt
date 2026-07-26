@@ -78,6 +78,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -131,12 +132,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -361,7 +365,6 @@ internal fun MailList(
     onToggleStar: (ThreadSummary) -> Unit,
     onArchive: (ThreadSummary) -> Unit,
     onDelete: (ThreadSummary) -> Unit,
-    onCopyFeedUrl: (ThreadSummary) -> Unit,
     selectedThreadIds: Set<String>,
     selectionActive: Boolean,
     onToggleSelected: (ThreadSummary) -> Unit,
@@ -426,12 +429,6 @@ internal fun MailList(
                     onOpen = { onToggleSelected(thread) },
                     onLongPress = { onLongPress(thread) },
                     onToggleStar = { onToggleStar(thread) },
-                    onCopyFeedUrl =
-                        if (threadIdIsRss(thread.id) && thread.feedUrl.isNotBlank()) {
-                            { onCopyFeedUrl(thread) }
-                        } else {
-                            null
-                        },
                 )
             } else {
                 val isRss = threadIdIsRss(thread.id)
@@ -507,12 +504,6 @@ internal fun MailList(
                         onOpen = { onOpen(thread) },
                         onLongPress = { onLongPress(thread) },
                         onToggleStar = { onToggleStar(thread) },
-                        onCopyFeedUrl =
-                            if (threadIdIsRss(thread.id) && thread.feedUrl.isNotBlank()) {
-                                { onCopyFeedUrl(thread) }
-                            } else {
-                                null
-                            },
                     )
                 }
             }
@@ -622,7 +613,6 @@ internal fun MailRow(
     onOpen: () -> Unit,
     onLongPress: () -> Unit,
     onToggleStar: () -> Unit,
-    onCopyFeedUrl: (() -> Unit)?,
 ) {
     val unread = thread.unread
     val chat = LocalChatColors.current
@@ -753,18 +743,6 @@ internal fun MailRow(
                 }
             }
         }
-        if (!selectionActive) {
-            if (onCopyFeedUrl != null) {
-                IconButton(onClick = onCopyFeedUrl, modifier = Modifier.size(24.dp)) {
-                    Icon(
-                        Icons.Filled.MoreVert,
-                        contentDescription = tr("feeds.copyUrl"),
-                        tint = MaterialTheme.colorScheme.outline,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
     }
 }
 
@@ -785,7 +763,12 @@ internal fun ThreadAvatarWithAccountBadge(
                     .clip(CircleShape)
                     .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape),
             ) {
-                AccountBadgeAvatar(label = label, avatarUrl = account.avatarUrl, size = 18.dp)
+                AccountBadgeAvatar(
+                    label = label,
+                    avatarUrl = account.avatarUrl,
+                    size = 18.dp,
+                    fallbackIcon = accountAvatarFallbackIcon(account),
+                )
             }
         }
     }
@@ -796,6 +779,7 @@ internal fun AccountBadgeAvatar(
     label: String,
     avatarUrl: String,
     size: Dp,
+    fallbackIcon: ImageVector? = null,
 ) {
     var image by remember(avatarUrl) { mutableStateOf<ImageBitmap?>(null) }
 
@@ -815,7 +799,7 @@ internal fun AccountBadgeAvatar(
             modifier = Modifier.size(size).clip(CircleShape),
         )
     } else {
-        Avatar(label, size)
+        Avatar(label, size, fallbackIcon)
     }
 }
 
@@ -854,6 +838,7 @@ internal fun SenderAvatar(
 internal fun Avatar(
     name: String,
     size: Dp = 42.dp,
+    fallbackIcon: ImageVector? = null,
 ) {
     Box(
         Modifier
@@ -862,14 +847,43 @@ internal fun Avatar(
             .background(avatarBrush(name)),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            avatarInitials(name),
-            color = Color.White,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = (size.value * 0.34f).sp,
-        )
+        if (fallbackIcon != null) {
+            Icon(
+                fallbackIcon,
+                contentDescription = trf("avatar.forLabel", name),
+                tint = Color.White,
+                modifier = Modifier.size(size * 0.55f),
+            )
+        } else {
+            val fontSize = (size.value * 0.34f).sp
+            Text(
+                avatarInitials(name),
+                color = Color.White,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = fontSize,
+                // The ambient line height is sized for body text, so at avatar
+                // font sizes the extra leading pushes the initials off centre
+                // (most visible on the 18dp account badge). Trim it to the glyph
+                // box so the letters sit in the middle of the circle.
+                lineHeight = fontSize,
+                style =
+                    LocalTextStyle.current.merge(
+                        TextStyle(
+                            platformStyle = PlatformTextStyle(includeFontPadding = false),
+                            lineHeightStyle =
+                                LineHeightStyle(
+                                    alignment = LineHeightStyle.Alignment.Center,
+                                    trim = LineHeightStyle.Trim.Both,
+                                ),
+                        ),
+                    ),
+            )
+        }
     }
 }
+
+/** RSS accounts fall back to a feed glyph instead of initials, matching desktop. */
+internal fun accountAvatarFallbackIcon(account: AccountSummary): ImageVector? = if (accountSummaryIsRss(account)) Icons.Filled.RssFeed else null
 
 internal fun senderImageUrls(label: String): List<String> {
     val email = extractEmail(label) ?: return emptyList()
