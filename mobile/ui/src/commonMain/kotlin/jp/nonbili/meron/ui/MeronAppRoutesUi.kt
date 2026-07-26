@@ -1071,6 +1071,7 @@ internal fun MailRouteContent(
                                 MailList(
                                     threads = coreThreads,
                                     accounts = coreAccounts,
+                                    listKey = "$selectedCoreAccountId $selectedCoreFolder",
                                     scrollToTopRequest = mailListScrollToTopRequest,
                                     canLoadMore = pageableCoreAccounts().isNotEmpty(),
                                     loadingMore = loadingMoreThreads,

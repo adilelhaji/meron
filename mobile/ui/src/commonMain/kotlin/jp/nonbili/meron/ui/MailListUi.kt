@@ -23,9 +23,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -358,6 +358,8 @@ internal fun StarredItemRow(
 internal fun MailList(
     threads: List<ThreadSummary>,
     accounts: List<AccountSummary>,
+    // Identifies the mailbox being shown so each one keeps its own scroll state.
+    listKey: String,
     scrollToTopRequest: Long,
     canLoadMore: Boolean,
     loadingMore: Boolean,
@@ -375,7 +377,12 @@ internal fun MailList(
     showSenderImages: Boolean,
     showAccountBadge: Boolean,
 ) {
-    val listState = rememberLazyListState()
+    // LazyColumn restores its position by item key, so a single state shared
+    // across mailboxes makes a switch jump to whichever keyed row was on top of
+    // the previous list — an RSS item also lives in the unified inbox, so coming
+    // back from a feed account scrolled the unified inbox down to that feed item.
+    val listStates = remember { mutableMapOf<String, LazyListState>() }
+    val listState = remember(listKey) { listStates.getOrPut(listKey) { LazyListState() } }
     LaunchedEffect(scrollToTopRequest) {
         if (scrollToTopRequest > 0) listState.scrollToItem(0)
     }
@@ -385,7 +392,7 @@ internal fun MailList(
     // current page count; a keyless remember would freeze the first list's size
     // into the closure and near-bottom detection would drift after reloads.
     val currentThreads by rememberUpdatedState(threads)
-    val nearBottom by remember {
+    val nearBottom by remember(listState) {
         derivedStateOf {
             val lastVisible =
                 listState.layoutInfo.visibleItemsInfo
