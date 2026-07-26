@@ -1,0 +1,3 @@
+- Fix autodiscovery crash on Android
+- Capture crashes in on-device log with option to share
+- Fix message inline links and text selection
