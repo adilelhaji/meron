@@ -88,6 +88,11 @@ internal class MeronMobileState(
     var mailFilter by mutableStateOf(FilterMode.All)
     var coreThreads by mutableStateOf(emptyList<ThreadSummary>())
     var mailboxCache by mutableStateOf(emptyMap<MailboxCacheKey, MailboxLoadResult>())
+
+    // Identifies the query whose results are currently in coreThreads. This is
+    // deliberately separate from mailSearch, which changes while the user is
+    // still editing an unsubmitted query.
+    var visibleMailboxKey by mutableStateOf<MailboxCacheKey?>(null)
     var activeMailboxLoadKey by mutableStateOf<MailboxCacheKey?>(null)
     var activeMailboxLoadToken by mutableStateOf(0L)
     var activeMailboxLoadStartedAtMillis by mutableStateOf(0L)

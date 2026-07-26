@@ -357,8 +357,7 @@ internal fun StarredItemRow(
 internal fun MailList(
     threads: List<ThreadSummary>,
     accounts: List<AccountSummary>,
-    // Identifies the mailbox being shown so each one keeps its own scroll state.
-    listKey: String,
+    listState: LazyListState,
     scrollToTopRequest: Long,
     canLoadMore: Boolean,
     loadingMore: Boolean,
@@ -376,12 +375,6 @@ internal fun MailList(
     showSenderImages: Boolean,
     showAccountBadge: Boolean,
 ) {
-    // LazyColumn restores its position by item key, so a single state shared
-    // across mailboxes makes a switch jump to whichever keyed row was on top of
-    // the previous list — an RSS item also lives in the unified inbox, so coming
-    // back from a feed account scrolled the unified inbox down to that feed item.
-    val listStates = remember { mutableMapOf<String, LazyListState>() }
-    val listState = remember(listKey) { listStates.getOrPut(listKey) { LazyListState() } }
     LaunchedEffect(scrollToTopRequest) {
         if (scrollToTopRequest > 0) listState.scrollToItem(0)
     }

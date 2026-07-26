@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
@@ -44,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -545,7 +547,17 @@ internal fun MailRouteContent(
     selectedMailThreads: List<ThreadSummary>,
     importOpml: (PickedFile?) -> Unit,
 ) {
+    // This owner remains composed while loading and empty states replace the
+    // list, so visiting an empty filter cannot discard the saved positions.
+    val mailListStates = remember { mutableMapOf<MailboxCacheKey, LazyListState>() }
     with(state) {
+        val mailListKey =
+            visibleMailboxKey
+                ?: mailboxCacheKey(selectedCoreAccountId, selectedCoreFolder, mailSearch, mailFilter)
+        val mailListState =
+            remember(mailListKey) {
+                mailListStates.getOrPut(mailListKey) { LazyListState() }
+            }
         ModalNavigationDrawer(
             drawerState = drawerState,
             drawerContent = {
@@ -1071,7 +1083,7 @@ internal fun MailRouteContent(
                                 MailList(
                                     threads = coreThreads,
                                     accounts = coreAccounts,
-                                    listKey = "$selectedCoreAccountId $selectedCoreFolder",
+                                    listState = mailListState,
                                     scrollToTopRequest = mailListScrollToTopRequest,
                                     canLoadMore = pageableCoreAccounts().isNotEmpty(),
                                     loadingMore = loadingMoreThreads,

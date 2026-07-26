@@ -242,7 +242,7 @@ import kotlin.math.abs
 internal const val MAILBOX_SYNC_LIMIT = 250
 internal const val MAILBOX_FIRST_SYNC_LIMIT = 50
 
-private fun mailboxCacheKey(
+internal fun mailboxCacheKey(
     accountId: String,
     folderId: String,
     query: String,
@@ -259,7 +259,7 @@ private fun MeronMobileState.cacheVisibleMailbox() {
     if (!initialThreadsLoaded) return
     val accountId = selectedCoreAccountId.ifBlank { UNIFIED_ACCOUNT_ID }
     val folderId = selectedCoreFolder.ifBlank { INBOX_FOLDER }
-    val key = mailboxCacheKey(accountId, folderId, mailSearch, mailFilter)
+    val key = visibleMailboxKey ?: mailboxCacheKey(accountId, folderId, mailSearch, mailFilter)
     mailboxCache =
         mailboxCache +
         (
@@ -278,13 +278,15 @@ private fun MeronMobileState.restoreCachedMailbox(
     accountId: String,
     folderId: String,
 ): Boolean {
-    val cached = mailboxCache[mailboxCacheKey(accountId, folderId, mailSearch, mailFilter)] ?: return false
+    val key = mailboxCacheKey(accountId, folderId, mailSearch, mailFilter)
+    val cached = mailboxCache[key] ?: return false
     coreFolders = cached.folders
     if (cached.folders.isNotEmpty()) {
         foldersByAccount = foldersByAccount + cached.folders.groupBy { it.accountId }
     }
     selectedCoreFolder = cached.folder
     coreThreads = withLocalDraftFlags(cached.threads)
+    visibleMailboxKey = key
     mailboxCursor = cached.nextCursor
     mailboxAccountCursors = cached.accountCursors
     initialThreadsLoaded = true
@@ -309,6 +311,7 @@ internal fun MeronMobileState.selectCoreMailbox(
     if (!restoreCachedMailbox(selectedCoreAccountId, selectedCoreFolder)) {
         coreFolders = if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID) coreFolders else emptyList()
         coreThreads = emptyList()
+        visibleMailboxKey = null
         mailboxCursor = ""
         mailboxAccountCursors = emptyMap()
         initialThreadsLoaded = false
@@ -415,6 +418,7 @@ internal fun MeronMobileState.syncCoreThreads(
             selectedCoreFolder = folder
             val parsedThreads = withLocalDraftFlags(withoutLocallyDiscardedThreads(result.threads))
             coreThreads = parsedThreads
+            visibleMailboxKey = resultKey
             mailboxCursor = result.nextCursor
             mailboxAccountCursors = result.accountCursors
             if (selectedCoreThread?.id !in parsedThreads.map { it.id }) {
@@ -929,6 +933,7 @@ internal fun MeronMobileState.openNotificationThread(target: NotificationThreadT
             }
             selectedCoreFolder = result.folder
             coreThreads = withLocalDraftFlags(result.threads)
+            visibleMailboxKey = mailboxCacheKey(target.accountId, result.folder, "", FilterMode.All)
             mailboxCursor = result.nextCursor
             mailboxAccountCursors = result.accountCursors
             syncing = false

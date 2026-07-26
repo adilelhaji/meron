@@ -514,6 +514,8 @@ private fun MeronMobileScreenContent(
                                 coreFolders = parseFolderListResponse(foldersJson)
                                 coreThreads = withLocalDraftFlags(parseThreadListResponse(threadsJson))
                                 selectedCoreFolder = INBOX_FOLDER
+                                visibleMailboxKey =
+                                    mailboxCacheKey(accountId, INBOX_FOLDER, mailSearch, mailFilter)
                                 status = if (imported == 0) "No new feeds imported" else "Imported $imported feed(s)"
                             }.onFailure {
                                 status = "OPML import failed: ${it.message}"
