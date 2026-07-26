@@ -43,6 +43,18 @@ class MessageTextTest {
     }
 
     @Test
+    fun findsTheLinkALongPressLandsOn() {
+        val parsed = parseInlineMessageText("See [docs](example.com/docs) and https://example.com/raw")
+
+        assertEquals(null, messageLinkAtCharOffset(parsed.links, 3))
+        assertEquals(parsed.links[0], messageLinkAtCharOffset(parsed.links, 4))
+        assertEquals(parsed.links[0], messageLinkAtCharOffset(parsed.links, 7))
+        // The end offset is the first character past the link.
+        assertEquals(null, messageLinkAtCharOffset(parsed.links, 8))
+        assertEquals(parsed.links[1], messageLinkAtCharOffset(parsed.links, 20))
+    }
+
+    @Test
     fun leavesUnsafeLinkSchemesAsPlainSelectableText() {
         val text = "Do not open [this](javascript:alert(1))"
         val parsed = parseInlineMessageText(text)

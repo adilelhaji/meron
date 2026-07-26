@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -558,25 +559,49 @@ internal fun HtmlMessageBody(
                 .height(maxHeight)
                 .verticalScroll(rememberScrollState()),
         ) {
-            MailWebView(
+            MailWebViewWithLinkMenu(
                 html = mobileHtml,
                 onContentHeight = { contentHeight = clampMailBodyHeight(it) },
                 onOpenUrl = onOpenUrl,
                 onOpenImage = onOpenImage,
-                openLinkLabel = tr("chat.actions.openLink"),
-                copyLinkAddressLabel = tr("chat.actions.copyLinkAddress"),
                 modifier = webViewModifier,
             )
         }
     } else {
-        MailWebView(
+        MailWebViewWithLinkMenu(
             html = mobileHtml,
             onContentHeight = { contentHeight = clampMailBodyHeight(it) },
             onOpenUrl = onOpenUrl,
             onOpenImage = onOpenImage,
-            openLinkLabel = tr("chat.actions.openLink"),
-            copyLinkAddressLabel = tr("chat.actions.copyLinkAddress"),
             modifier = webViewModifier,
+        )
+    }
+}
+
+/** The web view plus the link menu it asks for on long press. The menu is anchored to
+ *  a box laid out exactly like the web view, so the reported press position places it. */
+@Composable
+private fun MailWebViewWithLinkMenu(
+    html: String,
+    onContentHeight: (Dp) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    onOpenImage: (String) -> Unit,
+    modifier: Modifier,
+) {
+    var menuTarget by remember { mutableStateOf<MessageLinkMenuTarget?>(null) }
+    Box(modifier) {
+        MailWebView(
+            html = html,
+            onContentHeight = onContentHeight,
+            onOpenUrl = onOpenUrl,
+            onOpenImage = onOpenImage,
+            onLinkLongPress = { url, offset -> menuTarget = MessageLinkMenuTarget(url, offset) },
+            modifier = Modifier.fillMaxSize(),
+        )
+        MessageLinkContextMenu(
+            target = menuTarget,
+            onDismiss = { menuTarget = null },
+            onOpenUrl = onOpenUrl,
         )
     }
 }

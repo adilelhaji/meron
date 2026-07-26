@@ -1,21 +1,20 @@
 package jp.nonbili.meron.ui
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
+import android.view.MotionEvent
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.PopupMenu
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -29,14 +28,12 @@ actual fun MailWebView(
     onContentHeight: (Dp) -> Unit,
     onOpenUrl: (String) -> Unit,
     onOpenImage: (String) -> Unit,
-    openLinkLabel: String,
-    copyLinkAddressLabel: String,
+    onLinkLongPress: (String, DpOffset) -> Unit,
 ) {
     val latestOnHeight = rememberUpdatedState(onContentHeight)
     val latestOnOpenUrl = rememberUpdatedState(onOpenUrl)
     val latestOnOpenImage = rememberUpdatedState(onOpenImage)
-    val latestOpenLinkLabel = rememberUpdatedState(openLinkLabel)
-    val latestCopyLinkAddressLabel = rememberUpdatedState(copyLinkAddressLabel)
+    val latestOnLinkLongPress = rememberUpdatedState(onLinkLongPress)
     // Inside NavHost this is the back-stack entry's lifecycle: RESUMED only
     // once the navigation transition has settled.
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateFlow
@@ -44,7 +41,7 @@ actual fun MailWebView(
     AndroidView(
         modifier = modifier,
         factory = { context ->
-            WebView(context).apply {
+            LongPressWebView(context).apply {
                 webViewClient =
                     object : WebViewClient() {
                         override fun shouldOverrideUrlLoading(
@@ -79,18 +76,13 @@ actual fun MailWebView(
                 isHorizontalScrollBarEnabled = false
                 setOnLongClickListener {
                     val url = webViewLinkUrl(hitTestResult.type, hitTestResult.extra) ?: return@setOnLongClickListener false
-                    PopupMenu(context, this).apply {
-                        menu.add(latestOpenLinkLabel.value).setOnMenuItemClickListener {
-                            post { latestOnOpenUrl.value(url) }
-                            true
-                        }
-                        menu.add(latestCopyLinkAddressLabel.value).setOnMenuItemClickListener {
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            clipboard.setPrimaryClip(ClipData.newPlainText(latestCopyLinkAddressLabel.value, url))
-                            true
-                        }
-                        show()
-                    }
+                    // The menu is Compose-side so it can open at the press, which a
+                    // PopupMenu anchored to the (full-page) web view cannot do.
+                    val scale = context.resources.displayMetrics.density
+                    latestOnLinkLongPress.value(
+                        url,
+                        DpOffset((lastTouchX / scale).dp, (lastTouchY / scale).dp),
+                    )
                     true
                 }
                 addJavascriptInterface(
@@ -138,6 +130,26 @@ actual fun MailWebView(
             }
         },
     )
+}
+
+/** Remembers where the finger went down: [View.OnLongClickListener] is not told the
+ *  press position, and without it a link menu can only be placed at the view corner. */
+private class LongPressWebView(
+    context: Context,
+) : WebView(context) {
+    var lastTouchX = 0f
+        private set
+    var lastTouchY = 0f
+        private set
+
+    @SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            lastTouchX = event.x
+            lastTouchY = event.y
+        }
+        return super.onTouchEvent(event)
+    }
 }
 
 @Suppress("DEPRECATION")
