@@ -1804,6 +1804,7 @@ dependencies = [
  "keyring",
  "mail-builder",
  "mailparse",
+ "ndk-context",
  "oo7",
  "quick-xml",
  "rusqlite",

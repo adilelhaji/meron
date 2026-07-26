@@ -38,6 +38,8 @@ struct EventSink {
 static EVENT_SINK: Mutex<Option<EventSink>> = Mutex::new(None);
 static MOBILE_CONFIG: Mutex<Option<MobileConfig>> = Mutex::new(None);
 static ANDROID_EVENT_DISPATCHER: OnceLock<AndroidEventDispatcher> = OnceLock::new();
+#[cfg(target_os = "android")]
+static ANDROID_CONTEXT: Mutex<Option<GlobalRef>> = Mutex::new(None);
 static MOBILE_IDLE_WATCHES: Mutex<Option<HashMap<String, Arc<AtomicBool>>>> = Mutex::new(None);
 
 /// The shared mail [`Engine`], hosted while the app is foreground so the request
@@ -242,6 +244,35 @@ pub extern "C" fn Java_jp_nonbili_meron_MeronCoreNative_meronCoreProtocolVersion
     _class: *mut c_void,
 ) -> c_int {
     PROTOCOL_VERSION as c_int
+}
+
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_jp_nonbili_meron_MeronCoreNative_meronCoreInitializeAndroidContext(
+    env: JNIEnv,
+    _class: JClass,
+    context: JObject,
+) {
+    let mut stored_context = ANDROID_CONTEXT.lock().unwrap();
+    if stored_context.is_some() {
+        return;
+    }
+    let Ok(vm) = env.get_java_vm() else {
+        return;
+    };
+    let Ok(context) = env.new_global_ref(context) else {
+        return;
+    };
+    // Hickory reads Android's active DNS servers through ndk-context when it
+    // performs the SRV fallback used by account autodiscovery. Keep the Java
+    // context alive for as long as ndk-context can hand its raw pointer out.
+    unsafe {
+        ndk_context::initialize_android_context(
+            vm.get_java_vm_pointer().cast(),
+            context.as_obj().as_raw().cast(),
+        );
+    }
+    *stored_context = Some(context);
 }
 
 #[unsafe(no_mangle)]

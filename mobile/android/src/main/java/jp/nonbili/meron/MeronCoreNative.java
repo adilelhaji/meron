@@ -1,5 +1,6 @@
 package jp.nonbili.meron;
 
+import android.content.Context;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 final class MeronCoreNative {
@@ -33,6 +34,11 @@ final class MeronCoreNative {
 
     static String loadError() {
         return LOAD_ERROR;
+    }
+
+    static void initializeAndroidContext(Context context) {
+        if (!LOADED) return;
+        meronCoreInitializeAndroidContext(context.getApplicationContext());
     }
 
     static int protocolVersion() {
@@ -105,6 +111,7 @@ final class MeronCoreNative {
     }
 
     private static native int meronCoreProtocolVersion();
+    private static native void meronCoreInitializeAndroidContext(Context context);
     private static native String meronCoreInitJson(String dataDir);
     private static native String meronCoreInitJsonKeyed(String dataDir, String dbKey);
     private static native String meronCoreInvokeJson(String requestJson);
