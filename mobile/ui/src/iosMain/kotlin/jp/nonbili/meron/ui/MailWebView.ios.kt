@@ -24,6 +24,8 @@ actual fun MailWebView(
     onContentHeight: (Dp) -> Unit,
     onOpenUrl: (String) -> Unit,
     onOpenImage: (String) -> Unit,
+    openLinkLabel: String,
+    copyLinkAddressLabel: String,
 ) {
     val latestOnHeight = rememberUpdatedState(onContentHeight)
     val latestOnOpenUrl = rememberUpdatedState(onOpenUrl)

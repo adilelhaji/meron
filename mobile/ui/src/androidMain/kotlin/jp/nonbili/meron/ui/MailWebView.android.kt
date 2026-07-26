@@ -1,11 +1,15 @@
 package jp.nonbili.meron.ui
 
 import android.annotation.SuppressLint
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.PopupMenu
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -25,10 +29,14 @@ actual fun MailWebView(
     onContentHeight: (Dp) -> Unit,
     onOpenUrl: (String) -> Unit,
     onOpenImage: (String) -> Unit,
+    openLinkLabel: String,
+    copyLinkAddressLabel: String,
 ) {
     val latestOnHeight = rememberUpdatedState(onContentHeight)
     val latestOnOpenUrl = rememberUpdatedState(onOpenUrl)
     val latestOnOpenImage = rememberUpdatedState(onOpenImage)
+    val latestOpenLinkLabel = rememberUpdatedState(openLinkLabel)
+    val latestCopyLinkAddressLabel = rememberUpdatedState(copyLinkAddressLabel)
     // Inside NavHost this is the back-stack entry's lifecycle: RESUMED only
     // once the navigation transition has settled.
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateFlow
@@ -69,6 +77,22 @@ actual fun MailWebView(
                 // The view sizes to content, so it never scrolls internally.
                 isVerticalScrollBarEnabled = false
                 isHorizontalScrollBarEnabled = false
+                setOnLongClickListener {
+                    val url = webViewLinkUrl(hitTestResult.type, hitTestResult.extra) ?: return@setOnLongClickListener false
+                    PopupMenu(context, this).apply {
+                        menu.add(latestOpenLinkLabel.value).setOnMenuItemClickListener {
+                            post { latestOnOpenUrl.value(url) }
+                            true
+                        }
+                        menu.add(latestCopyLinkAddressLabel.value).setOnMenuItemClickListener {
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            clipboard.setPrimaryClip(ClipData.newPlainText(latestCopyLinkAddressLabel.value, url))
+                            true
+                        }
+                        show()
+                    }
+                    true
+                }
                 addJavascriptInterface(
                     object {
                         @JavascriptInterface
@@ -115,3 +139,18 @@ actual fun MailWebView(
         },
     )
 }
+
+@Suppress("DEPRECATION")
+internal fun webViewLinkUrl(
+    hitType: Int,
+    extra: String?,
+): String? =
+    extra
+        ?.trim()
+        ?.takeIf {
+            it.isNotEmpty() &&
+                (
+                    hitType == WebView.HitTestResult.ANCHOR_TYPE ||
+                        hitType == WebView.HitTestResult.SRC_ANCHOR_TYPE
+                )
+        }

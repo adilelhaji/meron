@@ -283,11 +283,17 @@ internal fun MessageBubble(
                         .heightIn(max = bodyMaxHeight)
                         .verticalScroll(rememberScrollState()),
                 ) {
-                    Text(
-                        highlightedMessageText(message.body.ifBlank { "(no content)" }, searchQuery, activeSearchMatch),
+                    SelectableMessageText(
+                        text = message.body.ifBlank { "(no content)" },
+                        onOpenUrl = onOpenUrl,
+                        searchQuery = searchQuery,
+                        activeSearchMatch = activeSearchMatch,
                         color = if (message.body.isBlank()) textColor.copy(alpha = 0.6f) else textColor,
-                        fontSize = 15.5.sp,
-                        lineHeight = 21.sp,
+                        style =
+                            MaterialTheme.typography.bodyLarge.copy(
+                                fontSize = 15.5.sp,
+                                lineHeight = 21.sp,
+                            ),
                     )
                 }
             }
@@ -557,6 +563,8 @@ internal fun HtmlMessageBody(
                 onContentHeight = { contentHeight = clampMailBodyHeight(it) },
                 onOpenUrl = onOpenUrl,
                 onOpenImage = onOpenImage,
+                openLinkLabel = tr("chat.actions.openLink"),
+                copyLinkAddressLabel = tr("chat.actions.copyLinkAddress"),
                 modifier = webViewModifier,
             )
         }
@@ -566,6 +574,8 @@ internal fun HtmlMessageBody(
             onContentHeight = { contentHeight = clampMailBodyHeight(it) },
             onOpenUrl = onOpenUrl,
             onOpenImage = onOpenImage,
+            openLinkLabel = tr("chat.actions.openLink"),
+            copyLinkAddressLabel = tr("chat.actions.copyLinkAddress"),
             modifier = webViewModifier,
         )
     }

@@ -242,10 +242,12 @@ internal fun MessageReaderScreen(
                 if (preferHtml && message.bodyHtml.isNotBlank()) {
                     HtmlMessageBody(html = message.bodyHtml, onOpenUrl = onOpenUrl, onOpenImage = onOpenHtmlImage)
                 } else {
-                    Text(
-                        message.body.ifBlank {
-                            if (message.bodyMissing) tr("chat.messageLoadFailed") else "(no content)"
-                        },
+                    SelectableMessageText(
+                        text =
+                            message.body.ifBlank {
+                                if (message.bodyMissing) tr("chat.messageLoadFailed") else "(no content)"
+                            },
+                        onOpenUrl = onOpenUrl,
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }
