@@ -202,6 +202,7 @@ fun parseThreadListPage(responseJson: String): ThreadListPage {
                     item.findJsonLongProperty("unread_count")?.toInt()
                         ?: if (item.findJsonBooleanProperty("unread") == true) 1 else 0,
                 starred = item.findJsonBooleanProperty("starred") ?: false,
+                hasStarredItems = item.findJsonBooleanProperty("has_starred_items") ?: false,
                 hasDraft = item.findJsonBooleanProperty("has_draft") ?: false,
                 dateEpochSeconds = item.findJsonLongProperty("date") ?: item.findJsonLongProperty("date_epoch_seconds") ?: 0,
                 feedUrl = item.findJsonStringProperty("feed_url").orEmpty(),

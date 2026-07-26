@@ -428,6 +428,9 @@ pub fn recent(
                     MAX(NULLIF(json_extract(m.json,'$.updated_at'),0)),
                     MAX(json_extract(m.json,'$.fetched_at')), 0) AS latest_at,
            COALESCE(SUM(CASE WHEN m.seen = 0 THEN 1 ELSE 0 END), 0) AS unread_count,
+           EXISTS(SELECT 1 FROM messages sm
+                    WHERE sm.account = s.account AND sm.folder = s.id AND sm.starred <> 0)
+             AS has_starred_items,
            COALESCE((SELECT subject FROM messages lm WHERE lm.account = s.account AND lm.folder = s.id
               ORDER BY COALESCE(NULLIF(json_extract(lm.json,'$.published_at'),0),
                                 NULLIF(json_extract(lm.json,'$.updated_at'),0),
@@ -451,9 +454,7 @@ pub fn recent(
     sql.push_str(" GROUP BY s.id");
     match filter {
         "unread" => sql.push_str(" HAVING unread_count > 0"),
-        "starred" => {
-            sql.push_str(" HAVING COALESCE(SUM(CASE WHEN m.starred <> 0 THEN 1 ELSE 0 END), 0) > 0")
-        }
+        "starred" => sql.push_str(" HAVING has_starred_items"),
         _ => {}
     }
     sql.push_str(" ORDER BY latest_at DESC, s.title COLLATE NOCASE LIMIT ");
@@ -468,16 +469,27 @@ pub fn recent(
             row.get::<_, String>(3)?,                             // title
             row.get::<_, i64>(4)?,                                // latest_at
             row.get::<_, i64>(5)?,                                // unread_count
-            row.get::<_, String>(6)?,                             // latest_title
-            row.get::<_, Option<String>>(7)?.unwrap_or_default(), // latest_summary
-            row.get::<_, Option<String>>(8)?.unwrap_or_default(), // sub json extras
+            row.get::<_, i64>(6)? != 0,                           // has starred items
+            row.get::<_, String>(7)?,                             // latest_title
+            row.get::<_, Option<String>>(8)?.unwrap_or_default(), // latest_summary
+            row.get::<_, Option<String>>(9)?.unwrap_or_default(), // sub json extras
         ))
     })?;
 
     let mut out = Vec::new();
     for row in rows {
-        let (sub_id, acct, url, title, latest_at, unread, latest_title, latest_summary, sub_json) =
-            row?;
+        let (
+            sub_id,
+            acct,
+            url,
+            title,
+            latest_at,
+            unread,
+            has_starred_items,
+            latest_title,
+            latest_summary,
+            sub_json,
+        ) = row?;
         let icon_key = serde_json::from_str::<Value>(&sub_json)
             .ok()
             .and_then(|v| v["icon_key"].as_str().map(str::to_string))
@@ -489,6 +501,7 @@ pub fn recent(
             &url,
             latest_at,
             unread,
+            has_starred_items,
             &latest_title,
             &latest_summary,
             &icon_key,
@@ -790,6 +803,7 @@ fn thread_message(
     url: &str,
     latest_at: i64,
     unread: i64,
+    has_starred_items: bool,
     latest_title: &str,
     latest_summary: &str,
     icon_key: &str,
@@ -816,6 +830,8 @@ fn thread_message(
         "date": latest_at,
         "unread": unread > 0,
         "unread_count": unread,
+        // A feed is not itself starred; this only describes its contained items.
+        "has_starred_items": has_starred_items,
     })
 }
 

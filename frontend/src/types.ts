@@ -121,6 +121,9 @@ export type Message = {
   unread: boolean
   unread_count?: number
   starred: boolean
+  /** RSS thread only: at least one item in the feed is starred. This does not
+   * mean the feed card itself is starred. */
+  has_starred_items?: boolean
   has_draft?: boolean
   has_attachments: boolean
   attachments?: Attachment[]

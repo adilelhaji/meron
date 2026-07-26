@@ -585,6 +585,9 @@ fn recent_filters_feeds_by_unread_and_starred() {
     assert_eq!(titles("").len(), 2, "no filter keeps every feed");
     assert_eq!(titles("unread"), vec!["Example Feed".to_string()]);
     assert_eq!(titles("starred"), vec!["Second Feed".to_string()]);
+    let starred = recent(&conn, "rss-acct", "", "starred", 10).unwrap();
+    assert_eq!(starred[0]["starred"], Value::Null);
+    assert_eq!(starred[0]["has_starred_items"], true);
 }
 
 // ---- read_thread_page pagination ----------------------------------------

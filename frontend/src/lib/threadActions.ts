@@ -19,7 +19,10 @@ export function filterThreads(
     return threads.filter((thread) => thread.unread || thread.thread_id === keepId || !!keepIds?.[thread.thread_id])
   }
   if (mode === 'starred') {
-    return threads.filter((thread) => thread.starred || thread.thread_id === keepId || !!keepIds?.[thread.thread_id])
+    return threads.filter(
+      (thread) =>
+        thread.starred || thread.has_starred_items || thread.thread_id === keepId || !!keepIds?.[thread.thread_id],
+    )
   }
   return threads
 }

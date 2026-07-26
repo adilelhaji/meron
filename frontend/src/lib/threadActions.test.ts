@@ -24,6 +24,11 @@ describe('filterThreads', () => {
     expect(filterThreads(threads, 'starred').map((t) => t.thread_id)).toEqual(['b'])
   })
 
+  it('keeps RSS feeds containing starred items without marking the feed starred', () => {
+    const feed = thread({ thread_id: 'feed', starred: false, has_starred_items: true })
+    expect(filterThreads([...threads, feed], 'starred').map((t) => t.thread_id)).toEqual(['b', 'feed'])
+  })
+
   it('keeps the open thread visible via keepId even when it no longer matches', () => {
     expect(filterThreads(threads, 'unread', 'c').map((t) => t.thread_id)).toEqual(['a', 'c'])
   })

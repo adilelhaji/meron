@@ -146,7 +146,7 @@ internal fun List<ThreadSummary>.filteredKanbanThreads(
             when (filter) {
                 FilterMode.All -> true
                 FilterMode.Unread -> thread.unread
-                FilterMode.Starred -> thread.starred
+                FilterMode.Starred -> thread.starred || thread.hasStarredItems
             }
         val queryOk =
             searchAlreadyApplied ||

@@ -63,6 +63,7 @@ data class ThreadSummary(
     val unread: Boolean = false,
     val unreadCount: Int = 0,
     val starred: Boolean = false,
+    val hasStarredItems: Boolean = false,
     val hasDraft: Boolean = false,
     val dateEpochSeconds: Long = 0,
     val feedUrl: String = "",
