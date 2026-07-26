@@ -4,6 +4,7 @@ import androidx.compose.foundation.ComposeFoundationFlags
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.input.PlatformImeOptions
 import platform.Foundation.NSDate
 import platform.Foundation.timeIntervalSince1970
@@ -23,3 +24,5 @@ actual val nativeTextKeyboardOptions: KeyboardOptions =
                 },
         )
     }
+
+actual val avatarPlatformTextStyle: PlatformTextStyle? = null

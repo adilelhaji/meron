@@ -132,7 +132,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -876,7 +875,7 @@ internal fun Avatar(
                 style =
                     LocalTextStyle.current.merge(
                         TextStyle(
-                            platformStyle = PlatformTextStyle(includeFontPadding = false),
+                            platformStyle = avatarPlatformTextStyle,
                             lineHeightStyle =
                                 LineHeightStyle(
                                     alignment = LineHeightStyle.Alignment.Center,

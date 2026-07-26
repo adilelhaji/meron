@@ -1,6 +1,7 @@
 package jp.nonbili.meron.ui
 
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.PlatformTextStyle
 
 /** Wall-clock time in milliseconds since the Unix epoch. */
 expect fun currentTimeMillis(): Long
@@ -18,3 +19,9 @@ expect val maskPasswordsByDefault: Boolean
  * Returns [KeyboardOptions.Default] on Android.
  */
 expect val nativeTextKeyboardOptions: KeyboardOptions
+
+/**
+ * Android's default font padding shifts small avatar initials off centre.
+ * Other platforms use their native text metrics unchanged.
+ */
+expect val avatarPlatformTextStyle: PlatformTextStyle?
