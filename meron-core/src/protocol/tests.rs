@@ -1176,6 +1176,14 @@ fn mobile_protocol_lists_threads_from_store() {
     );
     assert_eq!(unread["result"]["threads"].as_array().unwrap().len(), 1);
 
+    let starred = invoke_mobile_protocol_json(
+        r#"{"id":66,"method":"mail.threadList","params":{"account_id":"me@example.com","folder_id":"inbox","filter":"starred"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    let starred_threads = starred["result"]["threads"].as_array().unwrap();
+    assert_eq!(starred_threads.len(), 1);
+    assert_eq!(starred_threads[0]["subject"], "Newest");
+
     let _ = std::fs::remove_dir_all(data_dir);
 }
 

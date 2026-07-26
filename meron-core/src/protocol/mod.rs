@@ -3,6 +3,7 @@ pub(crate) use crate::rss;
 pub(crate) use crate::secrets::Secrets;
 pub(crate) use crate::smtp::{self, AttachmentInput};
 pub(crate) use crate::store::{self, AccountMeta};
+pub(crate) use crate::thread_list;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 pub(crate) use std::path::{Component, Path};

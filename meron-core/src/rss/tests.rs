@@ -494,7 +494,7 @@ fn recent_and_read_thread_build_bridge_messages() {
     )
     .unwrap();
 
-    let threads = recent(&conn, "rss-acct", "", 10).unwrap();
+    let threads = recent(&conn, "rss-acct", "", "", 10).unwrap();
     assert_eq!(threads.len(), 1);
     assert_eq!(threads[0]["subject"], "Example Feed");
     assert_eq!(threads[0]["from_name"], "Example Feed");
@@ -556,6 +556,35 @@ fn insert_item(conn: &Connection, account: &str, sub: &str, key: &str, published
         },
     )
     .unwrap();
+}
+
+// ---- thread list filters -------------------------------------------------
+
+#[test]
+fn recent_filters_feeds_by_unread_and_starred() {
+    let conn = rss_conn_with_feed("rss-acct", "feed-1");
+    conn.execute(
+        "INSERT INTO subscriptions(id, account, url, title, feed_title, enabled)
+             VALUES('feed-2', 'rss-acct', 'https://example.com/two', 'Second Feed', 'Second Feed', 1)",
+        [],
+    )
+    .unwrap();
+    insert_item(&conn, "rss-acct", "feed-1", "item-1", 100);
+    insert_item(&conn, "rss-acct", "feed-2", "item-2", 200);
+    // feed-2 is fully read but holds the only starred item.
+    store::update_rss_item_seen(&conn, "rss-acct", "feed-2", "item-2", true).unwrap();
+    store::update_rss_item_starred(&conn, "rss-acct", "feed-2", "item-2", true).unwrap();
+
+    let titles = |filter: &str| {
+        recent(&conn, "rss-acct", "", filter, 10)
+            .unwrap()
+            .iter()
+            .map(|thread| thread["subject"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(titles("").len(), 2, "no filter keeps every feed");
+    assert_eq!(titles("unread"), vec!["Example Feed".to_string()]);
+    assert_eq!(titles("starred"), vec!["Second Feed".to_string()]);
 }
 
 // ---- read_thread_page pagination ----------------------------------------
@@ -879,7 +908,7 @@ fn add_fetches_parses_and_syncs_over_http() {
     // The parsed items surface as a thread with the feed's titles.
     let threads = {
         let conn = db.lock().unwrap();
-        recent(&conn, &account_id, "", 10).unwrap()
+        recent(&conn, &account_id, "", "", 10).unwrap()
     };
     assert_eq!(threads.len(), 1);
     assert_eq!(threads[0]["from_name"], "Sample Feed");

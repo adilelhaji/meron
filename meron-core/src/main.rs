@@ -26,7 +26,8 @@ use meron_core::engine::*;
 use meron_core::engine::{Engine, EngineHost};
 use meron_core::protocol::{Request, ping_response, ready_event};
 use meron_core::{
-    changelog, imap, mail_model, parse, rss, secrets, smtp, store, thread_read, unified,
+    changelog, imap, mail_model, parse, rss, secrets, smtp, store, thread_list, thread_read,
+    unified,
 };
 
 /// Shared, serialized writer so responses and events never interleave on stdout.
@@ -1155,69 +1156,52 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         // rows under "messages" the bridge groups into threads.
         "messages.recent" => {
             let account = req_str(p, "account")?;
+            let request = thread_list::ThreadListQuery::from_params(p, "folder");
+            let refresh = p.get("refresh").and_then(Value::as_bool).unwrap_or(true);
             if is_rss(engine, &account)? {
-                let query = req_str(p, "query").unwrap_or_default();
-                let limit = req_u16(p, "limit").unwrap_or(50) as i64;
-                let db = engine.db.lock().unwrap();
-                let threads = rss::recent(&db, &account, &query, limit)?;
-                let folder_unread = rss::unread_count(&db, &account)?;
-                drop(db);
-                if p.get("refresh").and_then(Value::as_bool).unwrap_or(true) {
+                let page = thread_list::rss_page(&engine.db.lock().unwrap(), &account, &request)?;
+                if refresh {
                     spawn_rss_sync(engine.clone(), out.clone(), account);
                 }
-                return Ok(json!({ "threads": threads, "folder_unread": folder_unread }));
+                return Ok(page);
             }
-            let folder =
-                canon_folder(&req_str(p, "folder").unwrap_or_else(|_| "INBOX".to_string()));
-            let limit = req_u16(p, "limit").unwrap_or(50) as u32;
-            let before_cursor = p
-                .get("before_cursor")
-                .and_then(Value::as_str)
-                .and_then(parse_mail_cursor);
-            let query = req_str(p, "query").unwrap_or_default();
-            let query = query.trim();
-            let filter = req_str(p, "filter").unwrap_or_default();
-            let refresh = p.get("refresh").and_then(Value::as_bool).unwrap_or(true);
-            let (mut messages, next_cursor) = if filter == "starred" && query.is_empty() {
-                let folders = starred_search_folders(engine, &account, &folder).await;
-                (
-                    search_starred_mail_messages(engine, &account, &folders, limit, refresh)
-                        .await?,
-                    None,
-                )
-            } else if query.is_empty() {
-                store::get_recent_page(
+            let folder = request.folder.clone();
+            let limit = request.limit;
+            // Desktop is online-first: starred and search go to the server so
+            // flags and hits are current, the rest reads the local page.
+            let (messages, next_cursor) = match request.source() {
+                thread_list::MailSource::Starred => {
+                    let folders = starred_search_folders(engine, &account, &folder).await;
+                    (
+                        search_starred_mail_messages(engine, &account, &folders, limit, refresh)
+                            .await?,
+                        None,
+                    )
+                }
+                thread_list::MailSource::Recent { unread_only } => store::get_recent_page(
                     &engine.db.lock().unwrap(),
                     &account,
                     &folder,
                     limit,
-                    before_cursor,
-                    filter == "unread",
-                )?
-            } else {
-                // Chat-view search spans the selected folder plus Sent, so a
-                // lookup surfaces both received and self-sent mail (and old
-                // messages filed under Sent), not just the current mailbox.
-                let mut folders = vec![folder.clone()];
-                if let Some(sent) = cached_sent_folder(engine, &account, &folder) {
-                    folders.push(sent);
+                    request.before_cursor,
+                    unread_only,
+                )?,
+                thread_list::MailSource::Search => {
+                    // Chat-view search spans the selected folder plus Sent, so a
+                    // lookup surfaces both received and self-sent mail (and old
+                    // messages filed under Sent), not just the current mailbox.
+                    let mut folders = vec![folder.clone()];
+                    if let Some(sent) = cached_sent_folder(engine, &account, &folder) {
+                        folders.push(sent);
+                    }
+                    (
+                        search_mail_messages(engine, &account, &folders, &request.query, limit)
+                            .await?,
+                        None,
+                    )
                 }
-                (
-                    search_mail_messages(engine, &account, &folders, query, limit).await?,
-                    None,
-                )
             };
-            // Rewrite each card's identity to the correspondent so a thread shows the
-            // same person/avatar in every folder (outbound copies show the recipient).
-            store::apply_card_identity(
-                &engine.db.lock().unwrap(),
-                &account,
-                &folder,
-                &mut messages,
-            );
-            let folder_unread =
-                store::get_folder_unread(&engine.db.lock().unwrap(), &account, &folder)?;
-            if before_cursor.is_none() && filter != "starred" && query.is_empty() && refresh {
+            if refresh && request.wants_background_sync() {
                 spawn_message_sync(
                     engine.clone(),
                     out.clone(),
@@ -1226,29 +1210,14 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     limit,
                 );
             }
-            // Thread-list callers opt into core grouping (subject branching,
-            // root titles, accumulated unread counts — shared with mobile) and
-            // get ready cards; other consumers keep the raw rows.
-            let mut out = if p.get("group").and_then(Value::as_bool).unwrap_or(false) {
-                let db = engine.db.lock().unwrap();
-                let draft_thread_keys = store::draft_thread_keys(&db, &account)?;
-                let threads = mail_model::thread_cards_json(
-                    &db,
-                    &account,
-                    &folder,
-                    messages,
-                    &draft_thread_keys,
-                )?;
-                json!({ "threads": threads, "folder_unread": folder_unread })
-            } else {
-                json!({ "messages": serde_json::to_value(messages)?, "folder_unread": folder_unread })
-            };
-            if let Some(cursor) = next_cursor {
-                out.as_object_mut()
-                    .unwrap()
-                    .insert("next_cursor".into(), Value::String(cursor));
-            }
-            Ok(out)
+            thread_list::mail_page(
+                &engine.db.lock().unwrap(),
+                &account,
+                &folder,
+                messages,
+                next_cursor,
+                p.get("group").and_then(Value::as_bool).unwrap_or(false),
+            )
         }
 
         // Every starred item across all accounts, local cache only (the
@@ -2404,14 +2373,6 @@ fn parse_rss_cursor(raw: &str) -> Option<(i64, String)> {
     let rest = raw.strip_prefix("ts:")?;
     let (ts, key) = rest.split_once(':')?;
     Some((ts.parse().ok()?, key.to_string()))
-}
-
-/// Mail list cursor: `date:<epoch>:<uid>` — the (send time, uid) keyset of the
-/// last row of the previous page (see `store::get_recent_page`).
-fn parse_mail_cursor(raw: &str) -> Option<(i64, u32)> {
-    let rest = raw.strip_prefix("date:")?;
-    let (date, uid) = rest.split_once(':')?;
-    Some((date.parse().ok()?, uid.parse().ok()?))
 }
 
 /// Whether an account is RSS-backed (vs mail), per its row in the unified DB.

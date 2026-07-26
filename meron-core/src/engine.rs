@@ -1149,11 +1149,7 @@ pub fn spawn_body_prefetch(engine: Arc<Engine>, account: String, folder: String)
 
 /// Canonicalize folder names so "inbox"/"INBOX" map to one store key + mailbox.
 pub fn canon_folder(folder: &str) -> String {
-    if folder.eq_ignore_ascii_case("inbox") {
-        "INBOX".to_string()
-    } else {
-        folder.to_string()
-    }
+    crate::mail_model::canon_folder(folder)
 }
 
 pub fn should_append_sent_copy(

@@ -19,5 +19,6 @@ pub mod secrets;
 mod secrets_portal;
 pub mod smtp;
 pub mod store;
+pub mod thread_list;
 pub mod thread_read;
 pub mod unified;

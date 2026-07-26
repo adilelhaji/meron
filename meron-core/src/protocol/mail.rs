@@ -475,27 +475,9 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
     if account_id == "unified" {
         return list_mobile_unified_threads(data_dir, params);
     }
-    let folder_id = params
-        .get("folder_id")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .map(canon_folder)
-        .unwrap_or_else(|| "INBOX".to_string());
-    let query = params
-        .get("query")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_string();
-    let filter = params
-        .get("filter")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let before_cursor = params
-        .get("before_cursor")
-        .and_then(Value::as_str)
-        .and_then(parse_mail_cursor);
+    let request = thread_list::ThreadListQuery::from_params(params, "folder_id");
+    let folder_id = request.folder.clone();
+    let limit = request.limit;
 
     let is_rss = with_mobile_db(data_dir, |conn| {
         Ok(json!(is_rss_account(&conn, &account_id)?))
@@ -504,65 +486,66 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
     .unwrap_or(false);
     if is_rss {
         return with_mobile_db(data_dir, |conn| {
-            let threads =
-                rss::recent(&conn, &account_id, &query, 50).map_err(|err| format!("{err:#}"))?;
-            let folder_unread =
-                rss::unread_count(&conn, &account_id).map_err(|err| format!("{err:#}"))?;
-            Ok(json!({ "threads": threads, "folder_unread": folder_unread }))
+            thread_list::rss_page(&conn, &account_id, &request).map_err(|err| format!("{err:#}"))
         });
     }
 
-    let (mut messages, next_cursor) = if query.is_empty() {
-        get_cached_mobile_mail_page(
+    // Mobile is cache-first: unlike desktop, starred reads the flags the last
+    // sync stored so the list still answers offline, and a failed live search
+    // falls back to the cached one.
+    let (messages, next_cursor) = match request.source() {
+        thread_list::MailSource::Starred => (
+            get_cached_mobile_starred(data_dir, &account_id, &folder_id, limit)?,
+            None,
+        ),
+        thread_list::MailSource::Recent { unread_only } => get_cached_mobile_mail_page(
             data_dir,
             &account_id,
             &folder_id,
-            50,
-            before_cursor,
-            filter == "unread",
-        )?
-    } else {
-        match search_live_mobile_mail_messages(data_dir, &account_id, &folder_id, &query, 50) {
-            Ok(messages) => (messages, None),
-            Err(err) => {
-                crate::mlog!(
-                    crate::log::Level::Warn,
-                    "mail.search",
-                    "live search failed for account={account_id} folder={folder_id}: {err}"
-                );
-                (
-                    search_cached_mobile_mail_messages(
-                        data_dir,
-                        &account_id,
-                        &folder_id,
-                        &query,
-                        50,
-                    )?,
-                    None,
-                )
+            limit,
+            request.before_cursor,
+            unread_only,
+        )?,
+        thread_list::MailSource::Search => {
+            match search_live_mobile_mail_messages(
+                data_dir,
+                &account_id,
+                &folder_id,
+                &request.query,
+                limit,
+            ) {
+                Ok(messages) => (messages, None),
+                Err(err) => {
+                    crate::mlog!(
+                        crate::log::Level::Warn,
+                        "mail.search",
+                        "live search failed for account={account_id} folder={folder_id}: {err}"
+                    );
+                    (
+                        search_cached_mobile_mail_messages(
+                            data_dir,
+                            &account_id,
+                            &folder_id,
+                            &request.query,
+                            limit,
+                        )?,
+                        None,
+                    )
+                }
             }
         }
     };
     with_mobile_db(data_dir, |conn| {
-        store::apply_card_identity(&conn, &account_id, &folder_id, &mut messages);
-        let draft_thread_keys =
-            store::draft_thread_keys(&conn, &account_id).map_err(|err| err.to_string())?;
-        let threads = thread_cards_json_with_drafts(
+        thread_list::mail_page(
             &conn,
             &account_id,
             &folder_id,
             messages,
-            &draft_thread_keys,
-        )?;
-        let folder_unread = store::get_folder_unread(&conn, &account_id, &folder_id)
-            .map_err(|err| err.to_string())?;
-        let mut out = json!({ "threads": threads, "folder_unread": folder_unread });
-        if let Some(cursor) = next_cursor {
-            out.as_object_mut()
-                .unwrap()
-                .insert("next_cursor".to_string(), Value::String(cursor));
-        }
-        Ok(out)
+            next_cursor,
+            // A mobile mailbox view is always a thread list.
+            true,
+        )
+        .map_err(|err| format!("{err:#}"))
     })
 }
 
@@ -652,6 +635,16 @@ fn get_cached_mobile_mail_page(
         unread_only,
     )
     .map_err(|err| err.to_string())
+}
+
+fn get_cached_mobile_starred(
+    data_dir: &str,
+    account_id: &str,
+    folder_id: &str,
+    limit: u32,
+) -> Result<Vec<MessageHeader>, String> {
+    let conn = open_mobile_db(data_dir)?;
+    store::get_starred(&conn, account_id, folder_id, limit).map_err(|err| err.to_string())
 }
 
 fn search_cached_mobile_mail_messages(
@@ -1403,30 +1396,7 @@ pub(crate) fn find_cached_archive_folder(
 }
 
 pub(crate) fn canon_folder(folder: &str) -> String {
-    if folder.eq_ignore_ascii_case("inbox") {
-        "INBOX".to_string()
-    } else {
-        folder.to_string()
-    }
-}
-
-pub(crate) fn parse_mail_cursor(cursor: &str) -> Option<(i64, u32)> {
-    let parts = cursor.split(':').collect::<Vec<_>>();
-    if parts.len() != 3 || parts[0] != "date" {
-        return None;
-    }
-    Some((parts[1].parse().ok()?, parts[2].parse().ok()?))
-}
-
-pub(crate) fn thread_cards_json_with_drafts(
-    conn: &rusqlite::Connection,
-    account_id: &str,
-    folder_id: &str,
-    messages: Vec<MessageHeader>,
-    draft_thread_keys: &std::collections::HashSet<String>,
-) -> Result<Vec<Value>, String> {
-    crate::mail_model::thread_cards_json(conn, account_id, folder_id, messages, draft_thread_keys)
-        .map_err(|err| err.to_string())
+    crate::mail_model::canon_folder(folder)
 }
 
 pub(crate) fn format_thread_id(account_id: &str, folder: &str, thread_key: &str) -> String {

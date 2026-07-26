@@ -411,7 +411,15 @@ fn sync_subscription(db: &Mutex<Connection>, sub: &Subscription) -> Result<u32> 
 }
 
 /// One bridge `Message` per subscription (subscription = thread), newest first.
-pub fn recent(conn: &Connection, account: &str, query: &str, limit: i64) -> Result<Vec<Value>> {
+/// `filter` mirrors the mail thread list: "unread" keeps feeds with an unread
+/// item, "starred" keeps feeds with a starred item, anything else keeps all.
+pub fn recent(
+    conn: &Connection,
+    account: &str,
+    query: &str,
+    filter: &str,
+    limit: i64,
+) -> Result<Vec<Value>> {
     let limit = if limit <= 0 { 50 } else { limit };
     let q = query.trim().to_lowercase();
     let mut sql = String::from(
@@ -440,7 +448,15 @@ pub fn recent(conn: &Connection, account: &str, query: &str, limit: i64) -> Resu
         );
         args.push(Box::new(format!("%{q}%")));
     }
-    sql.push_str(" GROUP BY s.id ORDER BY latest_at DESC, s.title COLLATE NOCASE LIMIT ");
+    sql.push_str(" GROUP BY s.id");
+    match filter {
+        "unread" => sql.push_str(" HAVING unread_count > 0"),
+        "starred" => {
+            sql.push_str(" HAVING COALESCE(SUM(CASE WHEN m.starred <> 0 THEN 1 ELSE 0 END), 0) > 0")
+        }
+        _ => {}
+    }
+    sql.push_str(" ORDER BY latest_at DESC, s.title COLLATE NOCASE LIMIT ");
     sql.push_str(&limit.to_string());
 
     let mut stmt = conn.prepare(&sql)?;
