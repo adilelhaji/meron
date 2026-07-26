@@ -379,7 +379,7 @@ final class MailtoUrlContractTests: XCTestCase {
         let inbox = IosKanbanColumnSpec(accountId: "acct", folderId: "inbox")
         let archive = IosKanbanColumnSpec(accountId: "acct", folderId: "archive")
         let board = IosKanbanBoardSpec(id: "board", name: "Board", columns: [archive, inbox])
-        let duplicate = ThreadSummary(
+        let duplicate = makeThread(
             id: "t1",
             accountId: "acct",
             folder: "archive",
@@ -391,7 +391,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 0,
             feedUrl: ""
         )
-        let inboxOnly = ThreadSummary(
+        let inboxOnly = makeThread(
             id: "t2",
             accountId: "acct",
             folder: "inbox",
@@ -449,7 +449,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testKanbanStarredItemsConvertWithItemIdentityAndFilterLikeDesktopColumn() {
-        let newer = StarredItemSummary(
+        let newer = makeStarredItem(
             id: "item-new",
             threadId: "thread-1",
             accountId: "acct",
@@ -460,7 +460,7 @@ final class MailtoUrlContractTests: XCTestCase {
             unread: true,
             dateEpochSeconds: 20
         )
-        let older = StarredItemSummary(
+        let older = makeStarredItem(
             id: "item-old",
             threadId: "thread-1",
             accountId: "acct",
@@ -483,7 +483,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testKanbanStarredItemActionTargetUsesMappedThreadIdentity() {
-        let mailCard = ThreadSummary(
+        let mailCard = makeThread(
             id: "message-1",
             accountId: "acct",
             folder: "inbox",
@@ -495,7 +495,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 0,
             feedUrl: ""
         )
-        let rssCard = ThreadSummary(
+        let rssCard = makeThread(
             id: "rss-item-1",
             accountId: "rss-acct",
             folder: "rss",
@@ -539,7 +539,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredItemReaderMessagePreservesItemIdentityForRssReader() {
-        let item = StarredItemSummary(
+        let item = makeStarredItem(
             id: "rss-item-1",
             threadId: "rss-acct#rss#feed-1",
             accountId: "rss-acct",
@@ -564,7 +564,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredKanbanReaderMessagePreservesCardIdentityForRssReader() {
-        let card = ThreadSummary(
+        let card = makeThread(
             id: "rss-item-2",
             accountId: "rss-acct",
             folder: "rss",
@@ -590,7 +590,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredItemsAfterActionUpdatesRowsLikeAndroidStarredList() {
-        let first = StarredItemSummary(
+        let first = makeStarredItem(
             id: "item-1",
             threadId: "thread-1",
             accountId: "acct",
@@ -601,7 +601,7 @@ final class MailtoUrlContractTests: XCTestCase {
             unread: true,
             dateEpochSeconds: 10
         )
-        let second = StarredItemSummary(
+        let second = makeStarredItem(
             id: "item-2",
             threadId: "thread-2",
             accountId: "acct",
@@ -626,7 +626,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredItemsAfterMessageStarredInsertsUpdatesAndRemovesRows() {
-        let existing = StarredItemSummary(
+        let existing = makeStarredItem(
             id: "old",
             threadId: "thread-old",
             accountId: "acct",
@@ -650,7 +650,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredItemsAfterThreadActionsUpdateEveryRowForThread() {
-        let first = StarredItemSummary(
+        let first = makeStarredItem(
             id: "message-1",
             threadId: "thread-1",
             accountId: "acct",
@@ -661,7 +661,7 @@ final class MailtoUrlContractTests: XCTestCase {
             unread: true,
             dateEpochSeconds: 10
         )
-        let second = StarredItemSummary(
+        let second = makeStarredItem(
             id: "message-2",
             threadId: "thread-1",
             accountId: "acct",
@@ -672,7 +672,7 @@ final class MailtoUrlContractTests: XCTestCase {
             unread: true,
             dateEpochSeconds: 8
         )
-        let other = StarredItemSummary(
+        let other = makeStarredItem(
             id: "other",
             threadId: "thread-2",
             accountId: "acct",
@@ -691,7 +691,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredItemsAfterThreadStarredInsertsLoadedMessages() {
-        let existing = StarredItemSummary(
+        let existing = makeStarredItem(
             id: "old",
             threadId: "thread-old",
             accountId: "acct",
@@ -714,7 +714,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredKanbanThreadsAfterActionKeepsUnifiedStarredColumnCoherent() {
-        let first = ThreadSummary(
+        let first = makeThread(
             id: "item-1",
             accountId: "acct",
             folder: "inbox",
@@ -726,7 +726,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 10,
             feedUrl: ""
         )
-        let second = ThreadSummary(
+        let second = makeThread(
             id: "item-2",
             accountId: "acct",
             folder: "inbox",
@@ -749,7 +749,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testStarredKanbanThreadActionsUseItemToThreadMapping() {
-        let first = ThreadSummary(
+        let first = makeThread(
             id: "item-1",
             accountId: "acct",
             folder: "inbox",
@@ -761,7 +761,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 10,
             feedUrl: ""
         )
-        let second = ThreadSummary(
+        let second = makeThread(
             id: "item-2",
             accountId: "acct",
             folder: "inbox",
@@ -773,7 +773,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 8,
             feedUrl: ""
         )
-        let other = ThreadSummary(
+        let other = makeThread(
             id: "other",
             accountId: "acct",
             folder: "inbox",
@@ -795,7 +795,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testKanbanThreadsFollowConversationMessageFlagAndDeleteUpdates() {
-        let first = ThreadSummary(
+        let first = makeThread(
             id: "thread-1",
             accountId: "acct",
             folder: "inbox",
@@ -807,7 +807,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 10,
             feedUrl: ""
         )
-        let second = ThreadSummary(
+        let second = makeThread(
             id: "thread-2",
             accountId: "acct",
             folder: "inbox",
@@ -846,7 +846,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testThreadsAfterMarkingThreadIdsReadOnlyUpdatesTargetedThreads() {
-        let first = ThreadSummary(
+        let first = makeThread(
             id: "thread-1",
             accountId: "acct",
             folder: "inbox",
@@ -858,7 +858,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 10,
             feedUrl: ""
         )
-        let second = ThreadSummary(
+        let second = makeThread(
             id: "thread-2",
             accountId: "acct",
             folder: "inbox",
@@ -1139,7 +1139,7 @@ final class MailtoUrlContractTests: XCTestCase {
 
     func testFirstThreadRequiringDeleteConfirmationPreservesBulkOrder() {
         let inbox = testThread(id: "inbox", unread: false, starred: false)
-        let draft = ThreadSummary(
+        let draft = makeThread(
             id: "draft",
             accountId: "acct",
             folder: "Drafts",
@@ -1151,7 +1151,7 @@ final class MailtoUrlContractTests: XCTestCase {
             dateEpochSeconds: 0,
             feedUrl: ""
         )
-        let trash = ThreadSummary(
+        let trash = makeThread(
             id: "trash",
             accountId: "acct",
             folder: "Trash",
@@ -1243,7 +1243,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testMessageMetadataRowsMatchIncomingVisibilityRules() {
-        let message = MessageBody(
+        let message = makeMessage(
             id: "m1",
             from: "Sender",
             to: "Me <me@example.com>, Other <other@example.com>",
@@ -1274,7 +1274,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testMessageMetadataRowsHideSoleSelfRecipientAndMatchingReplyTo() {
-        let message = MessageBody(
+        let message = makeMessage(
             id: "m2",
             from: "Sender",
             to: "Me <me@example.com>",
@@ -1315,7 +1315,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     func testMessageReaderAddressRowsIncludeFullHeaders() {
-        let message = MessageBody(
+        let message = makeMessage(
             id: "m3",
             from: "Sender",
             to: "Me <me@example.com>",
@@ -1346,8 +1346,124 @@ final class MailtoUrlContractTests: XCTestCase {
         ])
     }
 
-    private func testMessageBody(id: String, attachments: [MessageAttachment]) -> MessageBody {
+    /// The shared models are exported to Swift without Kotlin's default
+    /// arguments, so every field is required at the call site. These factories
+    /// restore the defaults, keeping the fixtures below focused on the fields a
+    /// test actually exercises.
+    private func makeThread(
+        id: String,
+        accountId: String,
+        folder: String,
+        subject: String,
+        sender: String,
+        preview: String,
+        unread: Bool,
+        starred: Bool,
+        dateEpochSeconds: Int64,
+        feedUrl: String,
+        folderRole: String = "folder",
+        unreadCount: Int32 = 0,
+        hasStarredItems: Bool = false,
+        hasDraft: Bool = false,
+        threadId: String = ""
+    ) -> ThreadSummary {
+        ThreadSummary(
+            id: id,
+            accountId: accountId,
+            folder: folder,
+            folderRole: folderRole,
+            subject: subject,
+            sender: sender,
+            preview: preview,
+            unread: unread,
+            unreadCount: unreadCount,
+            starred: starred,
+            hasStarredItems: hasStarredItems,
+            hasDraft: hasDraft,
+            dateEpochSeconds: dateEpochSeconds,
+            feedUrl: feedUrl,
+            threadId: threadId
+        )
+    }
+
+    private func makeStarredItem(
+        id: String,
+        threadId: String,
+        accountId: String,
+        folder: String,
+        subject: String,
+        sender: String,
+        preview: String,
+        unread: Bool,
+        dateEpochSeconds: Int64,
+        folderRole: String = "folder"
+    ) -> StarredItemSummary {
+        StarredItemSummary(
+            id: id,
+            threadId: threadId,
+            accountId: accountId,
+            folder: folder,
+            folderRole: folderRole,
+            subject: subject,
+            sender: sender,
+            preview: preview,
+            unread: unread,
+            dateEpochSeconds: dateEpochSeconds
+        )
+    }
+
+    private func makeMessage(
+        id: String,
+        from: String,
+        to: String,
+        cc: String,
+        bcc: String,
+        subject: String,
+        body: String,
+        bodyHtml: String,
+        dateEpochSeconds: Int64,
+        fromAddr: String,
+        replyTo: String,
+        messageId: String,
+        references: String,
+        unread: Bool,
+        starred: Bool,
+        hasAttachments: Bool,
+        attachments: [MessageAttachment],
+        folderId: String = "",
+        inReplyTo: String = "",
+        outgoing: Bool = false,
+        bodyMissing: Bool = false,
+        sendStatus: SendStatus = SendStatus.none
+    ) -> MessageBody {
         MessageBody(
+            id: id,
+            folderId: folderId,
+            from: from,
+            to: to,
+            cc: cc,
+            bcc: bcc,
+            subject: subject,
+            body: body,
+            bodyHtml: bodyHtml,
+            dateEpochSeconds: dateEpochSeconds,
+            fromAddr: fromAddr,
+            replyTo: replyTo,
+            messageId: messageId,
+            inReplyTo: inReplyTo,
+            references: references,
+            unread: unread,
+            outgoing: outgoing,
+            starred: starred,
+            hasAttachments: hasAttachments,
+            bodyMissing: bodyMissing,
+            attachments: attachments,
+            sendStatus: sendStatus
+        )
+    }
+
+    private func testMessageBody(id: String, attachments: [MessageAttachment]) -> MessageBody {
+        makeMessage(
             id: id,
             from: "Sender",
             to: "Me <me@example.com>",
@@ -1369,7 +1485,7 @@ final class MailtoUrlContractTests: XCTestCase {
     }
 
     private func testThread(id: String, unread: Bool, starred: Bool) -> ThreadSummary {
-        ThreadSummary(
+        makeThread(
             id: id,
             accountId: "acct",
             folder: "inbox",
@@ -1403,6 +1519,7 @@ final class MailtoUrlContractTests: XCTestCase {
             muted: false,
             paused: false,
             conversationHtml: true,
+            saveSentCopy: nil,
             rssSyncIntervalMinutes: 60,
             aliases: [],
             chatWallpaperKind: "",

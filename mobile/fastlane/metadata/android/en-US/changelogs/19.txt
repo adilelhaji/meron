@@ -1,0 +1,3 @@
+- Preserve scroll position when switching mailboxes and filters
+- Show link context menu at tap position in mail
+- Support unread and starred filters for RSS feed accounts

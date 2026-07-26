@@ -35,6 +35,7 @@ func kanbanThreadSummary(for item: StarredItemSummary) -> ThreadSummary {
         unread: item.unread,
         unreadCount: item.unread ? 1 : 0,
         starred: true,
+        hasStarredItems: false,
         hasDraft: false,
         dateEpochSeconds: item.dateEpochSeconds,
         feedUrl: "",
