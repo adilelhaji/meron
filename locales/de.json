@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Neu starten & installieren",
   "updates.retry": "Erneut versuchen",
   "updates.upToDate": "Meron ist aktuell",
-  "updates.windowsPermissionHint": "Windows fragt möglicherweise nach einer Berechtigung für das Installationsprogramm."
+  "updates.windowsPermissionHint": "Windows fragt möglicherweise nach einer Berechtigung für das Installationsprogramm.",
+  "crash.title": "Meron ist zuletzt abgestürzt",
+  "crash.body": "Ein Bericht wurde auf diesem Gerät gespeichert. Beim Senden öffnet sich das Teilen-Menü mit dem Protokoll, sodass du es zuerst lesen kannst. E-Mail-Adressen sind maskiert.",
+  "crash.send": "Bericht senden",
+  "crash.notNow": "Jetzt nicht"
 }

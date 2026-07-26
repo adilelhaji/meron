@@ -1,5 +1,7 @@
 package jp.nonbili.meron.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
@@ -56,6 +58,45 @@ internal fun AddFeedDialog(
         dismissButton = {
             TextButton(onClick = onDismiss, enabled = !submitting) {
                 Text(tr("buttons.cancel"))
+            }
+        },
+    )
+}
+
+/**
+ * Offered on the launch after a crash. Nothing has been sent at this point —
+ * "send" opens the platform share sheet with the redacted diagnostic log, so
+ * the user sees the contents and picks the recipient.
+ */
+@Composable
+internal fun CrashReportDialog(
+    summary: String,
+    onSend: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(tr("crash.title")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(tr("crash.body"))
+                if (summary.isNotBlank()) {
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onSend) {
+                Text(tr("crash.send"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(tr("crash.notNow"))
             }
         },
     )

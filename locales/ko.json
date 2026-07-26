@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "다시 시작하고 설치",
   "updates.retry": "다시 시도",
   "updates.upToDate": "Meron이 최신 상태입니다",
-  "updates.windowsPermissionHint": "Windows에서 설치 관리자 실행 권한을 요청할 수 있습니다."
+  "updates.windowsPermissionHint": "Windows에서 설치 관리자 실행 권한을 요청할 수 있습니다.",
+  "crash.title": "지난번에 Meron이 종료되었습니다",
+  "crash.body": "보고서가 이 기기에 저장되었습니다. 보내기를 누르면 로그와 함께 공유 시트가 열리므로 먼저 내용을 확인할 수 있습니다. 이메일 주소는 가려집니다.",
+  "crash.send": "보고서 보내기",
+  "crash.notNow": "나중에"
 }

@@ -663,6 +663,9 @@ async fn idle_once(
 
 #[tokio::main]
 async fn main() {
+    // Tag panics consistently on stderr, which the desktop bridge copies into
+    // meron.log; a panic in a worker task would otherwise be easy to miss.
+    meron_core::log::install_panic_hook();
     let out: Writer = Arc::new(Mutex::new(tokio::io::stdout()));
     let engine = match Engine::new(Box::new(DesktopHost)) {
         Ok(engine) => Arc::new(engine),

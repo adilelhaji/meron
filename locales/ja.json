@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "再起動してインストール",
   "updates.retry": "再試行",
   "updates.upToDate": "Meron は最新です",
-  "updates.windowsPermissionHint": "Windows がインストーラーの実行許可を求める場合があります。"
+  "updates.windowsPermissionHint": "Windows がインストーラーの実行許可を求める場合があります。",
+  "crash.title": "前回 Meron がクラッシュしました",
+  "crash.body": "レポートはこの端末に保存されています。送信すると共有シートがログとともに開くので、先に内容を確認できます。メールアドレスは伏せ字になります。",
+  "crash.send": "レポートを送信",
+  "crash.notNow": "今はしない"
 }

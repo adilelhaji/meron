@@ -287,6 +287,12 @@ class AndroidMobileHost(
         shareBytesViaFileProvider(activity, (disclosure + body).toByteArray(), "meron-sync-log.txt", "text/plain")
     }
 
+    override fun pendingCrashReport(): String = AndroidCrashLog.pending(activity)
+
+    override fun clearPendingCrashReport() {
+        AndroidCrashLog.clearPending(activity)
+    }
+
     override fun notifyNewMail(
         accountName: String,
         from: String,

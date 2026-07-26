@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Taaskäivita ja paigalda",
   "updates.retry": "Proovi uuesti",
   "updates.upToDate": "Meron on ajakohane",
-  "updates.windowsPermissionHint": "Windows võib küsida luba paigaldusprogrammi käivitamiseks."
+  "updates.windowsPermissionHint": "Windows võib küsida luba paigaldusprogrammi käivitamiseks.",
+  "crash.title": "Meron jooksis eelmisel korral kokku",
+  "crash.body": "Aruanne salvestati sellesse seadmesse. Saatmine avab jagamisvaate koos logiga, et saaksid selle enne läbi lugeda. E-posti aadressid on varjatud.",
+  "crash.send": "Saada aruanne",
+  "crash.notNow": "Mitte praegu"
 }

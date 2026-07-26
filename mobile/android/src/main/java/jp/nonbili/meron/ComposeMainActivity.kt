@@ -299,7 +299,9 @@ class ComposeMainActivity : ComponentActivity() {
         incomingOAuthCallbackUrl = intent.toOAuthCallbackUrl()
         incomingNotificationThreadTarget = intent.toNotificationThreadTarget()
         AndroidNotificationService.ensureChannels(this)
-        AndroidSyncDiagnosticLog.installUiLogSink(this)
+        // The log sink and crash handler are installed process-wide in
+        // MeronApplication, before any component (including background sync)
+        // starts, so nothing to install here.
         if (!MeronCoreNative.isLoaded()) {
             AndroidSyncDiagnosticLog.append(this, "Rust core failed to load: ${describeCoreLoadFailure(this)}")
         }

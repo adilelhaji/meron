@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Restart & install",
   "updates.retry": "Try again",
   "updates.upToDate": "Meron is up to date",
-  "updates.windowsPermissionHint": "Windows may ask for permission to run the installer."
+  "updates.windowsPermissionHint": "Windows may ask for permission to run the installer.",
+  "crash.title": "Meron crashed last time",
+  "crash.body": "A report was saved on this device. Sending it opens the share sheet with the log, so you can read it first. Email addresses are masked.",
+  "crash.send": "Send report",
+  "crash.notNow": "Not now"
 }

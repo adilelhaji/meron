@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Starta om och installera",
   "updates.retry": "Försök igen",
   "updates.upToDate": "Meron är uppdaterad",
-  "updates.windowsPermissionHint": "Windows kan be om behörighet att köra installationsprogrammet."
+  "updates.windowsPermissionHint": "Windows kan be om behörighet att köra installationsprogrammet.",
+  "crash.title": "Meron kraschade förra gången",
+  "crash.body": "En rapport sparades på den här enheten. Att skicka öppnar delningsvyn med loggen, så att du kan läsa den först. E-postadresser är maskerade.",
+  "crash.send": "Skicka rapport",
+  "crash.notNow": "Inte nu"
 }

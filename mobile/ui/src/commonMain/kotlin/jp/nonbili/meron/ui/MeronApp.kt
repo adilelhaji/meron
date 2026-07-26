@@ -424,6 +424,12 @@ private fun MeronMobileScreenContent(
                                     "WARN" -> Log.w(tag, message)
                                     else -> Log.e(tag, message)
                                 }
+                                // A core panic aborts the process right after
+                                // this line, so mark it here; the JVM crash
+                                // handler never runs for a native abort.
+                                if (tag == "core/panic") {
+                                    mobileHost.noteCoreCrash(message)
+                                }
                             }
                         }
                     }
@@ -1245,6 +1251,21 @@ private fun MeronMobileScreenContent(
                     loadChangelog()
                 },
                 onDismiss = { showAboutDialog = false },
+            )
+        }
+
+        if (pendingCrashReport.isNotBlank()) {
+            CrashReportDialog(
+                summary = pendingCrashReport,
+                onSend = {
+                    pendingCrashReport = ""
+                    mobileHost.clearPendingCrashReport()
+                    mobileHost.shareDiagnosticLog()
+                },
+                onDismiss = {
+                    pendingCrashReport = ""
+                    mobileHost.clearPendingCrashReport()
+                },
             )
         }
 

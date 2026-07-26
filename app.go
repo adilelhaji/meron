@@ -45,6 +45,7 @@ type App struct {
 func NewApp() *App {
 	loadDotEnvLocal()
 	logger, logFile := openAppLog()
+	captureCrashes(logFile)
 	return &App{logger: logger, logFile: logFile}
 }
 
@@ -104,9 +105,10 @@ func (a *App) Shutdown(ctx context.Context) {
 	}
 }
 
-func (a *App) Invoke(command string, payload map[string]any) (any, error) {
+func (a *App) Invoke(command string, payload map[string]any) (result any, err error) {
 	start := time.Now()
-	result, err := a.invoke(command, payload)
+	defer a.recoverInvoke(command, &err)
+	result, err = a.invoke(command, payload)
 	if err != nil {
 		a.logf("invoke %s failed after %s: %v", command, time.Since(start).Round(time.Millisecond), err)
 	} else {

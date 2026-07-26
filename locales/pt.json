@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Reiniciar e instalar",
   "updates.retry": "Tentar novamente",
   "updates.upToDate": "O Meron está atualizado",
-  "updates.windowsPermissionHint": "O Windows pode pedir permissão para executar o instalador."
+  "updates.windowsPermissionHint": "O Windows pode pedir permissão para executar o instalador.",
+  "crash.title": "O Meron falhou da última vez",
+  "crash.body": "Foi guardado um relatório neste dispositivo. Ao enviar, abre-se a folha de partilha com o registo, para que o possa ler primeiro. Os endereços de email são ocultados.",
+  "crash.send": "Enviar relatório",
+  "crash.notNow": "Agora não"
 }

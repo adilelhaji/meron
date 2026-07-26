@@ -80,6 +80,21 @@ interface MobileHost {
      *  is kept. */
     fun shareDiagnosticLog() {}
 
+    /** One-line summary of a crash from a previous run that the user has not
+     *  been asked about yet, or "" when the last run ended cleanly. Drives the
+     *  next-launch "send report?" prompt; crash details stay on the device
+     *  until the user shares them. Empty where crashes aren't captured. */
+    fun pendingCrashReport(): String = ""
+
+    /** Forget the pending crash, so the prompt appears once per crash —
+     *  whether the user shared the log or declined. */
+    fun clearPendingCrashReport() {}
+
+    /** Record a Rust core panic as a pending crash. The panic aborts the
+     *  process without raising a platform exception, so the crash handler
+     *  never sees it; the log line is the only signal. */
+    fun noteCoreCrash(summary: String) {}
+
     fun notifyNewMail(
         accountName: String,
         from: String,

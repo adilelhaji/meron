@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Uruchom ponownie i zainstaluj",
   "updates.retry": "Spróbuj ponownie",
   "updates.upToDate": "Meron jest aktualny",
-  "updates.windowsPermissionHint": "System Windows może poprosić o zgodę na uruchomienie instalatora."
+  "updates.windowsPermissionHint": "System Windows może poprosić o zgodę na uruchomienie instalatora.",
+  "crash.title": "Meron uległ awarii ostatnim razem",
+  "crash.body": "Raport został zapisany na tym urządzeniu. Wysłanie otwiera panel udostępniania z dziennikiem, więc możesz go najpierw przeczytać. Adresy e-mail są zamaskowane.",
+  "crash.send": "Wyślij raport",
+  "crash.notNow": "Nie teraz"
 }

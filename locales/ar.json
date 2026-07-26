@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "إعادة التشغيل والتثبيت",
   "updates.retry": "حاول مرة أخرى",
   "updates.upToDate": "Meron محدَّث",
-  "updates.windowsPermissionHint": "قد يطلب Windows إذنًا لتشغيل المثبّت."
+  "updates.windowsPermissionHint": "قد يطلب Windows إذنًا لتشغيل المثبّت.",
+  "crash.title": "تعطل Meron في المرة السابقة",
+  "crash.body": "تم حفظ تقرير على هذا الجهاز. عند الإرسال ستُفتح ورقة المشاركة مع السجل حتى تتمكن من قراءته أولاً. عناوين البريد الإلكتروني مُخفاة.",
+  "crash.send": "إرسال التقرير",
+  "crash.notNow": "ليس الآن"
 }

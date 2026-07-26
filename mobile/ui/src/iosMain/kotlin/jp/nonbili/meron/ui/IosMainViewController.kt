@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.BetaInteropApi::class, kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package jp.nonbili.meron.ui
 
 import androidx.compose.foundation.ComposeFoundationFlags
@@ -5,11 +7,15 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.ui.window.ComposeUIViewController
 import jp.nonbili.meron.shared.MeronCore
 import kotlinx.cinterop.ExperimentalForeignApi
+import kotlinx.cinterop.cstr
+import kotlinx.cinterop.memScoped
 import platform.AuthenticationServices.ASPresentationAnchor
 import platform.AuthenticationServices.ASWebAuthenticationPresentationContextProvidingProtocol
 import platform.AuthenticationServices.ASWebAuthenticationSession
 import platform.Foundation.NSApplicationSupportDirectory
 import platform.Foundation.NSBundle
+import platform.Foundation.NSDate
+import platform.Foundation.NSDateFormatter
 import platform.Foundation.NSError
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSNotificationCenter
@@ -18,7 +24,9 @@ import platform.Foundation.NSString
 import platform.Foundation.NSURL
 import platform.Foundation.NSUTF8StringEncoding
 import platform.Foundation.NSUserDomainMask
+import platform.Foundation.create
 import platform.Foundation.stringWithContentsOfFile
+import platform.Foundation.writeToFile
 import platform.UIKit.UIActivityViewController
 import platform.UIKit.UIApplication
 import platform.UIKit.UIApplicationOpenSettingsURLString
@@ -101,6 +109,7 @@ private class IosMobileHost(
     private var authorizationDetermined = false
 
     init {
+        Log.diagnosticSink = { line -> appendIosDiagnosticLog(line) }
         refreshNotificationAuthorization()
         // Re-check when the app returns to the foreground: the user may have
         // toggled notifications in the Settings app.
@@ -122,6 +131,16 @@ private class IosMobileHost(
             "Account emails below are masked to only the first letter and domain (e.g. j***@gmail.com).\n" +
                 "Review before sharing.\n\n"
         presentDiagnosticLogShareSheet(disclosure + body)
+    }
+
+    override fun pendingCrashReport(): String = readIosCrashMarker()
+
+    override fun clearPendingCrashReport() {
+        clearIosCrashMarker()
+    }
+
+    override fun noteCoreCrash(summary: String) {
+        writeIosCrashMarker(summary)
     }
 
     override fun notificationsEnabled(): Boolean = notificationsGranted
@@ -162,16 +181,76 @@ private class IosMobileHost(
 // on the Swift side (both read/write the same app-support-directory file).
 @OptIn(ExperimentalForeignApi::class)
 private fun readSyncDiagnosticLog(): String {
+    val path = iosDiagnosticPath("sync-diagnostic.log") ?: return ""
+    return NSString.stringWithContentsOfFile(path, encoding = NSUTF8StringEncoding, error = null) ?: ""
+}
+
+private val iosEmailRegex = Regex("[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}")
+
+private fun redactIosLogMessage(message: String): String =
+    iosEmailRegex.replace(message) { match ->
+        val email = match.value
+        val at = email.indexOf('@')
+        if (at <= 0) "***" else "${email.first()}***${email.substring(at)}"
+    }
+
+private fun iosDiagnosticPath(fileName: String): String? {
     val base =
         NSFileManager.defaultManager
             .URLsForDirectory(NSApplicationSupportDirectory, NSUserDomainMask)
-            .firstOrNull() as? NSURL ?: return ""
-    val path =
-        base
-            .URLByAppendingPathComponent("Meron", isDirectory = true)
-            ?.URLByAppendingPathComponent("sync-diagnostic.log")
-            ?.path ?: return ""
-    return NSString.stringWithContentsOfFile(path, encoding = NSUTF8StringEncoding, error = null) ?: ""
+            .firstOrNull() as? NSURL ?: return null
+    return base
+        .URLByAppendingPathComponent("Meron", isDirectory = true)
+        ?.URLByAppendingPathComponent(fileName)
+        ?.path
+}
+
+private fun diagnosticTimestamp(): String {
+    val formatter = NSDateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    return formatter.stringFromDate(NSDate())
+}
+
+private fun appendIosDiagnosticLog(message: String) {
+    val path = iosDiagnosticPath("sync-diagnostic.log") ?: return
+    val existing = NSString.stringWithContentsOfFile(path, encoding = NSUTF8StringEncoding, error = null).orEmpty()
+    val lines =
+        (
+            existing.trimEnd().lines().filter { it.isNotEmpty() } +
+                "${diagnosticTimestamp()} ${redactIosLogMessage(message)}"
+        ).takeLast(500)
+    writeIosTextFile(path, lines.joinToString("\n") + "\n")
+}
+
+private fun writeIosCrashMarker(summary: String) {
+    val path = iosDiagnosticPath("pending-crash.txt") ?: return
+    writeIosTextFile(path, "${diagnosticTimestamp()} ${redactIosLogMessage(summary)}\n")
+}
+
+private fun readIosCrashMarker(): String {
+    val path = iosDiagnosticPath("pending-crash.txt") ?: return ""
+    return NSString.stringWithContentsOfFile(path, encoding = NSUTF8StringEncoding, error = null)?.trim().orEmpty()
+}
+
+private fun clearIosCrashMarker() {
+    val path = iosDiagnosticPath("pending-crash.txt") ?: return
+    NSFileManager.defaultManager.removeItemAtPath(path, error = null)
+}
+
+private fun writeIosTextFile(
+    path: String,
+    contents: String,
+) {
+    val nsContents =
+        memScoped {
+            NSString.create(cString = contents.cstr.ptr, encoding = NSUTF8StringEncoding)
+        } ?: return
+    nsContents.writeToFile(
+        path,
+        atomically = true,
+        encoding = NSUTF8StringEncoding,
+        error = null,
+    )
 }
 
 @OptIn(ExperimentalForeignApi::class)

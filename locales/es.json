@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Reiniciar e instalar",
   "updates.retry": "Reintentar",
   "updates.upToDate": "Meron está actualizado",
-  "updates.windowsPermissionHint": "Windows puede pedir permiso para ejecutar el instalador."
+  "updates.windowsPermissionHint": "Windows puede pedir permiso para ejecutar el instalador.",
+  "crash.title": "Meron se cerró inesperadamente la última vez",
+  "crash.body": "Se guardó un informe en este dispositivo. Al enviarlo se abre la hoja para compartir con el registro, para que puedas leerlo antes. Las direcciones de correo están ocultas.",
+  "crash.send": "Enviar informe",
+  "crash.notNow": "Ahora no"
 }

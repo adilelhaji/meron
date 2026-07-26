@@ -220,6 +220,10 @@ internal class MeronMobileState(
     var rssAccountAdding by mutableStateOf(false)
     var showAboutDialog by mutableStateOf(false)
     var showChangelogDialog by mutableStateOf(false)
+
+    // Summary of a crash from the previous run, read once at startup; blank
+    // when the last run ended cleanly. Clearing it hides the report prompt.
+    var pendingCrashReport by mutableStateOf(mobileHost.pendingCrashReport())
     var pendingOpmlExport by mutableStateOf("")
     var accountMediaUploadTarget by mutableStateOf<AccountMediaUploadTarget?>(null)
     var kanbanBoardMediaTarget by mutableStateOf<KanbanBoardMediaTarget?>(null)

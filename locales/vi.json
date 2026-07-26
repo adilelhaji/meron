@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Khởi động lại và cài đặt",
   "updates.retry": "Thử lại",
   "updates.upToDate": "Meron đã ở phiên bản mới nhất",
-  "updates.windowsPermissionHint": "Windows có thể yêu cầu quyền để chạy trình cài đặt."
+  "updates.windowsPermissionHint": "Windows có thể yêu cầu quyền để chạy trình cài đặt.",
+  "crash.title": "Meron đã gặp sự cố lần trước",
+  "crash.body": "Một báo cáo đã được lưu trên thiết bị này. Khi gửi, bảng chia sẻ sẽ mở kèm nhật ký để bạn đọc trước. Địa chỉ email được che bớt.",
+  "crash.send": "Gửi báo cáo",
+  "crash.notNow": "Để sau"
 }

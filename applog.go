@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"strings"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -52,6 +53,31 @@ func (a *App) logRead() (any, error) {
 		return nil, err
 	}
 	return map[string]any{"log": tail}, nil
+}
+
+// captureCrashes routes Go runtime crash tracebacks into meron.log. The runtime
+// writes an unrecovered panic straight to fd 2, which is lost for a windowed
+// app (no terminal attached), so the one thing worth having after a crash would
+// otherwise never reach the log the user can export.
+func captureCrashes(logFile *os.File) {
+	if logFile == nil {
+		return
+	}
+	// Errors here are not actionable — a missing traceback is no reason to
+	// refuse to start — and the log stays usable either way.
+	_ = debug.SetCrashOutput(logFile, debug.CrashOptions{})
+}
+
+// recoverInvoke turns a panic in a bridge call into a logged error instead of a
+// dead app: one bad message or malformed payload should not take the window
+// down. The traceback goes to the log so the crash is still diagnosable.
+func (a *App) recoverInvoke(command string, err *error) {
+	panicked := recover()
+	if panicked == nil {
+		return
+	}
+	a.logf("invoke %s panicked: %v\n%s", command, panicked, debug.Stack())
+	*err = fmt.Errorf("internal error in %s: %v", command, panicked)
 }
 
 // logExport writes the redacted log tail to a user-chosen path via a native

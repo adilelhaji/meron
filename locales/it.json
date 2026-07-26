@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Riavvia e installa",
   "updates.retry": "Riprova",
   "updates.upToDate": "Meron è aggiornato",
-  "updates.windowsPermissionHint": "Windows potrebbe chiedere l'autorizzazione per eseguire il programma di installazione."
+  "updates.windowsPermissionHint": "Windows potrebbe chiedere l'autorizzazione per eseguire il programma di installazione.",
+  "crash.title": "Meron si è chiuso in modo anomalo l'ultima volta",
+  "crash.body": "È stato salvato un rapporto su questo dispositivo. L'invio apre il pannello di condivisione con il registro, così puoi leggerlo prima. Gli indirizzi email sono mascherati.",
+  "crash.send": "Invia rapporto",
+  "crash.notNow": "Non ora"
 }

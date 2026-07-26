@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Yeniden başlat ve kur",
   "updates.retry": "Yeniden dene",
   "updates.upToDate": "Meron güncel",
-  "updates.windowsPermissionHint": "Windows, kurulum programını çalıştırmak için izin isteyebilir."
+  "updates.windowsPermissionHint": "Windows, kurulum programını çalıştırmak için izin isteyebilir.",
+  "crash.title": "Meron geçen sefer çöktü",
+  "crash.body": "Bu cihaza bir rapor kaydedildi. Göndermek, günlüğü paylaşım sayfasında açar; böylece önce okuyabilirsiniz. E-posta adresleri gizlenir.",
+  "crash.send": "Raporu gönder",
+  "crash.notNow": "Şimdi değil"
 }

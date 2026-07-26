@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "Restartēt un instalēt",
   "updates.retry": "Mēģināt vēlreiz",
   "updates.upToDate": "Meron ir aktuāls",
-  "updates.windowsPermissionHint": "Windows var pieprasīt atļauju palaist instalētāju."
+  "updates.windowsPermissionHint": "Windows var pieprasīt atļauju palaist instalētāju.",
+  "crash.title": "Meron pēdējoreiz avarēja",
+  "crash.body": "Atskaite ir saglabāta šajā ierīcē. Nosūtot tiek atvērta kopīgošanas izvēlne ar žurnālu, lai tu to vispirms varētu izlasīt. E-pasta adreses ir maskētas.",
+  "crash.send": "Nosūtīt atskaiti",
+  "crash.notNow": "Ne tagad"
 }

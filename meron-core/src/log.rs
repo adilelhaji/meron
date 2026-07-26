@@ -72,6 +72,39 @@ macro_rules! mlog {
     };
 }
 
+/// Route panics through [`emit`] so they survive where stderr does not: on
+/// mobile the host forwards them to Logcat / os_log and the shareable
+/// diagnostic log, on desktop the sidecar's stderr already lands in meron.log.
+/// The previous hook still runs afterwards, keeping the default backtrace.
+///
+/// Idempotent: repeated calls (each mobile `ffi::init`) install the hook once.
+pub fn install_panic_hook() {
+    static INSTALLED: std::sync::Once = std::sync::Once::new();
+    INSTALLED.call_once(|| {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |info| {
+            let location = info
+                .location()
+                .map(|l| format!("{}:{}", l.file(), l.line()))
+                .unwrap_or_else(|| "unknown location".to_string());
+            let message = info
+                .payload()
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| info.payload().downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "panic".to_string());
+            let thread = std::thread::current();
+            let thread = thread.name().unwrap_or("unnamed").to_string();
+            emit(
+                Level::Error,
+                "panic",
+                &format!("core panic in thread '{thread}' at {location}: {message}"),
+            );
+            previous(info);
+        }));
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Level, enabled};

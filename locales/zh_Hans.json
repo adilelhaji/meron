@@ -853,5 +853,9 @@
   "updates.restartAndInstall": "重启并安装",
   "updates.retry": "重试",
   "updates.upToDate": "Meron 已是最新版本",
-  "updates.windowsPermissionHint": "Windows 可能会请求运行安装程序的权限。"
+  "updates.windowsPermissionHint": "Windows 可能会请求运行安装程序的权限。",
+  "crash.title": "Meron 上次崩溃了",
+  "crash.body": "报告已保存在此设备上。发送时会打开分享面板并附上日志，你可以先查看内容。邮箱地址已做遮蔽处理。",
+  "crash.send": "发送报告",
+  "crash.notNow": "暂不"
 }

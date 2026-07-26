@@ -496,6 +496,10 @@ fn init_mobile_core(data_dir: &str, db_key: Option<&str>) -> serde_json::Value {
             json!({ "level": level.as_str(), "tag": tag, "message": message }),
         );
     }));
+    // A panic unwinding out of an `extern "C"` entry point aborts the process,
+    // so the host never sees a Kotlin/Swift exception. The hook runs first and
+    // gets the panic into the diagnostic log before the abort.
+    crate::log::install_panic_hook();
     serde_json::json!({
         "ok": true,
         "protocol": PROTOCOL_VERSION,
