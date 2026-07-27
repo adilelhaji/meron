@@ -32,6 +32,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -52,7 +53,7 @@ import kotlinx.coroutines.launch
 
 // Full-screen reader for a single message — the mobile equivalent of the desktop
 // "open in new tab" reader, showing the full header plus the message body.
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 internal fun MessageReaderScreen(
     message: MessageBody,
@@ -75,6 +76,8 @@ internal fun MessageReaderScreen(
     var dismissedByPull by remember(message.id) { mutableStateOf(false) }
     var isAnimating by remember(message.id) { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    BackHandler(onBack = onBack)
 
     suspend fun handleDragRelease(velocityY: Float) {
         isAnimating = true

@@ -97,7 +97,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 internal fun ThreadScreen(
     thread: ThreadSummary?,
@@ -159,6 +159,10 @@ internal fun ThreadScreen(
     var moveDialogOpen by remember(thread?.id) { mutableStateOf(false) }
     var copyDialogOpen by remember(thread?.id) { mutableStateOf(false) }
     var overflowOpen by remember(thread?.id) { mutableStateOf(false) }
+    val closeSearch = {
+        threadSearch = ""
+        searchOpen = false
+    }
     val normalizedSearch = threadSearch.trim().lowercase()
     val currentThreadAccountId = thread?.accountId.orEmpty()
     val currentThreadFolder = thread?.folder.orEmpty()
@@ -189,6 +193,10 @@ internal fun ThreadScreen(
         }
     val activeSearchId = searchMatches.getOrNull(activeSearchIndex).orEmpty()
     val listState = rememberLazyListState()
+    BackHandler(
+        enabled = searchOpen && !detailsOpen && readerMessage == null && galleryIndex == null,
+        onBack = closeSearch,
+    )
     // One-shot positioning when the thread's messages first arrive, mirroring
     // desktop: jump to the first unread message, or the newest when all read.
     var openScrollPositioned by remember(thread?.id) { mutableStateOf(false) }
@@ -486,10 +494,7 @@ internal fun ThreadScreen(
                         canNavigate = searchMatches.isNotEmpty(),
                         onPrevious = { goToSearchMatch(-1) },
                         onNext = { goToSearchMatch(1) },
-                        onClose = {
-                            threadSearch = ""
-                            searchOpen = false
-                        },
+                        onClose = closeSearch,
                     )
                 }
                 Box(Modifier.weight(1f).fillMaxWidth()) {

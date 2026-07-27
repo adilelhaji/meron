@@ -546,10 +546,8 @@ internal fun MailRouteContent(
     mailSelectionActive: Boolean,
     selectedMailThreads: List<ThreadSummary>,
     importOpml: (PickedFile?) -> Unit,
+    mailListStates: MutableMap<MailboxCacheKey, LazyListState>,
 ) {
-    // This owner remains composed while loading and empty states replace the
-    // list, so visiting an empty filter cannot discard the saved positions.
-    val mailListStates = remember { mutableMapOf<MailboxCacheKey, LazyListState>() }
     with(state) {
         val mailListKey =
             visibleMailboxKey
