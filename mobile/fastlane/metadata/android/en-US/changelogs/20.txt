@@ -1,0 +1,1 @@
+- Exclude unused x86 native libraries to optimize APK packaging
