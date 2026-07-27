@@ -30,6 +30,11 @@ Install from Microsoft Store, Flathub, Snap Store, Google Play, App Store, or do
       hspace="8"
       height="50">](https://github.com/nonbili/meron/releases)
 
+The Linux AppImage and tarball use the system WebKit, so they need
+`webkit2gtk-4.1` installed (`libwebkit2gtk-4.1-0` on Debian/Ubuntu,
+`webkit2gtk4.1` on Fedora, `webkit2gtk-4.1` on Arch). The Flatpak and snap
+bundle their own and need nothing extra.
+
 ## Screenshots
 
 | Unified inbox | Kanban board |

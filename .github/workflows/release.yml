@@ -221,12 +221,10 @@ jobs:
           set -euo pipefail
           mkdir -p dist
           base="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous"
-          gtkbase="https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/master"
+          aibase="https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/continuous"
           curl -fsSL -o linuxdeploy "$base/linuxdeploy-x86_64.AppImage"
-          curl -fsSL -o linuxdeploy-plugin-gtk.sh "$gtkbase/linuxdeploy-plugin-gtk.sh"
-          chmod +x linuxdeploy linuxdeploy-plugin-gtk.sh
-          # linuxdeploy discovers plugins by name (linuxdeploy-plugin-gtk) on PATH.
-          export PATH="$PWD:$PATH"
+          curl -fsSL -o linuxdeploy-plugin-appimage "$aibase/linuxdeploy-plugin-appimage-x86_64.AppImage"
+          chmod +x linuxdeploy linuxdeploy-plugin-appimage
 
           rm -rf AppDir && mkdir -p AppDir/usr/bin
           cp build/bin/meron AppDir/usr/bin/meron
@@ -234,9 +232,26 @@ jobs:
             --executable AppDir/usr/bin/meron \
             --desktop-file build/linux/meron.desktop \
             --icon-file build/appicon_512.png \
-            --icon-filename meron \
-            --plugin gtk \
-            --output appimage
+            --icon-filename meron
+
+          # Ship no libraries: the app uses the host's GTK and WebKit.
+          #
+          # A bundled libwebkit2gtk cannot work off Debian/Ubuntu. It spawns its
+          # helper processes (WebKitNetworkProcess et al) from a path compiled
+          # into the library — /usr/lib/x86_64-linux-gnu/webkit2gtk-4.1 here —
+          # and distro builds compile out the WEBKIT_EXEC_PATH override, so on
+          # e.g. Fedora it aborts with "Failed to spawn child process".
+          #
+          # Keeping the GTK/glib stack while dropping only WebKit is worse: the
+          # host WebKit would resolve glib against the older bundled copy and
+          # die on missing symbols. So the AppImage carries just the binary and
+          # requires webkit2gtk-4.1 on the host (documented in the README),
+          # which every distro that can run the tarball already provides.
+          rm -rf AppDir/usr/lib && mkdir -p AppDir/usr/lib
+
+          # linuxdeploy re-resolves dependencies whenever it touches an AppDir,
+          # so package via the plugin directly to keep usr/lib empty.
+          ./linuxdeploy-plugin-appimage --appdir AppDir
 
       - name: stage snap payload
         if: startsWith(matrix.os, 'ubuntu')
