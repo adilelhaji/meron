@@ -67,6 +67,22 @@ const READER_CSS = `
     color: inherit;
     font: inherit;
   }
+  table.code .diff-line-num {
+    width: 35px !important;
+    min-width: 35px;
+    white-space: nowrap;
+  }
+  :is(td, th).line_content pre {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
+  :is(td, th).line_content pre code {
+    min-width: 0;
+  }
   code {
     border-radius: 4px;
     background: #eef2f7;
@@ -184,8 +200,9 @@ export function stripTrackingPixels(html: string): string {
 }
 
 // Apply the reader-width layout to a rendered frame document: inject the reader
-// stylesheet, wrap each <pre> with a copy-code button, and force media to fit.
-// Runs in the frontend so already-stored feed HTML gets the same treatment.
+// stylesheet, wrap standalone <pre> elements with copy-code buttons, and force
+// media to fit. Runs in the frontend so already-stored feed HTML gets the same
+// treatment.
 export function applyReaderLayout(doc: Document) {
   if (!doc.getElementById(READER_STYLE_ID)) {
     const style = doc.createElement('style')
@@ -196,6 +213,7 @@ export function applyReaderLayout(doc: Document) {
 
   for (const pre of doc.querySelectorAll<HTMLPreElement>('pre')) {
     if (pre.closest('.meron-code-block')) continue
+    if (pre.closest('td.line_content, th.line_content')) continue
 
     const wrapper = doc.createElement('div')
     wrapper.className = 'meron-code-block'

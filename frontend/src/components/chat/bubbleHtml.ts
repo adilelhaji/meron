@@ -63,6 +63,29 @@ export function prepareBubbleHtml(html: string) {
         color: inherit;
         font: inherit;
       }
+      /* GitLab email diffs render each line-content cell as a <pre>. Forcing
+         \`white-space: pre\` there gives the cell a max-content floor the table
+         can't shrink below, so let those diff rows wrap instead. */
+      table.code .diff-line-num {
+        width: 35px !important;
+        min-width: 35px;
+        white-space: nowrap;
+      }
+      :is(td, th).line_content pre {
+        margin: 0 !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+      }
+      :is(td, th).line_content pre code { min-width: 0; }
+      /* Escape hatch for content that still can't shrink (fixed-width layout
+         tables): scroll it rather than clip it. */
+      .meron-table-scroll {
+        max-width: 100%;
+        overflow-x: auto;
+      }
       a { color: #4f46e5; }
       .meron-code-block {
         position: relative;

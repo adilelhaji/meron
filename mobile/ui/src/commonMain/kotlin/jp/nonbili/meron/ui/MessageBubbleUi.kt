@@ -395,6 +395,24 @@ internal fun HtmlMessageBody(
                   max-width: 100% !important;
                   width: auto !important;
                 }
+                table.code .diff-line-num {
+                  width: 35px !important;
+                  min-width: 35px;
+                  white-space: nowrap;
+                }
+                td.line_content pre,
+                th.line_content pre {
+                  margin: 0 !important;
+                  padding: 0 !important;
+                  border: 0 !important;
+                  border-radius: 0;
+                  overflow-wrap: anywhere;
+                  white-space: pre-wrap;
+                }
+                td.line_content pre code,
+                th.line_content pre code {
+                  min-width: 0;
+                }
                 img {
                   max-width: 100% !important;
                   height: auto !important;

@@ -23,8 +23,8 @@ function clampHeight(height: number) {
 }
 
 // Renders an email's HTML body in a self-sizing sandboxed iframe, wraps each
-// <pre> in a copy-code affordance and tracks the content height so the frame
-// grows to fit while the bubble wrapper owns scrolling.
+// standalone <pre> in a copy-code affordance and tracks the content height so
+// the frame grows to fit while the bubble wrapper owns scrolling.
 export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHover?: (url: string | null) => void }) {
   const { t } = useTranslation()
   const cacheKey = useMemo(() => cacheKeyForHtml(html), [html])
@@ -124,6 +124,7 @@ export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHov
       }
 
       const measure = () => {
+        wrapOverflowingTables()
         const bodyRect = doc.body?.getBoundingClientRect()
         const bodyHeight = bodyRect ? bodyRect.top + bodyRect.height : 0
         const nextHeight = clampHeight(
@@ -138,8 +139,31 @@ export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHov
         commitHeight(nextHeight)
       }
 
+      // The body can't scroll sideways (the frame is `scrolling="no"` so it can
+      // self-size), so anything wider than the frame would be clipped outright.
+      // Give the outermost overflowing table its own horizontal scroller.
+      const wrapOverflowingTables = () => {
+        const limit = doc.documentElement?.clientWidth ?? 0
+        if (!limit) return
+        for (const table of doc.querySelectorAll<HTMLTableElement>('table')) {
+          if (table.closest('.meron-table-scroll')) continue
+          const rect = table.getBoundingClientRect()
+          const overflowsFrame = rect.left < -1 || rect.right > limit + 1
+          const overflowsItself = table.scrollWidth > table.clientWidth + 1
+          if (!overflowsFrame && !overflowsItself) continue
+
+          const wrapper = doc.createElement('div')
+          wrapper.className = 'meron-table-scroll'
+          table.parentNode?.insertBefore(wrapper, table)
+          wrapper.appendChild(table)
+        }
+      }
+
       for (const pre of doc.querySelectorAll<HTMLPreElement>('pre')) {
         if (pre.closest('.meron-code-block')) continue
+        // GitLab diff rows use one <pre> per line-content cell; wrapping each
+        // one would add a copy button and block padding to every diff row.
+        if (pre.closest('td.line_content, th.line_content')) continue
 
         const wrapper = doc.createElement('div')
         wrapper.className = 'meron-code-block'
