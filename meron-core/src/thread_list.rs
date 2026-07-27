@@ -37,8 +37,13 @@ pub struct SearchCursor {
     pub date: i64,
     pub uid: u32,
     pub folder: String,
-    /// Number of newest server hits already considered per searched folder.
+    /// Legacy progressive-scan position, retained so an in-flight cursor minted
+    /// by the previous release can fall back to cached keyset paging.
     pub scanned: u32,
+    /// Stable live-result snapshot and next position. Absent on cache-only
+    /// cursors and cursors minted by versions before search snapshots.
+    pub snapshot: Option<String>,
+    pub offset: u32,
 }
 
 impl ThreadListQuery {
@@ -120,6 +125,22 @@ pub fn parse_mail_cursor(cursor: &str) -> Option<(i64, u32)> {
 
 /// `search:<date>:<uid>:<scanned>:<base64-folder>` cursor for a merged page.
 pub fn parse_search_cursor(cursor: &str) -> Option<SearchCursor> {
+    if let Some(rest) = cursor.strip_prefix("search2:") {
+        let mut parts = rest.splitn(5, ':');
+        let date = parts.next()?.parse().ok()?;
+        let uid = parts.next()?.parse().ok()?;
+        let offset = parts.next()?.parse().ok()?;
+        let snapshot = String::from_utf8(URL_SAFE_NO_PAD.decode(parts.next()?).ok()?).ok()?;
+        let folder = String::from_utf8(URL_SAFE_NO_PAD.decode(parts.next()?).ok()?).ok()?;
+        return Some(SearchCursor {
+            date,
+            uid,
+            folder,
+            scanned: 0,
+            snapshot: Some(snapshot),
+            offset,
+        });
+    }
     let rest = cursor.strip_prefix("search:")?;
     let mut parts = rest.splitn(4, ':');
     let date = parts.next()?.parse().ok()?;
@@ -131,10 +152,22 @@ pub fn parse_search_cursor(cursor: &str) -> Option<SearchCursor> {
         uid,
         folder,
         scanned,
+        snapshot: None,
+        offset: 0,
     })
 }
 
 pub fn format_search_cursor(cursor: &SearchCursor) -> String {
+    if let Some(snapshot) = &cursor.snapshot {
+        return format!(
+            "search2:{}:{}:{}:{}:{}",
+            cursor.date,
+            cursor.uid,
+            cursor.offset,
+            URL_SAFE_NO_PAD.encode(snapshot.as_bytes()),
+            URL_SAFE_NO_PAD.encode(cursor.folder.as_bytes())
+        );
+    }
     format!(
         "search:{}:{}:{}:{}",
         cursor.date,
@@ -142,15 +175,6 @@ pub fn format_search_cursor(cursor: &SearchCursor) -> String {
         cursor.scanned,
         URL_SAFE_NO_PAD.encode(cursor.folder.as_bytes())
     )
-}
-
-/// Expand the live-search window by one page. Re-fetching the prefix preserves
-/// unconsumed hits from either merged folder without downloading every match.
-pub fn search_scan_limit(cursor: Option<&SearchCursor>, limit: u32) -> u32 {
-    cursor
-        .map(|cursor| cursor.scanned)
-        .unwrap_or_default()
-        .saturating_add(limit)
 }
 
 /// Feed accounts: one card per subscription, filtered like a mail folder.
@@ -260,13 +284,23 @@ mod tests {
             uid: 7,
             folder: "Sent: 日本語".to_string(),
             scanned: 50,
+            snapshot: None,
+            offset: 0,
         };
         assert_eq!(
             parse_search_cursor(&format_search_cursor(&cursor)),
             Some(cursor.clone())
         );
-        assert_eq!(search_scan_limit(None, 50), 50);
-        assert_eq!(search_scan_limit(Some(&cursor), 50), 100);
+        let snapshot_cursor = SearchCursor {
+            scanned: 0,
+            snapshot: Some("opaque token".to_string()),
+            offset: 50,
+            ..cursor
+        };
+        assert_eq!(
+            parse_search_cursor(&format_search_cursor(&snapshot_cursor)),
+            Some(snapshot_cursor)
+        );
     }
 
     #[test]

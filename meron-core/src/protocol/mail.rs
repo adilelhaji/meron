@@ -511,7 +511,7 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
             // fallback must cover the same mailboxes, or losing the network
             // would silently drop the Sent hits from the results.
             let folders = mobile_search_folders(data_dir, &account_id, &folder_id)?;
-            let messages = match search_live_mobile_mail_messages(
+            let (messages, next_cursor) = match search_live_mobile_mail_messages(
                 data_dir,
                 &account_id,
                 &folders,
@@ -519,26 +519,25 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
                 limit,
                 request.search_before_cursor.as_ref(),
             ) {
-                Ok(messages) => messages,
+                Ok(page) => (page.messages, page.next_cursor),
                 Err(err) => {
                     crate::mlog!(
                         crate::log::Level::Warn,
                         "mail.search",
                         "live search failed for account={account_id} folder={folder_id}: {err}"
                     );
-                    search_cached_mobile_mail_messages(
+                    let messages = search_cached_mobile_mail_messages(
                         data_dir,
                         &account_id,
                         &folders,
                         &request.query,
                         limit,
                         request.search_before_cursor.as_ref(),
-                    )?
+                    )?;
+                    let next_cursor = store::search_next_cursor(&messages, limit, 0);
+                    (messages, next_cursor)
                 }
             };
-            let scanned =
-                thread_list::search_scan_limit(request.search_before_cursor.as_ref(), limit);
-            let next_cursor = store::search_next_cursor(&messages, limit, scanned);
             (messages, next_cursor)
         }
     };
@@ -685,7 +684,7 @@ fn search_live_mobile_mail_messages(
     query: &str,
     limit: u32,
     before_cursor: Option<&crate::thread_list::SearchCursor>,
-) -> Result<Vec<MessageHeader>, String> {
+) -> Result<crate::engine::SearchMailPage, String> {
     let engine = crate::ffi::engine_for(data_dir)?;
     if engine.is_paused(account_id) {
         return Err(format!("account is paused: {account_id}"));

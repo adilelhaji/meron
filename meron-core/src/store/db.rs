@@ -118,6 +118,22 @@ CREATE TABLE IF NOT EXISTS observed_mail_identities (
 );
 ";
 
+const MAIL_SEARCH_HITS_DDL: &str = "
+CREATE TABLE IF NOT EXISTS mail_search_hits (
+  token      TEXT NOT NULL,
+  account    TEXT NOT NULL,
+  query      TEXT NOT NULL,
+  scope      TEXT NOT NULL,
+  position   INTEGER NOT NULL,
+  folder     TEXT NOT NULL,
+  uid        INTEGER NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (token, position)
+);
+CREATE INDEX IF NOT EXISTS mail_search_hits_created_idx
+  ON mail_search_hits(account, created_at);
+";
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
@@ -398,6 +414,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 6 {
         migrate_v6(&tx)?;
     }
+    if version < 7 {
+        migrate_v7(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -475,6 +494,15 @@ fn migrate_v6(conn: &Connection) -> Result<()> {
         "INSERT INTO messages_recipients_fts(messages_recipients_fts) VALUES('rebuild');",
     )?;
     conn.execute_batch("PRAGMA user_version = 6;")?;
+    Ok(())
+}
+
+/// Stable server-search snapshots. IMAP SEARCH returns an unordered UID set,
+/// while the UI pages by message date; retaining the resolved order prevents a
+/// later page from losing messages whose Date header does not follow UID order.
+fn migrate_v7(conn: &Connection) -> Result<()> {
+    conn.execute_batch(MAIL_SEARCH_HITS_DDL)?;
+    conn.execute_batch("PRAGMA user_version = 7;")?;
     Ok(())
 }
 

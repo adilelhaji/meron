@@ -811,9 +811,49 @@ fn thread_gap_search_folders(
 /// only ordering comparable across mailboxes. Each returned header carries its
 /// source `folder` so the bridge can build per-message thread IDs correctly.
 ///
-/// `before_cursor` pages *within* the result set. Every page repeats the live
-/// search because a server-side TEXT hit may not have a locally cached body and
-/// therefore cannot reliably be reconstructed from the store alone.
+/// A first page resolves the complete live UID set into date order and persists
+/// that order as a lightweight snapshot. Later pages walk the snapshot, so a
+/// sender-controlled Date header cannot move a low UID behind an already-issued
+/// cursor and transient disconnects do not invalidate an in-progress search.
+pub struct SearchMailPage {
+    pub messages: Vec<imap::MessageHeader>,
+    pub next_cursor: Option<String>,
+}
+
+fn cached_search_mail_page(
+    conn: &Connection,
+    account: &str,
+    folders: &[String],
+    query: &str,
+    limit: u32,
+    before_cursor: Option<&crate::thread_list::SearchCursor>,
+) -> anyhow::Result<SearchMailPage> {
+    let messages =
+        store::search_messages_in_folders(conn, account, folders, query, limit, before_cursor)?;
+    let next_cursor = store::search_next_cursor(&messages, limit, 0);
+    Ok(SearchMailPage {
+        messages,
+        next_cursor,
+    })
+}
+
+fn record_search_folder_result(
+    folder: &str,
+    result: anyhow::Result<Vec<imap::MessageHeader>>,
+    successes: &mut Vec<(String, Vec<imap::MessageHeader>)>,
+    failures: &mut Vec<(String, String)>,
+) {
+    match result {
+        Ok(mut headers) => {
+            for header in &mut headers {
+                header.folder = folder.to_string();
+            }
+            successes.push((folder.to_string(), headers));
+        }
+        Err(err) => failures.push((folder.to_string(), format!("{err:#}"))),
+    }
+}
+
 pub async fn search_mail_messages(
     engine: &Arc<Engine>,
     account: &str,
@@ -821,65 +861,144 @@ pub async fn search_mail_messages(
     query: &str,
     limit: u32,
     before_cursor: Option<&crate::thread_list::SearchCursor>,
-) -> anyhow::Result<Vec<imap::MessageHeader>> {
-    let scan_limit = crate::thread_list::search_scan_limit(before_cursor, limit);
-    let mut by_key: HashMap<(String, u32), imap::MessageHeader> = HashMap::new();
-    {
-        let db = engine.db.lock().unwrap();
-        for message in store::search_messages_in_folders(&db, account, folders, query, limit, None)?
-        {
-            by_key.insert((message.folder.clone(), message.uid), message);
+) -> anyhow::Result<SearchMailPage> {
+    if let Some(cursor) = before_cursor {
+        if let Some(snapshot) = cursor.snapshot.as_deref() {
+            let page = {
+                let db = engine.db.lock().unwrap();
+                store::get_search_snapshot_page(
+                    &db,
+                    account,
+                    query,
+                    folders,
+                    snapshot,
+                    cursor.offset,
+                    limit,
+                )?
+            };
+            if let Some(page) = page {
+                let next_cursor =
+                    snapshot_next_cursor(&page.messages, page.has_more, snapshot, page.next_offset);
+                return Ok(SearchMailPage {
+                    messages: page.messages,
+                    next_cursor,
+                });
+            }
         }
+
+        // A cache-only or expired-snapshot cursor resumes with the same keyset
+        // ordering rather than accidentally querying the cache's first page.
+        let db = engine.db.lock().unwrap();
+        return cached_search_mail_page(&db, account, folders, query, limit, Some(cursor));
     }
 
-    // Live search, one SELECT + UID SEARCH per folder on a shared session.
-    // Best-effort: any failure falls back to the cached hits already collected.
-    let server_headers = engine
+    // Search folders independently on one shared session. A stale/missing Sent
+    // folder must not discard a successful Inbox search (or vice versa).
+    let live = engine
         .with_read_session(account, |session| {
             let folders = folders.to_vec();
             let query = query.to_string();
             Box::pin(async move {
-                let mut all = Vec::new();
+                let mut successes = Vec::new();
+                let mut failures = Vec::new();
                 for folder in &folders {
-                    let uids = imap::search_uids(session, folder, &query, scan_limit).await?;
-                    let mut headers = imap::fetch_headers_by_uid(session, folder, &uids).await?;
-                    for header in &mut headers {
-                        header.folder = folder.clone();
+                    let result = async {
+                        let uids = imap::search_uids(session, folder, &query).await?;
+                        let mut headers = Vec::with_capacity(uids.len());
+                        for chunk in uids.chunks(500) {
+                            headers
+                                .extend(imap::fetch_headers_by_uid(session, folder, chunk).await?);
+                        }
+                        anyhow::Ok(headers)
                     }
-                    all.push((folder.clone(), headers));
+                    .await;
+                    record_search_folder_result(folder, result, &mut successes, &mut failures);
                 }
-                anyhow::Ok(all)
+                anyhow::Ok((successes, failures))
             })
         })
-        .await
-        .ok();
+        .await;
 
-    if let Some(per_folder) = server_headers {
+    let (per_folder, failures) = match live {
+        Ok(result) => result,
+        Err(err) => {
+            crate::mlog!(
+                crate::log::Level::Warn,
+                "mail.search",
+                "live search failed for account={account}: {err:#}"
+            );
+            (Vec::new(), Vec::new())
+        }
+    };
+    if !failures.is_empty() {
+        // The operation deliberately preserved successful folders, so the pool
+        // saw an overall success. Do not retain a socket that may have produced
+        // an I/O failure partway through the per-folder loop.
+        engine.clear_pool(account);
+    }
+    for (folder, error) in failures {
+        crate::mlog!(
+            crate::log::Level::Warn,
+            "mail.search",
+            "live search failed for account={account} folder={folder}: {error}"
+        );
+    }
+
+    if per_folder.is_empty() {
+        let db = engine.db.lock().unwrap();
+        return cached_search_mail_page(&db, account, folders, query, limit, None);
+    }
+
+    let mut by_key: HashMap<(String, u32), imap::MessageHeader> = HashMap::new();
+    {
+        let db = engine.db.lock().unwrap();
+        for (folder, headers) in &per_folder {
+            store::upsert_messages(&db, account, folder, headers)?;
+        }
+        for message in
+            store::search_messages_in_folders(&db, account, folders, query, u32::MAX, None)?
         {
-            let db = engine.db.lock().unwrap();
-            for (folder, headers) in &per_folder {
-                store::upsert_messages(&db, account, folder, headers)?;
-            }
-        }
-        for (folder, headers) in per_folder {
-            for message in headers {
-                by_key.insert((folder.clone(), message.uid), message);
-            }
+            by_key.insert((message.folder.clone(), message.uid), message);
         }
     }
+    for (folder, headers) in per_folder {
+        for message in headers {
+            by_key.insert((folder.clone(), message.uid), message);
+        }
+    }
+    let mut all_messages = by_key.into_values().collect::<Vec<_>>();
+    store::sort_search_hits_all(&mut all_messages);
+    let token = {
+        let db = engine.db.lock().unwrap();
+        store::save_search_snapshot(&db, account, query, folders, &all_messages)?
+    };
+    let has_more = all_messages.len() > limit as usize;
+    let mut messages = all_messages;
+    messages.truncate(limit as usize);
+    let next_cursor = snapshot_next_cursor(&messages, has_more, &token, messages.len() as u32);
+    Ok(SearchMailPage {
+        messages,
+        next_cursor,
+    })
+}
 
-    let mut messages = by_key.into_values().collect::<Vec<_>>();
-    if let Some(cursor) = before_cursor {
-        messages.retain(|message| {
-            message.date < cursor.date
-                || (message.date == cursor.date && message.uid < cursor.uid)
-                || (message.date == cursor.date
-                    && message.uid == cursor.uid
-                    && message.folder < cursor.folder)
-        });
-    }
-    store::sort_search_hits(&mut messages, limit);
-    Ok(messages)
+fn snapshot_next_cursor(
+    messages: &[imap::MessageHeader],
+    has_more: bool,
+    snapshot: &str,
+    offset: u32,
+) -> Option<String> {
+    let header = has_more.then(|| messages.last()).flatten()?;
+    Some(crate::thread_list::format_search_cursor(
+        &crate::thread_list::SearchCursor {
+            date: header.date,
+            uid: header.uid,
+            folder: header.folder.clone(),
+            scanned: 0,
+            snapshot: Some(snapshot.to_string()),
+            offset,
+        },
+    ))
 }
 
 pub async fn starred_search_folders(
@@ -1476,10 +1595,11 @@ pub fn attach_html(message: &mut parse::Message, load_remote_images: bool) {
 #[cfg(test)]
 mod tests {
     use super::{
-        Pooled, cached_archive_folder_from_folders, companion_folders, find_role_folder,
-        limit_prefetch_uids, pool_return, pool_take, should_append_sent_copy,
-        thread_gap_search_folders,
+        Pooled, cached_archive_folder_from_folders, cached_search_mail_page, companion_folders,
+        find_role_folder, limit_prefetch_uids, pool_return, pool_take, record_search_folder_result,
+        should_append_sent_copy, thread_gap_search_folders,
     };
+    use rusqlite::{Connection, params};
     use std::collections::HashMap;
     use std::time::{Duration, Instant};
 
@@ -1714,5 +1834,59 @@ mod tests {
             "smtp.example.com",
             Some(false)
         ));
+    }
+
+    #[test]
+    fn cached_search_page_advances_the_engine_cursor() {
+        let conn = Connection::open_in_memory().unwrap();
+        crate::store::run_migrations(&conn).unwrap();
+        for (uid, date) in [(1u32, 100i64), (2, 200)] {
+            conn.execute(
+                "INSERT INTO messages(
+                   account, folder, msg_id, uid, subject, from_name, from_addr, date
+                 ) VALUES('acct', 'INBOX', ?1, ?2, 'deploy notes', 'Ops',
+                          'ops@example.com', ?3)",
+                params![uid.to_string(), uid, date],
+            )
+            .unwrap();
+        }
+        let folders = ["INBOX".to_string()];
+        let first = cached_search_mail_page(&conn, "acct", &folders, "deploy", 1, None).unwrap();
+        assert_eq!(first.messages[0].uid, 2);
+        let cursor = crate::thread_list::parse_search_cursor(
+            first.next_cursor.as_deref().expect("full page has cursor"),
+        )
+        .unwrap();
+
+        let second =
+            cached_search_mail_page(&conn, "acct", &folders, "deploy", 1, Some(&cursor)).unwrap();
+        assert_eq!(second.messages[0].uid, 1);
+    }
+
+    #[test]
+    fn folder_search_failure_keeps_other_folder_successes() {
+        let mut successes = Vec::new();
+        let mut failures = Vec::new();
+        record_search_folder_result(
+            "INBOX",
+            Ok(vec![crate::imap::MessageHeader {
+                uid: 7,
+                ..Default::default()
+            }]),
+            &mut successes,
+            &mut failures,
+        );
+        record_search_folder_result(
+            "Sent",
+            Err(anyhow::anyhow!("SELECT failed")),
+            &mut successes,
+            &mut failures,
+        );
+
+        assert_eq!(successes.len(), 1);
+        assert_eq!(successes[0].0, "INBOX");
+        assert_eq!(successes[0].1[0].folder, "INBOX");
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].0, "Sent");
     }
 }

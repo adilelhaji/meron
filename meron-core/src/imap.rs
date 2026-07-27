@@ -530,12 +530,7 @@ pub async fn fetch_recent(session: &mut Session, folder: &str, limit: u32) -> Re
     })
 }
 
-pub async fn search_uids(
-    session: &mut Session,
-    folder: &str,
-    query: &str,
-    limit: u32,
-) -> Result<Vec<u32>> {
+pub async fn search_uids(session: &mut Session, folder: &str, query: &str) -> Result<Vec<u32>> {
     session.select(folder).await.context("SELECT")?;
     let gmail = supports_gmail_ext(session).await;
     // SEARCH keys are US-ASCII unless the command names a charset (RFC 3501
@@ -556,7 +551,6 @@ pub async fn search_uids(
     let set: HashSet<u32> = result.context("UID SEARCH query")?;
     let mut uids: Vec<u32> = set.into_iter().collect();
     uids.sort_unstable_by(|a, b| b.cmp(a));
-    uids.truncate(limit as usize);
     Ok(uids)
 }
 

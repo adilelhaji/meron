@@ -322,6 +322,8 @@ fn search_messages_pages_with_a_keyset_cursor() {
         uid: 2,
         folder: "INBOX".to_string(),
         scanned: 2,
+        snapshot: None,
+        offset: 0,
     };
 
     let second = search_messages(&conn, "acct", "INBOX", "deploy", 2, Some(&cursor)).unwrap();
@@ -387,6 +389,52 @@ fn search_messages_in_folders_pages_across_equal_folder_scoped_uids() {
     let second =
         search_messages_in_folders(&conn, "acct", &folders, "deploy", 1, Some(&cursor)).unwrap();
     assert_eq!(second[0].folder, "INBOX");
+}
+
+#[test]
+fn search_snapshot_pages_in_resolved_date_order_when_uids_diverge() {
+    let conn = test_conn();
+    for (uid, date) in [(3u32, 100i64), (2, 300), (1, 200)] {
+        conn.execute(
+            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date)
+             VALUES('acct', 'INBOX', ?1, ?2, 'deploy notes', 'Ops', 'ops@example.com', ?3)",
+            params![uid.to_string(), uid, date],
+        )
+        .unwrap();
+    }
+    let folders = ["INBOX".to_string()];
+    let mut hits =
+        search_messages_in_folders(&conn, "acct", &folders, "deploy", u32::MAX, None).unwrap();
+    sort_search_hits_all(&mut hits);
+    assert_eq!(
+        hits.iter().map(|message| message.uid).collect::<Vec<_>>(),
+        vec![2, 1, 3]
+    );
+
+    let token = save_search_snapshot(&conn, "acct", "deploy", &folders, &hits).unwrap();
+    let first = get_search_snapshot_page(&conn, "acct", "deploy", &folders, &token, 0, 1)
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.messages[0].uid, 2);
+    assert!(first.has_more);
+
+    let second = get_search_snapshot_page(
+        &conn,
+        "acct",
+        "deploy",
+        &folders,
+        &token,
+        first.next_offset,
+        1,
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(second.messages[0].uid, 1);
+    assert!(
+        get_search_snapshot_page(&conn, "acct", "different", &folders, &token, 0, 1)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -1158,13 +1206,14 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
 
     for table in [
         "accounts",
         "messages",
         "messages_fts",
         "messages_recipients_fts",
+        "mail_search_hits",
         "folders",
         "folder_state",
         "subscriptions",
@@ -1189,7 +1238,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
 }
 
 #[test]
@@ -1217,7 +1266,7 @@ fn concurrent_first_open_runs_migrations_once() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 6);
+    assert_eq!(version, 7);
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -1266,6 +1315,13 @@ fn delete_account_removes_account_scoped_state_only() {
             params![account],
         )
         .unwrap();
+        conn.execute(
+            "INSERT INTO mail_search_hits(
+               token, account, query, scope, position, folder, uid, created_at
+             ) VALUES(?2, ?1, 'query', '[\"INBOX\"]', 0, 'INBOX', 1, 1)",
+            params![account, format!("token-{account}")],
+        )
+        .unwrap();
     }
 
     delete_account(&conn, "acct").unwrap();
@@ -1278,6 +1334,7 @@ fn delete_account_removes_account_scoped_state_only() {
         ("subscriptions", "account"),
         ("account_secrets", "account_id"),
         ("observed_mail_identities", "account"),
+        ("mail_search_hits", "account"),
     ] {
         let deleted_count: i64 = conn
             .query_row(

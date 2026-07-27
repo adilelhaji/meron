@@ -1191,7 +1191,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     // lookup surfaces both received and self-sent mail (and old
                     // messages filed under Sent), not just the current mailbox.
                     let folders = search_folders(&engine.db.lock().unwrap(), &account, &folder);
-                    let messages = search_mail_messages(
+                    let page = search_mail_messages(
                         engine,
                         &account,
                         &folders,
@@ -1200,12 +1200,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         request.search_before_cursor.as_ref(),
                     )
                     .await?;
-                    let scanned = thread_list::search_scan_limit(
-                        request.search_before_cursor.as_ref(),
-                        limit,
-                    );
-                    let next_cursor = store::search_next_cursor(&messages, limit, scanned);
-                    (messages, next_cursor)
+                    (page.messages, page.next_cursor)
                 }
             };
             if refresh && request.wants_background_sync() {

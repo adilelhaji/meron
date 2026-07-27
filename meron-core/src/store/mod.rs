@@ -626,13 +626,17 @@ pub fn search_messages_in_folders(
 /// last. Shared by every path that merges search hits from more than one source
 /// so cached-only and cached+live results are ordered identically.
 pub fn sort_search_hits(messages: &mut Vec<MessageHeader>, limit: u32) {
+    sort_search_hits_all(messages);
+    messages.truncate(limit as usize);
+}
+
+pub fn sort_search_hits_all(messages: &mut [MessageHeader]) {
     messages.sort_unstable_by(|a, b| {
         b.date
             .cmp(&a.date)
             .then_with(|| b.uid.cmp(&a.uid))
             .then_with(|| b.folder.cmp(&a.folder))
     });
-    messages.truncate(limit as usize);
 }
 
 /// The search cursor for the page after `messages`, or `None` when
@@ -647,8 +651,125 @@ pub fn search_next_cursor(messages: &[MessageHeader], limit: u32, scanned: u32) 
             uid: header.uid,
             folder: header.folder.clone(),
             scanned,
+            snapshot: None,
+            offset: 0,
         })
     })
+}
+
+pub struct SearchSnapshotPage {
+    pub messages: Vec<MessageHeader>,
+    pub next_offset: u32,
+    pub has_more: bool,
+}
+
+/// Persist the resolved order of one live IMAP search. Only identities and
+/// positions are stored; headers remain in `messages`, where the live fetch
+/// already upserted them.
+pub fn save_search_snapshot(
+    conn: &Connection,
+    account: &str,
+    query: &str,
+    folders: &[String],
+    messages: &[MessageHeader],
+) -> Result<String> {
+    let token = uuid::Uuid::new_v4().simple().to_string();
+    let scope = serde_json::to_string(folders)?;
+    let created_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let tx = conn.unchecked_transaction()?;
+    for (position, message) in messages.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO mail_search_hits(
+               token, account, query, scope, position, folder, uid, created_at
+             ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                token,
+                account,
+                query,
+                scope,
+                position as i64,
+                message.folder,
+                message.uid,
+                created_at
+            ],
+        )?;
+    }
+    // Search snapshots are disposable cache state. A one-day lease is long
+    // enough for suspended mobile views to resume without letting abandoned
+    // queries grow the database indefinitely.
+    tx.execute(
+        "DELETE FROM mail_search_hits
+         WHERE account = ?1 AND created_at < ?2",
+        params![account, created_at.saturating_sub(86_400)],
+    )?;
+    tx.commit()?;
+    Ok(token)
+}
+
+/// Read a stable live-search page. `None` means the cursor is stale or belongs
+/// to a different query/scope, in which case callers can resume keyset paging
+/// through ordinary cached search results.
+pub fn get_search_snapshot_page(
+    conn: &Connection,
+    account: &str,
+    query: &str,
+    folders: &[String],
+    token: &str,
+    offset: u32,
+    limit: u32,
+) -> Result<Option<SearchSnapshotPage>> {
+    let scope = serde_json::to_string(folders)?;
+    let exists = conn
+        .query_row(
+            "SELECT 1 FROM mail_search_hits
+             WHERE token = ?1 AND account = ?2 AND query = ?3 AND scope = ?4
+             LIMIT 1",
+            params![token, account, query, scope],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !exists {
+        return Ok(None);
+    }
+
+    let fetch_limit = limit.saturating_add(1);
+    let mut stmt = conn.prepare(
+        "SELECT m.uid, m.subject, m.from_name, m.from_addr, m.date, m.seen, m.starred,
+                m.thread_key, json_extract(m.json, '$.to'), h.folder, h.position
+         FROM mail_search_hits h
+         JOIN messages m
+           ON m.account = h.account AND m.folder = h.folder AND m.uid = h.uid
+         WHERE h.token = ?1 AND h.account = ?2 AND h.query = ?3 AND h.scope = ?4
+           AND h.position >= ?5
+         ORDER BY h.position
+         LIMIT ?6",
+    )?;
+    let rows = stmt.query_map(
+        params![token, account, query, scope, offset, fetch_limit],
+        |row| {
+            let mut message = message_header_from_row(row)?;
+            message.folder = row.get(9)?;
+            Ok((message, row.get::<_, u32>(10)?))
+        },
+    )?;
+    let mut rows = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+    let has_more = rows.len() > limit as usize;
+    if has_more {
+        rows.pop();
+    }
+    let next_offset = rows
+        .last()
+        .map(|(_, position)| position.saturating_add(1))
+        .unwrap_or(offset);
+    Ok(Some(SearchSnapshotPage {
+        messages: rows.into_iter().map(|(message, _)| message).collect(),
+        next_offset,
+        has_more,
+    }))
 }
 
 /// A correspondent surfaced for recipient autocomplete.
