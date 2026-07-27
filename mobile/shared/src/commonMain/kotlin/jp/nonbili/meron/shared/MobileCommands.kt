@@ -599,12 +599,14 @@ fun ComposeDraft.toSendMailParams(
         bcc = bcc,
         subject = subject,
         body = body,
+        html = html,
         attachments =
             attachments.map {
                 MobileAttachmentInput(
                     filename = it.displayName,
                     mime = it.mimeType,
                     data = it.dataBase64,
+                    inlineId = it.inlineId,
                 )
             },
     )
@@ -623,12 +625,14 @@ fun ComposeDraft.toSaveDraftParams(
         bcc = bcc,
         subject = subject,
         body = body,
+        html = html,
         attachments =
             attachments.map {
                 MobileAttachmentInput(
                     filename = it.displayName,
                     mime = it.mimeType,
                     data = it.dataBase64,
+                    inlineId = it.inlineId,
                 )
             },
     )
@@ -841,11 +845,9 @@ class MobileMailCommandClient(
 
     suspend fun listThreads(params: ThreadListParams): String = core.invoke(MobileCommand.ThreadList, params.toJson())
 
-    suspend fun listStarredItems(params: StarredItemsParams = StarredItemsParams()): String =
-        core.invoke(MobileCommand.StarredItems, params.toJson())
+    suspend fun listStarredItems(params: StarredItemsParams = StarredItemsParams()): String = core.invoke(MobileCommand.StarredItems, params.toJson())
 
-    suspend fun allocateIdentity(params: AllocateIdentityParams): String =
-        core.invoke(MobileCommand.AllocateIdentity, params.toJson())
+    suspend fun allocateIdentity(params: AllocateIdentityParams): String = core.invoke(MobileCommand.AllocateIdentity, params.toJson())
 
     suspend fun readThread(params: ThreadReadParams): String = core.invoke(MobileCommand.ThreadRead, params.toJson())
 

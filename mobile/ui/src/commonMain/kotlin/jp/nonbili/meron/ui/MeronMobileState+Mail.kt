@@ -197,7 +197,10 @@ import jp.nonbili.meron.shared.folderIsDrafts
 import jp.nonbili.meron.shared.folderIsTrash
 import jp.nonbili.meron.shared.formatContactSuggestion
 import jp.nonbili.meron.shared.formatSendIdentity
+import jp.nonbili.meron.shared.forwardInlineImages
 import jp.nonbili.meron.shared.forwardableAttachments
+import jp.nonbili.meron.shared.forwardedHtmlQuote
+import jp.nonbili.meron.shared.inlineImageToDraftAttachment
 import jp.nonbili.meron.shared.isOAuthCallbackUrl
 import jp.nonbili.meron.shared.isPotentialOAuthCallbackUrl
 import jp.nonbili.meron.shared.messageEditAsNewDraft
@@ -224,6 +227,7 @@ import jp.nonbili.meron.shared.parseThreadReadPage
 import jp.nonbili.meron.shared.recipientTail
 import jp.nonbili.meron.shared.replaceRecipientTail
 import jp.nonbili.meron.shared.requireCoreOk
+import jp.nonbili.meron.shared.rewriteMediaRefsToCid
 import jp.nonbili.meron.shared.threadIdIsRss
 import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
@@ -656,18 +660,49 @@ internal fun MeronMobileState.openDraftCompose(
         runCatching {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
-                forwardableAttachments(message).mapNotNull { attachment ->
-                    val data = parseAttachmentDataResponse(client.readAttachment(AttachmentReadParams(attachment.key)))
-                    data.takeIf { it.isNotBlank() }?.let { attachmentToDraftAttachment(attachment, it) }
-                }
+                val copied =
+                    forwardableAttachments(message).mapNotNull { attachment ->
+                        val data = parseAttachmentDataResponse(client.readAttachment(AttachmentReadParams(attachment.key)))
+                        data.takeIf { it.isNotBlank() }?.let { attachmentToDraftAttachment(attachment, it) }
+                    }
+                // A saved forward keeps its quoted HTML; without re-deriving it
+                // here, reopening the draft would silently downgrade it to the
+                // plain body on the next send. The reader rewrote the quote's
+                // cid: refs to /media/ paths on the way in, so the inline images
+                // have to be resolved again too.
+                val quote = forwardedHtmlQuote(message.bodyHtml)
+                val inlineImages =
+                    if (quote.isBlank()) {
+                        emptyList()
+                    } else {
+                        forwardInlineImages(message).mapNotNull { image ->
+                            val data =
+                                runCatching {
+                                    parseAttachmentDataResponse(client.readAttachment(AttachmentReadParams(image.attachment.key)))
+                                }.getOrNull()
+                            data?.takeIf { it.isNotBlank() }?.let { image to it }
+                        }
+                    }
+                val availableImages = inlineImages.map { it.first }
+                val rewrittenQuote =
+                    forwardInlineImages(message).fold(rewriteMediaRefsToCid(quote, availableImages)) { html, image ->
+                        html.replace("/media/${image.attachment.key.trim()}", "")
+                    }
+                Triple(
+                    copied,
+                    rewrittenQuote,
+                    inlineImages.map { (image, data) -> inlineImageToDraftAttachment(image, data) },
+                )
             }
-        }.onSuccess { copiedAttachments ->
+        }.onSuccess { (copiedAttachments, forwardHtml, inlineAttachments) ->
             to = message.to
             cc = message.cc
             bcc = message.bcc
             subject = message.subject
             body = message.body
             attachments = copiedAttachments
+            composeForwardHtml = forwardHtml
+            composeForwardInlineAttachments = inlineAttachments
             composeFromAccountId = thread.accountId
             composeFromEmail = ""
             composeDraftId =
@@ -1155,7 +1190,8 @@ private fun MeronMobileState.applyCoreFolderUnreadChanges(response: String) {
         val counts = accountChanges.associateBy { it.folderId }
         nextByAccount[accountId] =
             nextByAccount[accountId].orEmpty().map { folder ->
-                counts.entries.firstOrNull { (folderId, _) -> folder.name.equals(folderId, ignoreCase = folder.role == "inbox") }
+                counts.entries
+                    .firstOrNull { (folderId, _) -> folder.name.equals(folderId, ignoreCase = folder.role == "inbox") }
                     ?.value
                     ?.let { folder.copy(unread = it.unread) } ?: folder
             }
@@ -1163,9 +1199,10 @@ private fun MeronMobileState.applyCoreFolderUnreadChanges(response: String) {
     foldersByAccount = nextByAccount
     coreFolders =
         coreFolders.map { folder ->
-            changes.firstOrNull {
-                it.accountId == folder.accountId && folder.name.equals(it.folderId, ignoreCase = folder.role == "inbox")
-            }?.let { folder.copy(unread = it.unread) } ?: folder
+            changes
+                .firstOrNull {
+                    it.accountId == folder.accountId && folder.name.equals(it.folderId, ignoreCase = folder.role == "inbox")
+                }?.let { folder.copy(unread = it.unread) } ?: folder
         }
 }
 
@@ -1451,16 +1488,18 @@ internal fun MeronMobileState.markVisibleMailboxAllRead() {
                 val responses = mutableListOf<String>()
                 if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID && mailTargets.isNotEmpty()) {
                     mailTargets.forEach { (accountId, _) -> withManagedGoogleAuth(client, accountId) { "" } }
-                    responses += requireCoreOk(
-                        client.markAllRead(MarkAllReadParams(accountId = UNIFIED_ACCOUNT_ID, folderId = INBOX_FOLDER)),
-                    )
+                    responses +=
+                        requireCoreOk(
+                            client.markAllRead(MarkAllReadParams(accountId = UNIFIED_ACCOUNT_ID, folderId = INBOX_FOLDER)),
+                        )
                 } else {
                     mailTargets.forEach { (accountId, folderId) ->
-                        responses += requireCoreOk(
-                            withManagedGoogleAuth(client, accountId) {
-                                client.markAllRead(MarkAllReadParams(accountId = accountId, folderId = folderId))
-                            },
-                        )
+                        responses +=
+                            requireCoreOk(
+                                withManagedGoogleAuth(client, accountId) {
+                                    client.markAllRead(MarkAllReadParams(accountId = accountId, folderId = folderId))
+                                },
+                            )
                     }
                 }
                 rssTargets.forEach { thread ->
@@ -1526,19 +1565,21 @@ internal fun MeronMobileState.markKanbanColumnAllRead(column: KanbanColumnSpec) 
                 val responses = mutableListOf<String>()
                 if (column.accountId == UNIFIED_ACCOUNT_ID && !isUnifiedStarredColumn(column)) {
                     mailTargets.forEach { (accountId, _) -> withManagedGoogleAuth(client, accountId) { "" } }
-                    responses += requireCoreOk(
-                        client.markAllRead(MarkAllReadParams(accountId = UNIFIED_ACCOUNT_ID, folderId = INBOX_FOLDER)),
-                    )
+                    responses +=
+                        requireCoreOk(
+                            client.markAllRead(MarkAllReadParams(accountId = UNIFIED_ACCOUNT_ID, folderId = INBOX_FOLDER)),
+                        )
                 } else {
                     mailTargets.forEach { (target, messageIds) ->
                         if (isUnifiedStarredColumn(column)) {
                             responses += requireCoreOk(client.markRead(MarkReadParams(threadId = target, messageIds = messageIds)))
                         } else {
-                            responses += requireCoreOk(
-                                withManagedGoogleAuth(client, target) {
-                                    client.markAllRead(MarkAllReadParams(accountId = target, folderId = column.folderId))
-                                },
-                            )
+                            responses +=
+                                requireCoreOk(
+                                    withManagedGoogleAuth(client, target) {
+                                        client.markAllRead(MarkAllReadParams(accountId = target, folderId = column.folderId))
+                                    },
+                                )
                         }
                     }
                 }

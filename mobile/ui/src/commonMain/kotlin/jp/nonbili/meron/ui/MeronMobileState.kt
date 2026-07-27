@@ -153,6 +153,13 @@ internal class MeronMobileState(
     var composeSendInFlight by mutableStateOf(false)
     var composeInReplyTo by mutableStateOf("")
     var composeReferences by mutableStateOf("")
+
+    // The quoted original of a forward, as HTML, plus the inline images it
+    // references. The composer itself edits plain text; these ride alongside so
+    // the send path can rebuild the HTML alternative. Both are empty for every
+    // other kind of draft, which stays plain-text-only.
+    var composeForwardHtml by mutableStateOf("")
+    var composeForwardInlineAttachments by mutableStateOf(emptyList<DraftAttachment>())
     var locallyDraftedThreadIds by mutableStateOf(emptySet<String>())
     var locallyDiscardedThreadIds by mutableStateOf(emptySet<String>())
     var subject by mutableStateOf("")

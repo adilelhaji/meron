@@ -149,6 +149,7 @@ import jp.nonbili.meron.shared.AddOAuthAccountParams
 import jp.nonbili.meron.shared.AddPasswordAccountParams
 import jp.nonbili.meron.shared.AddRssAccountParams
 import jp.nonbili.meron.shared.AddRssFeedParams
+import jp.nonbili.meron.shared.AllocateIdentityParams
 import jp.nonbili.meron.shared.AttachmentReadParams
 import jp.nonbili.meron.shared.AutodiscoverAccountParams
 import jp.nonbili.meron.shared.ComposeDraft
@@ -197,13 +198,15 @@ import jp.nonbili.meron.shared.folderIsDrafts
 import jp.nonbili.meron.shared.folderIsTrash
 import jp.nonbili.meron.shared.formatContactSuggestion
 import jp.nonbili.meron.shared.formatSendIdentity
+import jp.nonbili.meron.shared.forwardHtmlForSend
+import jp.nonbili.meron.shared.forwardInlineImages
 import jp.nonbili.meron.shared.forwardableAttachments
+import jp.nonbili.meron.shared.inlineImageToDraftAttachment
 import jp.nonbili.meron.shared.isOAuthCallbackUrl
 import jp.nonbili.meron.shared.isPotentialOAuthCallbackUrl
 import jp.nonbili.meron.shared.messageEditAsNewDraft
 import jp.nonbili.meron.shared.messageForwardDraft
 import jp.nonbili.meron.shared.newDraftMessageId
-import jp.nonbili.meron.shared.AllocateIdentityParams
 import jp.nonbili.meron.shared.ownAddressList
 import jp.nonbili.meron.shared.parseAccountListResponse
 import jp.nonbili.meron.shared.parseAllocatedMessageId
@@ -269,8 +272,29 @@ internal fun MeronMobileState.clearComposeDraftState() {
     composeDraftAccountId = ""
     composeInReplyTo = ""
     composeReferences = ""
+    composeForwardHtml = ""
+    composeForwardInlineAttachments = emptyList()
     recipientSuggestionField = ""
     recipientSuggestions = emptyList()
+}
+
+// The draft as the core should receive it: the plain body the composer edits,
+// plus — for a forward — the rebuilt HTML alternative and the inline images it
+// references.
+private fun MeronMobileState.currentComposeDraft(): ComposeDraft {
+    val html = forwardHtmlForSend(body.trim(), composeForwardHtml)
+    return ComposeDraft(
+        to = to.trim(),
+        cc = cc.trim(),
+        bcc = bcc.trim(),
+        subject = subject.trim(),
+        body = body.trim(),
+        // The inline images exist only to back the quote's cid: refs. If the
+        // quote is gone the HTML is empty, and attaching them would ship files
+        // nothing references.
+        attachments = if (html.isBlank()) attachments else attachments + composeForwardInlineAttachments,
+        html = html,
+    )
 }
 
 internal fun MeronMobileState.loadRecipientSuggestions(
@@ -328,7 +352,7 @@ internal fun MeronMobileState.sendMail() {
         status = "Select or add an account before sending."
         return
     }
-    val draft = ComposeDraft(to.trim(), cc.trim(), bcc.trim(), subject.trim(), body.trim(), attachments)
+    val draft = currentComposeDraft()
     if (!draft.canSend) {
         status = "Complete To, Subject, and Body or Attachments before sending."
         return
@@ -397,7 +421,7 @@ private suspend fun MeronMobileState.saveComposeDraft(showStatus: Boolean): Bool
         if (showStatus) status = "Select or add an account before saving."
         return false
     }
-    val draft = ComposeDraft(to.trim(), cc.trim(), bcc.trim(), subject.trim(), body.trim(), attachments)
+    val draft = currentComposeDraft()
     if (listOf(draft.to, draft.cc, draft.bcc, draft.subject, draft.body).all { it.isBlank() } && draft.attachments.isEmpty()) {
         if (showStatus) status = "Nothing to save."
         return false
@@ -627,6 +651,9 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
     subject = params.subject
     body = params.body
     attachments = quickReplyAttachments
+    // A quick reply is plain text; nothing carries over from an earlier forward.
+    composeForwardHtml = ""
+    composeForwardInlineAttachments = emptyList()
     composeFromAccountId = accountId
     composeFromEmail = replyFrom
     // Hand off any draft already saved for this quick reply so continuing in the
@@ -772,25 +799,26 @@ internal fun MeronMobileState.sendQuickReply() {
                 return@launch
             }
         val params = baseParams.copy(messageId = outboundMessageId)
-        val optimistic = MessageBody(
-            id = tempId,
-            folderId = parent.folderId,
-            from = "You",
-            fromAddr = replyFrom.ifBlank { account?.email.orEmpty() },
-            to = params.to,
-            cc = params.cc,
-            subject = params.subject,
-            body = sentBody,
-            messageId = outboundMessageId,
-            references = params.references,
-            dateEpochSeconds = currentTimeMillis() / 1000,
-            hasAttachments = sentAttachments.isNotEmpty(),
-            attachments =
-                sentAttachments.map {
-                    MessageAttachment(filename = it.displayName, mimeType = it.mimeType, sizeBytes = it.sizeBytes)
-                },
-            sendStatus = SendStatus.Sending,
-        )
+        val optimistic =
+            MessageBody(
+                id = tempId,
+                folderId = parent.folderId,
+                from = "You",
+                fromAddr = replyFrom.ifBlank { account?.email.orEmpty() },
+                to = params.to,
+                cc = params.cc,
+                subject = params.subject,
+                body = sentBody,
+                messageId = outboundMessageId,
+                references = params.references,
+                dateEpochSeconds = currentTimeMillis() / 1000,
+                hasAttachments = sentAttachments.isNotEmpty(),
+                attachments =
+                    sentAttachments.map {
+                        MessageAttachment(filename = it.displayName, mimeType = it.mimeType, sizeBytes = it.sizeBytes)
+                    },
+                sendStatus = SendStatus.Sending,
+            )
         messages = messages + optimistic
         status = "Sending reply..."
         runCatching {
@@ -845,6 +873,18 @@ private suspend fun allocateCoreMessageId(
     return id
 }
 
+private suspend fun MeronMobileState.readAttachmentData(
+    client: MobileMailCommandClient,
+    accountId: String,
+    key: String,
+): String {
+    val response =
+        withManagedGoogleAuth(client, accountId) {
+            client.readAttachment(AttachmentReadParams(key))
+        }
+    return parseAttachmentDataResponse(response)
+}
+
 internal fun MeronMobileState.openMessageCompose(
     message: MessageBody,
     forward: Boolean,
@@ -858,28 +898,50 @@ internal fun MeronMobileState.openMessageCompose(
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
                 val accountId = selectedCoreThread?.accountId.orEmpty()
-                forwardableAttachments(message).mapNotNull { attachment ->
-                    val response =
-                        withManagedGoogleAuth(client, accountId) {
-                            client.readAttachment(AttachmentReadParams(attachment.key))
+                val copiedAttachments =
+                    forwardableAttachments(message).mapNotNull { attachment ->
+                        readAttachmentData(client, accountId, attachment.key).takeIf { it.isNotBlank() }?.let {
+                            attachmentToDraftAttachment(attachment, it)
                         }
-                    val data = parseAttachmentDataResponse(response)
-                    data.takeIf { it.isNotBlank() }?.let { attachmentToDraftAttachment(attachment, it) }
-                }
+                    }
+                // Only a forward quotes the original's HTML, so only a forward
+                // needs its inline images re-attached. Images whose bytes can't
+                // be read are left out of the quote's cid: rewrite rather than
+                // being referenced with no part behind them.
+                val inlineImages =
+                    if (forward) {
+                        forwardInlineImages(message).mapNotNull { image ->
+                            runCatching {
+                                readAttachmentData(client, accountId, image.attachment.key)
+                            }.getOrNull()
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let { image to it }
+                        }
+                    } else {
+                        emptyList()
+                    }
+                val draft =
+                    if (forward) {
+                        messageForwardDraft(
+                            message = message,
+                            attachments = copiedAttachments,
+                            dateLabel = formatMessageFullTimestamp(message.dateEpochSeconds),
+                            inlineImages = inlineImages.map { it.first },
+                        )
+                    } else {
+                        messageEditAsNewDraft(message, copiedAttachments)
+                    }
+                draft to inlineImages.map { (image, data) -> inlineImageToDraftAttachment(image, data) }
             }
-        }.onSuccess { copiedAttachments ->
-            val draft =
-                if (forward) {
-                    messageForwardDraft(message, copiedAttachments)
-                } else {
-                    messageEditAsNewDraft(message, copiedAttachments)
-                }
+        }.onSuccess { (draft, inlineAttachments) ->
             to = draft.to
             cc = draft.cc
             bcc = draft.bcc
             subject = draft.subject
             body = draft.body
             attachments = draft.attachments
+            composeForwardHtml = draft.html
+            composeForwardInlineAttachments = inlineAttachments
             composeFromAccountId = selectedCoreThread?.accountId ?: selectedCoreAccountId.takeIf { it != UNIFIED_ACCOUNT_ID }.orEmpty()
             composeFromEmail = ""
             composeDraftId = ""
@@ -1024,6 +1086,8 @@ internal fun MeronMobileState.openCompose() {
     subject = ""
     body = ""
     attachments = emptyList()
+    composeForwardHtml = ""
+    composeForwardInlineAttachments = emptyList()
     composeDraftId = ""
     composeDraftSaved = false
     composeDraftAccountId = ""

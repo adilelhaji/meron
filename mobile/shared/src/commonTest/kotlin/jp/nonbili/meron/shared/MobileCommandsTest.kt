@@ -945,6 +945,160 @@ class MobileCommandsTest {
     }
 
     @Test
+    fun forwardDraftQuotesOriginalHtmlAndReInlinesItsImages() {
+        val message =
+            MessageBody(
+                id = "m4",
+                from = "Ada <ada@example.com>",
+                fromAddr = "ada@example.com",
+                to = "Me <me@example.com>",
+                subject = "Design",
+                body = "Original",
+                bodyHtml = """<p>Original &amp; more</p><img src="/media/acc/INBOX/4/inline.png">""",
+                attachments =
+                    listOf(
+                        MessageAttachment(filename = "inline.png", mimeType = "image/png", sizeBytes = 4, key = "acc/INBOX/4/inline.png"),
+                    ),
+            )
+        val inlineImages = forwardInlineImages(message)
+        val draft =
+            messageForwardDraft(
+                message = message,
+                attachments = emptyList(),
+                dateLabel = "Jul 27, 2026, 10:00",
+                inlineImages = inlineImages,
+            )
+
+        assertEquals(1, inlineImages.size)
+        assertEquals(true, draft.body.contains("Date: Jul 27, 2026, 10:00"))
+        assertEquals(true, draft.html.contains("<strong>Date:</strong> Jul 27, 2026, 10:00"))
+        assertEquals(true, draft.html.contains("<p>Original &amp; more</p>"))
+        // The reader's local media path must not survive into the sent message.
+        assertEquals(true, draft.html.contains("""<img src="cid:meron-forward-0@meron">"""))
+        assertEquals(false, draft.html.contains("/media/"))
+    }
+
+    @Test
+    fun forwardDraftStripsReaderDocumentAndUnavailableInlineMedia() {
+        val message =
+            MessageBody(
+                id = "m-reader",
+                from = "Ada <ada@example.com>",
+                to = "Me <me@example.com>",
+                subject = "Prepared",
+                body = "Original",
+                bodyHtml =
+                    """<!doctype html><html><head><meta charset="utf-8">""" +
+                        """<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:;">""" +
+                        """<style>img,video{max-width:100%;height:auto}img{cursor:zoom-in}</style>""" +
+                        """<style>.original{color:red}</style></head><body>""" +
+                        """<p class="original">Original</p><img src="/media/acc/INBOX/5/missing.png">""" +
+                        """</body></html>""",
+                attachments =
+                    listOf(
+                        MessageAttachment(
+                            filename = "missing.png",
+                            mimeType = "image/png",
+                            key = "acc/INBOX/5/missing.png",
+                        ),
+                    ),
+            )
+
+        val html = messageForwardDraft(message, inlineImages = emptyList()).html
+
+        assertEquals(false, html.contains("<!doctype", ignoreCase = true))
+        assertEquals(false, html.contains("Content-Security-Policy", ignoreCase = true))
+        assertEquals(false, html.contains("cursor:zoom-in"))
+        assertEquals(true, html.contains("<style>.original{color:red}</style>"))
+        assertEquals(true, html.contains("""<p class="original">Original</p>"""))
+        assertEquals(false, html.contains("/media/"))
+    }
+
+    @Test
+    fun forwardDraftOfTextOnlyMessageStaysPlain() {
+        val message =
+            MessageBody(
+                id = "m5",
+                from = "Ada <ada@example.com>",
+                to = "Me <me@example.com>",
+                subject = "Design",
+                body = "Original",
+            )
+
+        assertEquals("", messageForwardDraft(message).html)
+    }
+
+    @Test
+    fun forwardHtmlForSendPrependsTypedTextAndDropsHtmlWithoutQuote() {
+        val quote = """<p><br></p><div class="meron-forwarded-message"><p>$FORWARD_QUOTE_MARKER</p><p>Original</p></div>"""
+        val body = "See below.\n\n$FORWARD_QUOTE_MARKER\nFrom: Ada\n\nOriginal"
+
+        assertEquals("<p>See below.</p>$quote", forwardHtmlForSend(body, quote))
+        // The user deleted the quote: there is no boundary left, so the send
+        // falls back to plain text rather than shipping a stale HTML part.
+        assertEquals("", forwardHtmlForSend("Just my own words", quote))
+        assertEquals("", forwardHtmlForSend(body, ""))
+    }
+
+    @Test
+    fun savedForwardDraftKeepsItsQuoteOnReopen() {
+        val savedHtml =
+            """<p>My note</p><p><br></p><div class="meron-forwarded-message"><p>$FORWARD_QUOTE_MARKER</p><p>Original</p></div>"""
+
+        assertEquals(
+            """<p><br></p><div class="meron-forwarded-message"><p>$FORWARD_QUOTE_MARKER</p><p>Original</p></div>""",
+            forwardedHtmlQuote(savedHtml),
+        )
+        assertEquals("", forwardedHtmlQuote("<p>A plain draft</p>"))
+    }
+
+    @Test
+    fun savedForwardDraftExtractsQuoteFromReaderDocument() {
+        val quote = """$FORWARD_QUOTE_MARKER</p><p>Original</p></div>"""
+        val savedHtml =
+            """<!doctype html><html><head><meta charset="utf-8">""" +
+                """<meta http-equiv="Content-Security-Policy" content="default-src 'none';">""" +
+                """<style>img,video{max-width:100%;height:auto}img{cursor:zoom-in}</style>""" +
+                """</head><body><p>My note</p><p><br></p><div class="meron-forwarded-message"><p>""" +
+                quote +
+                """</body></html>"""
+
+        assertEquals(
+            """<p><br></p><div class="meron-forwarded-message"><p>$quote""",
+            forwardedHtmlQuote(savedHtml),
+        )
+    }
+
+    @Test
+    fun forwardDraftSendsHtmlAlternativeAndInlineParts() {
+        val draft =
+            ComposeDraft(
+                to = "bob@example.com",
+                subject = "Fwd: Design",
+                body = "See below.",
+                attachments =
+                    listOf(
+                        DraftAttachment(
+                            id = "acc/INBOX/4/inline.png",
+                            displayName = "inline.png",
+                            mimeType = "image/png",
+                            dataBase64 = "SGk=",
+                            inlineId = "meron-forward-0@meron",
+                        ),
+                    ),
+                html = "<p>See below.</p><p>Original</p>",
+            )
+
+        assertEquals(
+            """{"account_id":"acc1","from":"me@example.com","to":"bob@example.com","cc":"","bcc":"","reply_to":"",""" +
+                """"subject":"Fwd: Design","body":"See below.","html":"<p>See below.</p><p>Original</p>",""" +
+                """"in_reply_to":"","references":"","message_id":"","attachments":[""" +
+                """{"filename":"inline.png","mime":"image/png","data":"SGk=","inline_id":"meron-forward-0@meron"}]}""",
+            draft.toSendMailParams(accountId = "acc1", from = "me@example.com").toJson(),
+        )
+    }
+
+    @Test
     fun threadActionsUseCurrentBridgePayloads() {
         assertEquals(
             """{"thread_id":"t1"}""",

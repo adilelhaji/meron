@@ -164,8 +164,15 @@ data class DraftAttachment(
     val mimeType: String = "application/octet-stream",
     val sizeBytes: Long = 0,
     val dataBase64: String = "",
+    // Set for images the draft's HTML references as `cid:<inlineId>`; the core
+    // builds them as inline MIME parts rather than plain attachments.
+    val inlineId: String = "",
 )
 
+// `html` is the optional rich alternative sent alongside the plain `body`. The
+// mobile composer edits plain text only, so it is populated just for forwards,
+// where dropping the original's HTML part would strip the message down to its
+// (often empty) text alternative.
 data class ComposeDraft(
     val to: String = "",
     val cc: String = "",
@@ -173,6 +180,7 @@ data class ComposeDraft(
     val subject: String = "",
     val body: String = "",
     val attachments: List<DraftAttachment> = emptyList(),
+    val html: String = "",
 ) {
     constructor(to: String, subject: String, body: String) : this(to, "", "", subject, body, emptyList())
 
@@ -378,16 +386,161 @@ fun forwardedSubject(subject: String): String {
     }
 }
 
-fun forwardedPlainBody(message: MessageBody): String {
+// Separates the user's own text from the quoted original in a forward draft.
+// Both body variants carry it, and the send path locates the quote by it.
+const val FORWARD_QUOTE_MARKER = "---------- Forwarded message ---------"
+
+// Wrapper the HTML quote block opens with. Matches the desktop composer's markup
+// so a forward looks the same whichever client wrote it, and lets a reopened
+// draft find where its quote begins.
+private const val FORWARD_HTML_OPEN = "<p><br></p><div class=\"meron-forwarded-message\">"
+
+// `bodyHtml` is prepared for the reader by the core: it is wrapped in a complete
+// document and gets a CSP plus reader-only image styles injected into its head.
+// A forward must carry the message content, not those presentation/security
+// additions. Preserve original head styles because many HTML mails rely on them,
+// then return a fragment that can safely sit inside the forward quote.
+private val READER_CHARSET_META = Regex("""(?is)<meta\s+charset="utf-8"\s*/?>""")
+private val READER_CSP_META =
+    Regex("""(?is)<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]*"\s*/?>""")
+private val READER_IMAGE_STYLE =
+    Regex("""(?is)<style>\s*img,video\{max-width:100%;height:auto}\s*img\{cursor:zoom-in}\s*</style>""")
+private val HTML_HEAD = Regex("""(?is)<head\b[^>]*>(.*?)</head\s*>""")
+private val HTML_BODY = Regex("""(?is)<body\b[^>]*>(.*?)</body\s*>""")
+private val HTML_STYLE = Regex("""(?is)<style\b[^>]*>.*?</style\s*>""")
+
+private fun forwardableHtmlSource(html: String): String {
+    val cleaned =
+        html
+            .replace(READER_CHARSET_META, "")
+            .replace(READER_CSP_META, "")
+            .replace(READER_IMAGE_STYLE, "")
+    val body = HTML_BODY.find(cleaned)?.groupValues?.get(1) ?: return cleaned
+    val styles =
+        HTML_HEAD
+            .find(cleaned)
+            ?.groupValues
+            ?.get(1)
+            ?.let { head -> HTML_STYLE.findAll(head).joinToString("") { it.value } }
+            .orEmpty()
+    return styles + body
+}
+
+fun forwardedPlainBody(
+    message: MessageBody,
+    dateLabel: String = "",
+): String {
     val headers =
         listOf(
-            "---------- Forwarded message ---------",
+            FORWARD_QUOTE_MARKER,
             headerLine("From", message.from.ifBlank { message.fromAddr }),
+            headerLine("Date", dateLabel),
             headerLine("Subject", message.subject.ifBlank { "(no subject)" }),
             headerLine("To", message.to),
             headerLine("Cc", message.cc),
         ).filter { it.isNotBlank() }
     return "\n\n${headers.joinToString("\n")}\n\n${message.body}"
+}
+
+private fun escapeHtml(text: String): String =
+    text
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+
+// Plain text as HTML paragraphs: blank-line-separated blocks become <p>, single
+// newlines become <br>. Mirrors the desktop composer so both clients quote a
+// text-only original the same way.
+fun plainTextToHtml(text: String): String {
+    if (text.isBlank()) return ""
+    return text
+        .split(Regex("\n{2,}"))
+        .joinToString("") { paragraph ->
+            "<p>" + paragraph.split("\n").joinToString("<br>") { escapeHtml(it) } + "</p>"
+        }
+}
+
+// An image the forwarded HTML shows inline. The reader rewrote the original's
+// `cid:` refs to `/media/<key>` for local display, so forwarding that HTML as-is
+// would point the recipient at this device's media paths: each one has to go
+// back out as a `cid:` part with its bytes attached.
+data class ForwardInlineImage(
+    val attachment: MessageAttachment,
+    val inlineId: String,
+)
+
+fun forwardInlineImages(message: MessageBody): List<ForwardInlineImage> =
+    message.attachments
+        .filter { it.key.trim().isNotBlank() && message.bodyHtml.contains("/media/${it.key.trim()}") }
+        .mapIndexed { index, attachment ->
+            ForwardInlineImage(attachment, "meron-forward-$index@meron")
+        }
+
+fun rewriteMediaRefsToCid(
+    html: String,
+    images: List<ForwardInlineImage>,
+): String =
+    images.fold(html) { acc, image ->
+        acc.replace("/media/${image.attachment.key.trim()}", "cid:${image.inlineId}")
+    }
+
+private fun rewriteForwardMediaRefs(
+    html: String,
+    allImages: List<ForwardInlineImage>,
+    availableImages: List<ForwardInlineImage>,
+): String =
+    allImages.fold(rewriteMediaRefsToCid(html, availableImages)) { acc, image ->
+        // Never expose this device's cache paths to the recipient when an
+        // inline part could not be read and therefore could not be rebuilt.
+        acc.replace("/media/${image.attachment.key.trim()}", "")
+    }
+
+fun forwardedHtmlBody(
+    message: MessageBody,
+    dateLabel: String = "",
+    inlineImages: List<ForwardInlineImage> = emptyList(),
+): String {
+    val quoted = message.bodyHtml.takeIf { it.isNotBlank() }?.let(::forwardableHtmlSource) ?: plainTextToHtml(message.body)
+    if (quoted.isBlank()) return ""
+    val rows =
+        listOf(
+            "From" to message.from.ifBlank { message.fromAddr },
+            "Date" to dateLabel,
+            "Subject" to message.subject.ifBlank { "(no subject)" },
+            "To" to message.to,
+            "Cc" to message.cc,
+        ).filter { it.second.isNotBlank() }
+    val header =
+        rows.joinToString("") { (label, value) ->
+            "<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value.trim())}</div>"
+        }
+    val body = rewriteForwardMediaRefs(quoted, forwardInlineImages(message), inlineImages)
+    return "$FORWARD_HTML_OPEN<p>$FORWARD_QUOTE_MARKER</p>$header<br>$body</div>"
+}
+
+// Assemble the HTML alternative for a forward at send time. The mobile composer
+// only edits plain text, so the user's own words live above the quote marker in
+// `body`; they are converted to HTML and prepended to the quote block. Returns ""
+// when the marker is gone (the user deleted or rewrote the quote): there is then
+// no reliable boundary between their text and the quote, and sending plain-only
+// beats sending a body that no longer matches what they typed.
+fun forwardHtmlForSend(
+    body: String,
+    forwardedHtml: String,
+): String {
+    if (forwardedHtml.isBlank()) return ""
+    val marker = body.indexOf(FORWARD_QUOTE_MARKER)
+    if (marker < 0) return ""
+    return plainTextToHtml(body.substring(0, marker).trim()) + forwardedHtml
+}
+
+// Recover the quote block from a saved forward draft's HTML, so reopening one and
+// sending it keeps the rich original instead of silently downgrading to plain.
+fun forwardedHtmlQuote(bodyHtml: String): String {
+    val source = forwardableHtmlSource(bodyHtml)
+    val start = source.indexOf(FORWARD_HTML_OPEN)
+    return if (start < 0) "" else source.substring(start)
 }
 
 fun forwardableAttachments(message: MessageBody): List<MessageAttachment> =
@@ -474,17 +627,27 @@ fun attachmentToDraftAttachment(
         dataBase64 = dataBase64,
     )
 
+fun inlineImageToDraftAttachment(
+    image: ForwardInlineImage,
+    dataBase64: String,
+): DraftAttachment = attachmentToDraftAttachment(image.attachment, dataBase64).copy(inlineId = image.inlineId)
+
 fun messageForwardDraft(
     message: MessageBody,
     attachments: List<DraftAttachment> = emptyList(),
+    dateLabel: String = "",
+    inlineImages: List<ForwardInlineImage> = emptyList(),
 ): ComposeDraft =
     ComposeDraft(
         to = "",
         cc = "",
         bcc = "",
         subject = forwardedSubject(message.subject),
-        body = forwardedPlainBody(message),
+        body = forwardedPlainBody(message, dateLabel),
         attachments = attachments,
+        // Only quote HTML when the original had an HTML part; a text-only mail
+        // stays a text-only forward rather than gaining a synthesized one.
+        html = if (message.bodyHtml.isBlank()) "" else forwardedHtmlBody(message, dateLabel, inlineImages),
     )
 
 fun messageEditAsNewDraft(
