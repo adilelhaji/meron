@@ -63,6 +63,13 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.14" date="2026-07-27">
+      <description>
+        <ul>
+          <li>Use host GTK and WebKit in Linux AppImage package</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.13" date="2026-07-25">
       <description>
         <ul>

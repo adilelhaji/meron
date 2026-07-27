@@ -1,0 +1,1 @@
+- Use host GTK and WebKit in Linux AppImage package
