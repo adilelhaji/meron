@@ -4,6 +4,7 @@
 //! per-account secrets are stored) are injected via the [`EngineHost`] trait.
 
 use anyhow::Context as _;
+use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock, RwLock};
@@ -663,8 +664,29 @@ fn find_role_folder(
 /// search reaches the user's own replies (and old mail filed under Sent), not
 /// just the inbox. `inbox` is excluded so we never list it twice.
 pub fn cached_sent_folder(engine: &Arc<Engine>, account: &str, inbox: &str) -> Option<String> {
-    let folders = store::get_folders(&engine.db.lock().unwrap(), account).ok()?;
-    find_role_folder(folders, "sent", imap::looks_like_sent, inbox)
+    sent_folder_from_db(&engine.db.lock().unwrap(), account, inbox)
+}
+
+/// [`cached_sent_folder`] against a plain connection, for callers that hold the
+/// store but not the engine (mobile's offline search).
+pub fn sent_folder_from_db(conn: &Connection, account: &str, inbox: &str) -> Option<String> {
+    find_role_folder(
+        store::get_folders(conn, account).ok()?,
+        "sent",
+        imap::looks_like_sent,
+        inbox,
+    )
+}
+
+/// The folders a chat-view search covers: the open mailbox plus the account's
+/// Sent, so a lookup surfaces both received and self-sent mail. Shared by the
+/// live and cache-only search paths so they never disagree on scope.
+pub fn search_folders(conn: &Connection, account: &str, folder: &str) -> Vec<String> {
+    let mut folders = vec![folder.to_string()];
+    if let Some(sent) = sent_folder_from_db(conn, account, folder) {
+        folders.push(sent);
+    }
+    folders
 }
 
 /// The cached Drafts mailbox name for `account`, if any — used so the regular
@@ -788,21 +810,25 @@ fn thread_gap_search_folders(
 /// results are keyed by (folder, uid) and ordered newest-first by date — the
 /// only ordering comparable across mailboxes. Each returned header carries its
 /// source `folder` so the bridge can build per-message thread IDs correctly.
+///
+/// `before_cursor` pages *within* the result set. Every page repeats the live
+/// search because a server-side TEXT hit may not have a locally cached body and
+/// therefore cannot reliably be reconstructed from the store alone.
 pub async fn search_mail_messages(
     engine: &Arc<Engine>,
     account: &str,
     folders: &[String],
     query: &str,
     limit: u32,
+    before_cursor: Option<&crate::thread_list::SearchCursor>,
 ) -> anyhow::Result<Vec<imap::MessageHeader>> {
+    let scan_limit = crate::thread_list::search_scan_limit(before_cursor, limit);
     let mut by_key: HashMap<(String, u32), imap::MessageHeader> = HashMap::new();
     {
         let db = engine.db.lock().unwrap();
-        for folder in folders {
-            for mut message in store::search_messages(&db, account, folder, query, limit)? {
-                message.folder = folder.clone();
-                by_key.insert((folder.clone(), message.uid), message);
-            }
+        for message in store::search_messages_in_folders(&db, account, folders, query, limit, None)?
+        {
+            by_key.insert((message.folder.clone(), message.uid), message);
         }
     }
 
@@ -815,7 +841,7 @@ pub async fn search_mail_messages(
             Box::pin(async move {
                 let mut all = Vec::new();
                 for folder in &folders {
-                    let uids = imap::search_uids(session, folder, &query, limit).await?;
+                    let uids = imap::search_uids(session, folder, &query, scan_limit).await?;
                     let mut headers = imap::fetch_headers_by_uid(session, folder, &uids).await?;
                     for header in &mut headers {
                         header.folder = folder.clone();
@@ -843,9 +869,16 @@ pub async fn search_mail_messages(
     }
 
     let mut messages = by_key.into_values().collect::<Vec<_>>();
-    // Newest first by epoch send time; unknown dates (0) sort last.
-    messages.sort_unstable_by(|a, b| b.date.cmp(&a.date).then_with(|| b.uid.cmp(&a.uid)));
-    messages.truncate(limit as usize);
+    if let Some(cursor) = before_cursor {
+        messages.retain(|message| {
+            message.date < cursor.date
+                || (message.date == cursor.date && message.uid < cursor.uid)
+                || (message.date == cursor.date
+                    && message.uid == cursor.uid
+                    && message.folder < cursor.folder)
+        });
+    }
+    store::sort_search_hits(&mut messages, limit);
     Ok(messages)
 }
 

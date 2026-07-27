@@ -166,8 +166,8 @@ pub fn upsert_messages(
         let extra_json = Value::Object(extra).to_string();
         let thread_key = resolve_message_thread_key(&tx, account, &m.thread_key, &m.in_reply_to)?;
         tx.execute(
-            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date, seen, starred, thread_key, json)
-             VALUES(?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date, seen, starred, thread_key, json, recipients)
+             VALUES(?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
              ON CONFLICT(account, folder, msg_id) DO UPDATE SET
                subject    = excluded.subject,
                from_name  = excluded.from_name,
@@ -176,7 +176,10 @@ pub fn upsert_messages(
                seen       = excluded.seen,
                starred    = excluded.starred,
                thread_key = excluded.thread_key,
-               json       = json_patch(messages.json, excluded.json)",
+               json       = json_patch(messages.json, excluded.json),
+               -- Same rule as the recipient lists in `json`: a flag-only resync
+               -- carries no envelope, so it must not blank what we already indexed.
+               recipients = COALESCE(excluded.recipients, messages.recipients)",
             params![
                 account,
                 folder,
@@ -188,7 +191,8 @@ pub fn upsert_messages(
                 m.seen as i64,
                 m.starred as i64,
                 thread_key,
-                extra_json
+                extra_json,
+                recipients_index_text(&m.to, &m.cc)
             ],
         )?;
     }
@@ -465,12 +469,40 @@ pub fn new_unread_inbox_summary(
     Ok(Some((headers.len() as u32, latest)))
 }
 
+/// Flatten `To`/`Cc` into the plain text `messages.recipients` indexes. The
+/// recipient lists themselves live in the `json` catch-all, which FTS can't
+/// reach, so this mirror is what makes "find the mail I sent to Ann" work
+/// against the cache. `None` for a message with no addressees, which the write
+/// path treats as "leave whatever is already indexed alone".
+pub(super) fn recipients_index_text(
+    to: &[crate::imap::Recipient],
+    cc: &[crate::imap::Recipient],
+) -> Option<String> {
+    let text = to
+        .iter()
+        .chain(cc.iter())
+        .map(|recipient| {
+            format!("{} {}", recipient.name, recipient.addr)
+                .trim()
+                .to_string()
+        })
+        .filter(|entry| !entry.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ");
+    (!text.is_empty()).then_some(text)
+}
+
+/// Substring search over one folder's cached messages, newest first.
+///
+/// `before_cursor` is the `(date, uid, folder)` of the last row of the previous
+/// page. The folder tie-breaker is required because UIDs are mailbox-scoped.
 pub fn search_messages(
     conn: &Connection,
     account: &str,
     folder: &str,
     query: &str,
     limit: u32,
+    before_cursor: Option<&crate::thread_list::SearchCursor>,
 ) -> Result<Vec<MessageHeader>> {
     let q = query.trim();
     if q.is_empty() {
@@ -479,23 +511,42 @@ pub fn search_messages(
     // The trigram index needs >= 3 codepoints; serve shorter queries (common for
     // CJK, where words are often 2 characters) with the scoped LIKE scan instead.
     if q.chars().count() < 3 {
-        return search_messages_like(conn, account, folder, q, limit);
+        return search_messages_like(conn, account, folder, q, limit, before_cursor);
     }
     // Whole query as one quoted FTS phrase -> trigram substring match (doubling
     // any `"` so user input can't change the query). Same substring semantics as
-    // the LIKE path, just index-backed.
+    // the LIKE path, just index-backed. Both indexes answer the same phrase: the
+    // body/subject/sender one and the recipients one.
     let match_query = format!("\"{}\"", q.replace('"', "\"\""));
+    let cursor_date = before_cursor.map(|cursor| cursor.date);
+    let cursor_uid = before_cursor.map(|cursor| cursor.uid as i64).unwrap_or(0);
+    let cursor_folder = before_cursor.map(|cursor| cursor.folder.as_str());
     let mut stmt = conn.prepare(
         "SELECT m.uid, m.subject, m.from_name, m.from_addr, m.date, m.seen, m.starred,
                 m.thread_key, json_extract(m.json, '$.to')
-         FROM messages_fts f
-         JOIN messages m ON m.id = f.rowid
-         WHERE f.messages_fts MATCH ?1
+         FROM messages m
+         WHERE m.id IN (
+                 SELECT rowid FROM messages_fts WHERE messages_fts MATCH ?1
+                 UNION
+                 SELECT rowid FROM messages_recipients_fts WHERE messages_recipients_fts MATCH ?1
+               )
            AND m.account = ?2 AND m.folder = ?3 AND m.uid <> 0
+           AND (?5 IS NULL
+                OR m.date < ?5
+                OR (m.date = ?5 AND m.uid < ?6)
+                OR (m.date = ?5 AND m.uid = ?6 AND m.folder < ?7))
          ORDER BY m.date DESC, m.uid DESC LIMIT ?4",
     )?;
     let rows = stmt.query_map(
-        params![match_query, account, folder, limit],
+        params![
+            match_query,
+            account,
+            folder,
+            limit,
+            cursor_date,
+            cursor_uid,
+            cursor_folder
+        ],
         message_header_from_row,
     )?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
@@ -509,8 +560,12 @@ fn search_messages_like(
     folder: &str,
     q: &str,
     limit: u32,
+    before_cursor: Option<&crate::thread_list::SearchCursor>,
 ) -> Result<Vec<MessageHeader>> {
     let like = format!("%{}%", escape_like(q.to_lowercase()));
+    let cursor_date = before_cursor.map(|cursor| cursor.date);
+    let cursor_uid = before_cursor.map(|cursor| cursor.uid as i64).unwrap_or(0);
+    let cursor_folder = before_cursor.map(|cursor| cursor.folder.as_str());
     let mut stmt = conn.prepare(
         "SELECT uid, subject, from_name, from_addr, date, seen, starred, thread_key,
                 json_extract(json, '$.to') FROM messages
@@ -519,15 +574,81 @@ fn search_messages_like(
              lower(COALESCE(subject, '')) LIKE ?3 ESCAPE '\\'
              OR lower(COALESCE(from_name, '')) LIKE ?3 ESCAPE '\\'
              OR lower(COALESCE(from_addr, '')) LIKE ?3 ESCAPE '\\'
+             OR lower(COALESCE(recipients, '')) LIKE ?3 ESCAPE '\\'
              OR lower(COALESCE(body, '')) LIKE ?3 ESCAPE '\\'
            )
+           AND (?5 IS NULL
+                OR date < ?5
+                OR (date = ?5 AND uid < ?6)
+                OR (date = ?5 AND uid = ?6 AND folder < ?7))
          ORDER BY date DESC, uid DESC LIMIT ?4",
     )?;
     let rows = stmt.query_map(
-        params![account, folder, like, limit],
+        params![
+            account,
+            folder,
+            like,
+            limit,
+            cursor_date,
+            cursor_uid,
+            cursor_folder
+        ],
         message_header_from_row,
     )?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// Search several folders (typically the open mailbox plus Sent) as one
+/// newest-first result set. UIDs are folder-scoped, so each header carries the
+/// folder it came from and ordering is by date — the only key comparable across
+/// mailboxes. Used both for the cached half of a live search and, on mobile, as
+/// the whole answer when the server can't be reached.
+pub fn search_messages_in_folders(
+    conn: &Connection,
+    account: &str,
+    folders: &[String],
+    query: &str,
+    limit: u32,
+    before_cursor: Option<&crate::thread_list::SearchCursor>,
+) -> Result<Vec<MessageHeader>> {
+    let mut messages = Vec::new();
+    for folder in folders {
+        for mut message in search_messages(conn, account, folder, query, limit, before_cursor)? {
+            message.folder = folder.clone();
+            messages.push(message);
+        }
+    }
+    sort_search_hits(&mut messages, limit);
+    Ok(messages)
+}
+
+/// Newest first by epoch send time, capped at `limit`; unknown dates (0) sort
+/// last. Shared by every path that merges search hits from more than one source
+/// so cached-only and cached+live results are ordered identically.
+pub fn sort_search_hits(messages: &mut Vec<MessageHeader>, limit: u32) {
+    messages.sort_unstable_by(|a, b| {
+        b.date
+            .cmp(&a.date)
+            .then_with(|| b.uid.cmp(&a.uid))
+            .then_with(|| b.folder.cmp(&a.folder))
+    });
+    messages.truncate(limit as usize);
+}
+
+/// The search cursor for the page after `messages`, or `None` when
+/// this page was short (a short page means the result set is exhausted).
+pub fn search_next_cursor(messages: &[MessageHeader], limit: u32, scanned: u32) -> Option<String> {
+    if messages.len() < limit as usize {
+        return None;
+    }
+    messages.last().map(|header| {
+        crate::thread_list::format_search_cursor(&crate::thread_list::SearchCursor {
+            date: header.date,
+            uid: header.uid,
+            folder: header.folder.clone(),
+            scanned,
+        })
+    })
 }
 
 /// A correspondent surfaced for recipient autocomplete.

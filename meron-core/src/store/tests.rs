@@ -140,13 +140,13 @@ fn search_messages_matches_subject_sender_and_body_case_insensitively() {
     );
     insert_message(&conn, 4, "Other", "No Match", "other@example.com", None);
 
-    let subject = search_messages(&conn, "acct", "INBOX", "quarterly", 10).unwrap();
+    let subject = search_messages(&conn, "acct", "INBOX", "quarterly", 10, None).unwrap();
     assert_eq!(subject.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1]);
 
-    let sender = search_messages(&conn, "acct", "INBOX", "launch", 10).unwrap();
+    let sender = search_messages(&conn, "acct", "INBOX", "launch", 10, None).unwrap();
     assert_eq!(sender.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![2]);
 
-    let body = search_messages(&conn, "acct", "INBOX", "DEPLOY", 10).unwrap();
+    let body = search_messages(&conn, "acct", "INBOX", "DEPLOY", 10, None).unwrap();
     assert_eq!(body.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![3]);
 }
 
@@ -164,14 +164,14 @@ fn search_messages_matches_substrings_including_cjk() {
     insert_message(&conn, 2, "上海会议通知", "Aki", "aki@example.com", None);
 
     // Mid-word Latin substring (trigram, >= 3 chars).
-    let latin = search_messages(&conn, "acct", "INBOX", "arter", 10).unwrap();
+    let latin = search_messages(&conn, "acct", "INBOX", "arter", 10, None).unwrap();
     assert_eq!(latin.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1]);
 
     // CJK substring with no surrounding word breaks (>= 3 chars -> FTS).
-    let cjk = search_messages(&conn, "acct", "INBOX", "会议通", 10).unwrap();
+    let cjk = search_messages(&conn, "acct", "INBOX", "会议通", 10, None).unwrap();
     assert_eq!(cjk.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![2]);
 
-    let miss = search_messages(&conn, "acct", "INBOX", "zzz", 10).unwrap();
+    let miss = search_messages(&conn, "acct", "INBOX", "zzz", 10, None).unwrap();
     assert!(miss.is_empty());
 }
 
@@ -183,7 +183,7 @@ fn search_messages_short_query_falls_back_to_like() {
     insert_message(&conn, 1, "上海会议通知", "Aki", "aki@example.com", None);
     insert_message(&conn, 2, "Other", "Aki", "aki@example.com", None);
 
-    let hit = search_messages(&conn, "acct", "INBOX", "上海", 10).unwrap();
+    let hit = search_messages(&conn, "acct", "INBOX", "上海", 10, None).unwrap();
     assert_eq!(hit.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1]);
 }
 
@@ -193,7 +193,7 @@ fn search_messages_reindexes_on_body_update() {
     let conn = test_conn();
     insert_message(&conn, 1, "Notes", "Ops", "ops@example.com", None);
     assert!(
-        search_messages(&conn, "acct", "INBOX", "deploy", 10)
+        search_messages(&conn, "acct", "INBOX", "deploy", 10, None)
             .unwrap()
             .is_empty()
     );
@@ -204,8 +204,189 @@ fn search_messages_reindexes_on_body_update() {
     )
     .unwrap();
 
-    let hit = search_messages(&conn, "acct", "INBOX", "deploy", 10).unwrap();
+    let hit = search_messages(&conn, "acct", "INBOX", "deploy", 10, None).unwrap();
     assert_eq!(hit.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1]);
+}
+
+#[test]
+fn search_messages_matches_to_and_cc_recipients() {
+    // Recipients live in the JSON catch-all, so they are searchable only through
+    // the mirrored `recipients` column and its index — both the trigram path and
+    // the short-query LIKE fallback must see them.
+    let conn = test_conn();
+    upsert_messages(
+        &conn,
+        "acct",
+        "Sent",
+        &[MessageHeader {
+            uid: 1,
+            subject: "Lunch".to_string(),
+            from_addr: "me@example.com".to_string(),
+            to: vec![crate::imap::Recipient {
+                name: "Ann Baker".to_string(),
+                addr: "ann@example.com".to_string(),
+            }],
+            cc: vec![crate::imap::Recipient {
+                name: String::new(),
+                addr: "ops@example.com".to_string(),
+            }],
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+
+    for query in ["Ann Baker", "ann@example", "ops@example", "an"] {
+        let hits = search_messages(&conn, "acct", "Sent", query, 10, None).unwrap();
+        assert_eq!(
+            hits.iter().map(|m| m.uid).collect::<Vec<_>>(),
+            vec![1],
+            "query: {query}"
+        );
+    }
+    assert!(
+        search_messages(&conn, "acct", "Sent", "zoe@example", 10, None)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn search_messages_keeps_indexed_recipients_through_a_flag_only_resync() {
+    // A flag-only resync carries no envelope; it must not blank the recipients
+    // the envelope fetch already indexed.
+    let conn = test_conn();
+    let envelope = MessageHeader {
+        uid: 1,
+        subject: "Lunch".to_string(),
+        to: vec![crate::imap::Recipient {
+            name: "Ann".to_string(),
+            addr: "ann@example.com".to_string(),
+        }],
+        ..Default::default()
+    };
+    upsert_messages(&conn, "acct", "INBOX", &[envelope]).unwrap();
+    upsert_messages(
+        &conn,
+        "acct",
+        "INBOX",
+        &[MessageHeader {
+            uid: 1,
+            subject: "Lunch".to_string(),
+            seen: true,
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+
+    let hits = search_messages(&conn, "acct", "INBOX", "ann@example", 10, None).unwrap();
+    assert_eq!(hits.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1]);
+}
+
+#[test]
+fn migration_indexes_recipients_already_cached_before_v6() {
+    // An existing install carries its recipients only in `json`; the upgrade has
+    // to backfill and index them, or search stays blind to everything synced
+    // before it.
+    let conn = Connection::open_in_memory().unwrap();
+    db::migrate_to_v5(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date, json)
+         VALUES('acct', 'Sent', '1', 1, 'Lunch', 'Me', 'me@example.com', 100,
+                '{\"to\":[{\"name\":\"Ann Baker\",\"addr\":\"ann@example.com\"}]}')",
+        [],
+    )
+    .unwrap();
+
+    db::run_migrations(&conn).unwrap();
+
+    let hits = search_messages(&conn, "acct", "Sent", "ann@example", 10, None).unwrap();
+    assert_eq!(hits.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1]);
+}
+
+#[test]
+fn search_messages_pages_with_a_keyset_cursor() {
+    let conn = test_conn();
+    for uid in 1..=3u32 {
+        conn.execute(
+            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date)
+             VALUES('acct', 'INBOX', ?1, ?2, 'deploy notes', 'Ops', 'ops@example.com', ?3)",
+            params![uid.to_string(), uid, 100 * uid as i64],
+        )
+        .unwrap();
+    }
+
+    let first = search_messages(&conn, "acct", "INBOX", "deploy", 2, None).unwrap();
+    assert_eq!(first.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![3, 2]);
+    let cursor = crate::thread_list::SearchCursor {
+        date: 200,
+        uid: 2,
+        folder: "INBOX".to_string(),
+        scanned: 2,
+    };
+
+    let second = search_messages(&conn, "acct", "INBOX", "deploy", 2, Some(&cursor)).unwrap();
+    assert_eq!(second.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1]);
+    // A short page means the result set is exhausted, so paging stops.
+    assert!(search_next_cursor(&second, 2, 4).is_none());
+}
+
+#[test]
+fn search_messages_in_folders_merges_newest_first_and_tags_the_folder() {
+    let conn = test_conn();
+    let insert = |folder: &str, uid: u32, date: i64| {
+        conn.execute(
+            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date)
+             VALUES('acct', ?1, ?2, ?3, 'deploy notes', 'Ops', 'ops@example.com', ?4)",
+            params![folder, uid.to_string(), uid, date],
+        )
+        .unwrap();
+    };
+    insert("INBOX", 1, 100);
+    insert("Sent", 1, 200);
+    insert("Archive", 9, 300);
+
+    let hits = search_messages_in_folders(
+        &conn,
+        "acct",
+        &["INBOX".to_string(), "Sent".to_string()],
+        "deploy",
+        10,
+        None,
+    )
+    .unwrap();
+    // Folder-scoped UIDs collide across mailboxes, so both uid-1 rows survive;
+    // the un-searched folder does not.
+    assert_eq!(
+        hits.iter()
+            .map(|m| (m.folder.as_str(), m.uid))
+            .collect::<Vec<_>>(),
+        vec![("Sent", 1), ("INBOX", 1)]
+    );
+}
+
+#[test]
+fn search_messages_in_folders_pages_across_equal_folder_scoped_uids() {
+    let conn = test_conn();
+    for folder in ["INBOX", "Sent"] {
+        conn.execute(
+            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date)
+             VALUES('acct', ?1, '1', 1, 'deploy notes', 'Ops', 'ops@example.com', 100)",
+            params![folder],
+        )
+        .unwrap();
+    }
+
+    let folders = ["INBOX".to_string(), "Sent".to_string()];
+    let first = search_messages_in_folders(&conn, "acct", &folders, "deploy", 1, None).unwrap();
+    assert_eq!(first[0].folder, "Sent");
+
+    let cursor = crate::thread_list::parse_search_cursor(
+        &search_next_cursor(&first, 1, 1).expect("full page has a cursor"),
+    )
+    .unwrap();
+    let second =
+        search_messages_in_folders(&conn, "acct", &folders, "deploy", 1, Some(&cursor)).unwrap();
+    assert_eq!(second[0].folder, "INBOX");
 }
 
 #[test]
@@ -754,7 +935,7 @@ fn suggest_contacts_dedupes_by_address_and_ranks_by_frequency() {
 
 #[test]
 fn suggest_contacts_includes_to_and_cc_recipients() {
-    use crate::imap::{MessageHeader, Recipient};
+    use crate::imap::MessageHeader;
     let conn = test_conn();
     // A sent message we authored: the useful contacts are its To/Cc, not us.
     let msg = MessageHeader {
@@ -763,11 +944,11 @@ fn suggest_contacts_includes_to_and_cc_recipients() {
         from_name: "Me".into(),
         from_addr: "me@example.com".into(),
         date: 1_779_580_800, // 2026-05-24
-        to: vec![Recipient {
+        to: vec![crate::imap::Recipient {
             name: "Cleo".into(),
             addr: "cleo@example.com".into(),
         }],
-        cc: vec![Recipient {
+        cc: vec![crate::imap::Recipient {
             name: String::new(),
             addr: "dan@example.com".into(),
         }],
@@ -880,7 +1061,7 @@ fn is_outgoing_matches_own_addresses_and_sent_folder_provenance() {
 
 #[test]
 fn apply_card_identity_resolves_junk_display_names() {
-    use crate::imap::{MessageHeader, Recipient};
+    use crate::imap::MessageHeader;
     let conn = test_conn();
     conn.execute(
         "INSERT INTO accounts(id, engine, email) VALUES('acct', 'mail', 'me@example.com')",
@@ -896,7 +1077,7 @@ fn apply_card_identity_resolves_junk_display_names() {
             uid: 2,
             from_name: "Me".into(),
             from_addr: "me@example.com".into(),
-            to: vec![Recipient {
+            to: vec![crate::imap::Recipient {
                 name: "bot@example.com bot@example.com".into(),
                 addr: "bot@example.com".into(),
             }],
@@ -927,7 +1108,7 @@ fn apply_card_identity_resolves_junk_display_names() {
 
 #[test]
 fn save_cached_message_preserves_envelope_recipients_in_json() {
-    use crate::imap::{MessageHeader, Recipient};
+    use crate::imap::MessageHeader;
     let conn = test_conn();
     let header = MessageHeader {
         uid: 42,
@@ -935,7 +1116,7 @@ fn save_cached_message_preserves_envelope_recipients_in_json() {
         from_name: "Sender".into(),
         from_addr: "sender@example.com".into(),
         date: 1_779_580_800, // 2026-05-24
-        to: vec![Recipient {
+        to: vec![crate::imap::Recipient {
             name: "Me".into(),
             addr: "me@example.com".into(),
         }],
@@ -977,12 +1158,13 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
 
     for table in [
         "accounts",
         "messages",
         "messages_fts",
+        "messages_recipients_fts",
         "folders",
         "folder_state",
         "subscriptions",
@@ -1007,7 +1189,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
 }
 
 #[test]
@@ -1035,7 +1217,7 @@ fn concurrent_first_open_runs_migrations_once() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -1290,7 +1472,7 @@ fn search_messages_returns_empty_for_blank_query() {
     let conn = test_conn();
     insert_message(&conn, 1, "Hello", "Aki", "aki@example.com", None);
 
-    let results = search_messages(&conn, "acct", "INBOX", "  ", 10).unwrap();
+    let results = search_messages(&conn, "acct", "INBOX", "  ", 10, None).unwrap();
     assert!(results.is_empty());
 }
 
@@ -1452,7 +1634,7 @@ fn body_cache_invalidation_works() {
     assert_eq!(plain_body_in_db, Some("original plain".to_string()));
 
     // FTS still matches the re-rendered html-only message after the bump.
-    let hits = search_messages(&conn, "acct", "INBOX", "rendered", 10).unwrap();
+    let hits = search_messages(&conn, "acct", "INBOX", "rendered", 10, None).unwrap();
     assert!(hits.iter().any(|m| m.subject == "HTML only"));
 }
 

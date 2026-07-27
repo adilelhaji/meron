@@ -537,24 +537,47 @@ pub async fn search_uids(
     limit: u32,
 ) -> Result<Vec<u32>> {
     session.select(folder).await.context("SELECT")?;
-    let q = imap_quote(query);
-    // On Gmail, defer to its own search engine via X-GM-RAW: it understands the
-    // full Gmail query syntax (operators like `from:`, `has:attachment`,
-    // `older_than:`, relevance) instead of our crude substring OR. Elsewhere fall
-    // back to plain SUBJECT/FROM/TEXT matching.
-    let criteria = if supports_gmail_ext(session).await {
-        format!("X-GM-RAW {q}")
-    } else {
-        format!("OR OR SUBJECT {q} FROM {q} TEXT {q}")
-    };
-    let set: HashSet<u32> = session
-        .uid_search(criteria)
-        .await
-        .context("UID SEARCH query")?;
+    let gmail = supports_gmail_ext(session).await;
+    // SEARCH keys are US-ASCII unless the command names a charset (RFC 3501
+    // §6.4.4), so anything non-ASCII — a CJK or accented query — has to be
+    // announced as UTF-8 or the server is entitled to answer BAD.
+    let needs_charset = !query.is_ascii();
+    let mut result = session
+        .uid_search(search_criteria(gmail, query, needs_charset))
+        .await;
+    if result.is_err() && needs_charset {
+        // Servers that reject CHARSET outright (or that advertise UTF8=ACCEPT
+        // and take the raw octets) get one retry with the bare criteria before
+        // we give up and leave the caller with the cached hits.
+        result = session
+            .uid_search(search_criteria(gmail, query, false))
+            .await;
+    }
+    let set: HashSet<u32> = result.context("UID SEARCH query")?;
     let mut uids: Vec<u32> = set.into_iter().collect();
     uids.sort_unstable_by(|a, b| b.cmp(a));
     uids.truncate(limit as usize);
     Ok(uids)
+}
+
+/// Build the SEARCH criteria for a text `query`.
+///
+/// On Gmail, defer to its own search engine via X-GM-RAW: it understands the
+/// full Gmail query syntax (operators like `from:`, `has:attachment`,
+/// `older_than:`, relevance) instead of our crude substring OR. Elsewhere fall
+/// back to plain SUBJECT/FROM/TEXT matching.
+fn search_criteria(gmail: bool, query: &str, charset: bool) -> String {
+    let q = imap_quote(query);
+    let keys = if gmail {
+        format!("X-GM-RAW {q}")
+    } else {
+        format!("OR OR SUBJECT {q} FROM {q} TEXT {q}")
+    };
+    if charset {
+        format!("CHARSET UTF-8 {keys}")
+    } else {
+        keys
+    }
 }
 
 /// Return every UID currently in the folder. Used to prune locally cached
@@ -1580,7 +1603,8 @@ fn address_fields(addr: &async_imap::imap_proto::Address) -> (String, String) {
 mod tests {
     use super::{
         civil_from_days, first_message_id, header_subject, imap_quote, looks_like_drafts,
-        message_id_search_criteria, normalize_message_id, references_root, thread_key,
+        message_id_search_criteria, normalize_message_id, references_root, search_criteria,
+        thread_key,
     };
 
     #[test]
@@ -1647,6 +1671,24 @@ mod tests {
         assert_eq!(imap_quote("plain"), "\"plain\"");
         assert_eq!(imap_quote(r#"a"b\c"#), r#""a\"b\\c""#);
         assert_eq!(imap_quote("a\r\nb"), "\"a  b\"");
+    }
+
+    #[test]
+    fn search_criteria_announces_utf8_only_when_asked() {
+        assert_eq!(
+            search_criteria(false, "plan", false),
+            "OR OR SUBJECT \"plan\" FROM \"plan\" TEXT \"plan\""
+        );
+        assert_eq!(search_criteria(true, "plan", false), "X-GM-RAW \"plan\"");
+        // Non-ASCII queries need the charset; the retry drops it again.
+        assert_eq!(
+            search_criteria(true, "会議", true),
+            "CHARSET UTF-8 X-GM-RAW \"会議\""
+        );
+        assert_eq!(
+            search_criteria(false, "会議", true),
+            "CHARSET UTF-8 OR OR SUBJECT \"会議\" FROM \"会議\" TEXT \"会議\""
+        );
     }
 
     #[test]

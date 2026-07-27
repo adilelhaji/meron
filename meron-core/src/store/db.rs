@@ -83,6 +83,32 @@ CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF subject, from_name, fro
 END;
 ";
 
+/// Recipient search index (migration v6). `To`/`Cc` live in the `json` catch-all,
+/// which FTS can't index, so `messages.recipients` mirrors them as flat text
+/// (see `store::recipients_index_text`). It gets its own FTS table rather than a
+/// fifth column on `messages_fts`: adding a column there would force a full
+/// rebuild of the body trigram index — minutes of startup for a large mailbox —
+/// while this one indexes a few dozen bytes per row.
+const MESSAGES_RECIPIENTS_FTS_DDL: &str = "
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_recipients_fts USING fts5(
+  recipients,
+  content='messages', content_rowid='id',
+  tokenize='trigram'
+);
+CREATE TRIGGER IF NOT EXISTS messages_recipients_ai AFTER INSERT ON messages BEGIN
+  INSERT INTO messages_recipients_fts(rowid, recipients) VALUES (new.id, new.recipients);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_recipients_ad AFTER DELETE ON messages BEGIN
+  INSERT INTO messages_recipients_fts(messages_recipients_fts, rowid, recipients)
+  VALUES ('delete', old.id, old.recipients);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_recipients_au AFTER UPDATE OF recipients ON messages BEGIN
+  INSERT INTO messages_recipients_fts(messages_recipients_fts, rowid, recipients)
+  VALUES ('delete', old.id, old.recipients);
+  INSERT INTO messages_recipients_fts(rowid, recipients) VALUES (new.id, new.recipients);
+END;
+";
+
 const OBSERVED_MAIL_IDENTITIES_DDL: &str = "
 CREATE TABLE IF NOT EXISTS observed_mail_identities (
   account       TEXT NOT NULL,
@@ -369,9 +395,23 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 5 {
         migrate_v5(&tx)?;
     }
+    if version < 6 {
+        migrate_v6(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
+}
+
+/// A database as v5 left it, for tests that need to migrate an *existing*
+/// install rather than a fresh one.
+#[cfg(test)]
+pub(super) fn migrate_to_v5(conn: &Connection) -> Result<()> {
+    migrate_v1(conn)?;
+    migrate_v2(conn)?;
+    migrate_v3(conn)?;
+    migrate_v4(conn)?;
+    migrate_v5(conn)
 }
 
 fn migrate_v1(conn: &Connection) -> Result<()> {
@@ -419,6 +459,45 @@ fn migrate_v4(conn: &Connection) -> Result<()> {
 fn migrate_v5(conn: &Connection) -> Result<()> {
     conn.execute_batch(OBSERVED_MAIL_IDENTITIES_DDL)?;
     conn.execute_batch("PRAGMA user_version = 5;")?;
+    Ok(())
+}
+
+/// Searchable `To`/`Cc` text plus the FTS index over it, so a lookup by
+/// recipient finds cached mail the way a lookup by sender already does.
+/// Existing rows are backfilled from `json` through the same formatter the write
+/// path uses, then indexed in one `rebuild` — cheaper than letting the triggers
+/// fire per row.
+fn migrate_v6(conn: &Connection) -> Result<()> {
+    conn.execute_batch("ALTER TABLE messages ADD COLUMN recipients TEXT;")?;
+    backfill_recipients(conn)?;
+    conn.execute_batch(MESSAGES_RECIPIENTS_FTS_DDL)?;
+    conn.execute_batch(
+        "INSERT INTO messages_recipients_fts(messages_recipients_fts) VALUES('rebuild');",
+    )?;
+    conn.execute_batch("PRAGMA user_version = 6;")?;
+    Ok(())
+}
+
+fn backfill_recipients(conn: &Connection) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "SELECT id, json_extract(json, '$.to'), json_extract(json, '$.cc') FROM messages
+         WHERE json_extract(json, '$.to') IS NOT NULL OR json_extract(json, '$.cc') IS NOT NULL",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                super::parse_recipients_json(row.get::<_, Option<String>>(1)?),
+                super::parse_recipients_json(row.get::<_, Option<String>>(2)?),
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (id, to, cc) in rows {
+        conn.execute(
+            "UPDATE messages SET recipients = ?2 WHERE id = ?1",
+            params![id, super::recipients_index_text(&to, &cc)],
+        )?;
+    }
     Ok(())
 }
 

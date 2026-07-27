@@ -107,7 +107,10 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
   const hasUnread = isRSSAccount
     ? filteredThreads.some((thread) => thread.unread)
     : folderUnread(folders, selectedFolder) > 0 || filteredThreads.some((thread) => thread.unread)
-  const canLoadMore = !!threadsCursor && !query.trim() && filterMode === 'all'
+  // A search pages on the cursor the core mints for it, whatever the filter chip
+  // says — a query is answered by a search, not by a filtered listing. Without a
+  // cursor (feeds, starred) there is nothing more to load.
+  const canLoadMore = !!threadsCursor && (!!query.trim() || filterMode === 'all')
   const feedRowsDraggable = !isStarredView && isRSSAccount
   const desktopBulk = isWailsDesktopRuntime() || !!system
   const bulkItems = selectedBulkItems()

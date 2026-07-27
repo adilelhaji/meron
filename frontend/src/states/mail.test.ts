@@ -10,7 +10,9 @@ import {
   copyThreadToFolder,
   deleteThread,
   discardSavedDraftCopy,
+  loadMoreThreads,
   loadThread,
+  loadThreads,
   mail$,
   markAllRead,
   markMessagesRead,
@@ -51,6 +53,55 @@ const bulkItem = (message: Message, overrides: Partial<BulkSelectionItem> = {}):
   draft: false,
   trash: false,
   ...overrides,
+})
+
+describe('thread list paging', () => {
+  beforeEach(() => {
+    mail$.threads.set([thread({ subject: 'Old first page' })])
+    mail$.threadsCursor.set('old-cursor')
+    mail$.threadsLoadingMore.set(false)
+    mail$.threadAccountCursors.set({})
+    ui$.selectedAccount.set('acc')
+    ui$.selectedFolder.set('inbox')
+    ui$.selectedThread.set('')
+    ui$.query.set('old')
+    ui$.filterMode.set('all')
+  })
+
+  it('drops a load-more response after a newer search replaces the list', async () => {
+    let resolveOldPage!: (value: unknown) => void
+    const oldPage = new Promise((resolve) => {
+      resolveOldPage = resolve
+    })
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (_command: string, payload: { before_cursor?: string; query?: string }) => {
+            if (payload.before_cursor === 'old-cursor') return oldPage
+            if (payload.query === 'new') {
+              return {
+                threads: [thread({ thread_id: 'acc:inbox:thread:new', subject: 'New result' })],
+                next_cursor: 'new-cursor',
+              }
+            }
+            return {}
+          },
+        },
+      },
+    }
+
+    const loadingMore = loadMoreThreads()
+    ui$.query.set('new')
+    await loadThreads()
+    resolveOldPage({
+      threads: [thread({ thread_id: 'acc:inbox:thread:old-page', subject: 'Stale result' })],
+      next_cursor: 'stale-cursor',
+    })
+    await loadingMore
+
+    expect(mail$.threads.get().map((item) => item.subject)).toEqual(['New result'])
+    expect(mail$.threadsCursor.get()).toBe('new-cursor')
+  })
 })
 
 describe('markAllRead', () => {

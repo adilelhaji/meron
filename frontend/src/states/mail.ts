@@ -473,7 +473,17 @@ export async function ensureAccountFolders(
   }
 }
 
+// Guards against a slow load repainting the list after a newer one already did.
+// A search is a live IMAP round trip — seconds, not milliseconds — so typing
+// another character, clearing the box, or switching account/folder while one is
+// in flight routinely finishes out of order. Every write below belongs to the
+// newest call only; the losers drop their results (same idea as the kanban
+// column loader's `columnLoadVersions` and mobile's `activeMailboxLoadToken`).
+let threadLoadVersion = 0
+
 export async function loadThreads(refresh = true) {
+  const version = (threadLoadVersion += 1)
+  const superseded = () => threadLoadVersion !== version
   const selectedAcc = ui$.selectedAccount.get()
   const selectedFol = ui$.selectedFolder.get()
   const q = ui$.query.get()
@@ -497,6 +507,7 @@ export async function loadThreads(refresh = true) {
     let nextCursor = ''
     try {
       const res = await invoke<{ items: Message[]; next_cursor?: string }>('mail.starredItems', { query: q, limit: 50 })
+      if (superseded()) return
       const items = res.items ?? []
       nextCursor = res.next_cursor ?? ''
       mail$.threads.set(items)
@@ -508,6 +519,7 @@ export async function loadThreads(refresh = true) {
         ui$.selectedThread.set(nextItem?.thread_id ?? '')
       }
     } catch (err) {
+      if (superseded()) return
       console.error('Failed to load starred items:', err)
     }
     mail$.threadsCursor.set(nextCursor)
@@ -531,6 +543,7 @@ export async function loadThreads(refresh = true) {
         filter,
         refresh,
       })
+      if (superseded()) return
       allThreads = result.threads || []
       for (const [accountId, unread] of Object.entries(result.folder_unreads ?? {})) {
         updateCachedFolderUnread(accountId, 'inbox', unread)
@@ -541,6 +554,7 @@ export async function loadThreads(refresh = true) {
       mail$.threadAccountCursors.set({})
       mail$.threadsCursor.set(result.next_cursor ?? '')
     } catch (err) {
+      if (superseded()) return
       console.error('Failed to load unified threads:', err)
       mail$.threadAccountCursors.set({})
       mail$.threadsCursor.set('')
@@ -557,6 +571,7 @@ export async function loadThreads(refresh = true) {
           refresh,
         },
       )
+      if (superseded()) return
       if (typeof result.folder_unread === 'number') {
         updateCachedFolderUnread(selectedAcc, selectedFol, result.folder_unread)
       }
@@ -564,6 +579,7 @@ export async function loadThreads(refresh = true) {
       mail$.threadsCursor.set(result.next_cursor ?? '')
       mail$.threadAccountCursors.set({})
     } catch (err) {
+      if (superseded()) return
       console.error('Failed to load threads:', err)
       mail$.threadsCursor.set('')
       mail$.threadAccountCursors.set({})
@@ -629,7 +645,17 @@ export async function loadMoreThreads() {
   const selectedFol = ui$.selectedFolder.get()
   const q = ui$.query.get()
   const filter = ui$.filterMode.get()
-  if (q.trim() || filter === 'starred') return
+  const version = threadLoadVersion
+  const stillCurrent = (cursor: string) =>
+    threadLoadVersion === version &&
+    ui$.selectedAccount.get() === selectedAcc &&
+    ui$.selectedFolder.get() === selectedFol &&
+    ui$.query.get() === q &&
+    ui$.filterMode.get() === filter &&
+    mail$.threadsCursor.get() === cursor
+  // The starred filter is one unpaginated page; a search over it is paged like
+  // any other, and every other view stops on an empty cursor below.
+  if (!q.trim() && filter === 'starred') return
 
   mail$.threadsLoadingMore.set(true)
   try {
@@ -638,9 +664,13 @@ export async function loadMoreThreads() {
       const cursor = mail$.threadsCursor.get()
       if (!cursor) return
       const res = await invoke<{ items: Message[]; next_cursor?: string }>('mail.starredItems', {
+        // The cursor walks the *filtered* set, so later pages must repeat the
+        // query or they'd page through items the first page never showed.
+        query: q,
         limit: 50,
         before_cursor: cursor,
       })
+      if (!stillCurrent(cursor)) return
       moreThreads = res.items || []
       mail$.threadsCursor.set(res.next_cursor ?? '')
     } else if (selectedAcc === 'unified') {
@@ -658,6 +688,7 @@ export async function loadMoreThreads() {
         before_cursor: cursor,
         refresh: false,
       })
+      if (!stillCurrent(cursor)) return
       for (const [accountId, unread] of Object.entries(res.folder_unreads ?? {})) {
         updateCachedFolderUnread(accountId, 'inbox', unread)
       }
@@ -678,6 +709,7 @@ export async function loadMoreThreads() {
           refresh: false,
         },
       )
+      if (!stillCurrent(cursor)) return
       if (typeof res.folder_unread === 'number') updateCachedFolderUnread(selectedAcc, selectedFol, res.folder_unread)
       moreThreads = res.threads || []
       mail$.threadsCursor.set(res.next_cursor ?? '')

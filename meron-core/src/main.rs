@@ -1190,15 +1190,22 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     // Chat-view search spans the selected folder plus Sent, so a
                     // lookup surfaces both received and self-sent mail (and old
                     // messages filed under Sent), not just the current mailbox.
-                    let mut folders = vec![folder.clone()];
-                    if let Some(sent) = cached_sent_folder(engine, &account, &folder) {
-                        folders.push(sent);
-                    }
-                    (
-                        search_mail_messages(engine, &account, &folders, &request.query, limit)
-                            .await?,
-                        None,
+                    let folders = search_folders(&engine.db.lock().unwrap(), &account, &folder);
+                    let messages = search_mail_messages(
+                        engine,
+                        &account,
+                        &folders,
+                        &request.query,
+                        limit,
+                        request.search_before_cursor.as_ref(),
                     )
+                    .await?;
+                    let scanned = thread_list::search_scan_limit(
+                        request.search_before_cursor.as_ref(),
+                        limit,
+                    );
+                    let next_cursor = store::search_next_cursor(&messages, limit, scanned);
+                    (messages, next_cursor)
                 }
             };
             if refresh && request.wants_background_sync() {

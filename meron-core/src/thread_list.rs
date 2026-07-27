@@ -8,6 +8,7 @@
 //! whatever background sync they spawn afterwards.
 
 use anyhow::Result;
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::Connection;
 use serde_json::{Value, json};
 
@@ -25,7 +26,19 @@ pub struct ThreadListQuery {
     pub query: String,
     pub filter: String,
     pub before_cursor: Option<(i64, u32)>,
+    pub search_before_cursor: Option<SearchCursor>,
     pub limit: u32,
+}
+
+/// A globally ordered search position. UIDs are only unique within a folder, so
+/// the folder is the final key when Inbox and Sent are merged into one page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchCursor {
+    pub date: i64,
+    pub uid: u32,
+    pub folder: String,
+    /// Number of newest server hits already considered per searched folder.
+    pub scanned: u32,
 }
 
 impl ThreadListQuery {
@@ -53,6 +66,10 @@ impl ThreadListQuery {
                 .get("before_cursor")
                 .and_then(Value::as_str)
                 .and_then(parse_mail_cursor),
+            search_before_cursor: params
+                .get("before_cursor")
+                .and_then(Value::as_str)
+                .and_then(parse_search_cursor),
             limit: params
                 .get("limit")
                 .and_then(Value::as_u64)
@@ -90,7 +107,7 @@ pub enum MailSource {
     Starred,
     /// Newest-first page, cursor paged, optionally unread-only.
     Recent { unread_only: bool },
-    /// Text search across the folder (plus Sent), unpaginated.
+    /// Text search across the folder plus Sent, cursor-paginated.
     Search,
 }
 
@@ -99,6 +116,41 @@ pub fn parse_mail_cursor(cursor: &str) -> Option<(i64, u32)> {
     let rest = cursor.strip_prefix("date:")?;
     let (date, uid) = rest.split_once(':')?;
     Some((date.parse().ok()?, uid.parse().ok()?))
+}
+
+/// `search:<date>:<uid>:<scanned>:<base64-folder>` cursor for a merged page.
+pub fn parse_search_cursor(cursor: &str) -> Option<SearchCursor> {
+    let rest = cursor.strip_prefix("search:")?;
+    let mut parts = rest.splitn(4, ':');
+    let date = parts.next()?.parse().ok()?;
+    let uid = parts.next()?.parse().ok()?;
+    let scanned = parts.next()?.parse().ok()?;
+    let folder = String::from_utf8(URL_SAFE_NO_PAD.decode(parts.next()?).ok()?).ok()?;
+    Some(SearchCursor {
+        date,
+        uid,
+        folder,
+        scanned,
+    })
+}
+
+pub fn format_search_cursor(cursor: &SearchCursor) -> String {
+    format!(
+        "search:{}:{}:{}:{}",
+        cursor.date,
+        cursor.uid,
+        cursor.scanned,
+        URL_SAFE_NO_PAD.encode(cursor.folder.as_bytes())
+    )
+}
+
+/// Expand the live-search window by one page. Re-fetching the prefix preserves
+/// unconsumed hits from either merged folder without downloading every match.
+pub fn search_scan_limit(cursor: Option<&SearchCursor>, limit: u32) -> u32 {
+    cursor
+        .map(|cursor| cursor.scanned)
+        .unwrap_or_default()
+        .saturating_add(limit)
 }
 
 /// Feed accounts: one card per subscription, filtered like a mail folder.
@@ -194,10 +246,27 @@ mod tests {
         assert_eq!(full.folder, "INBOX", "folder names are canonicalized");
         assert_eq!(full.limit, 10);
         assert_eq!(full.before_cursor, Some((200, 7)));
+        assert!(full.search_before_cursor.is_none());
         assert!(
             !full.wants_background_sync(),
             "paging older never triggers a sync"
         );
+    }
+
+    #[test]
+    fn search_cursor_round_trips_folder_names() {
+        let cursor = SearchCursor {
+            date: 200,
+            uid: 7,
+            folder: "Sent: 日本語".to_string(),
+            scanned: 50,
+        };
+        assert_eq!(
+            parse_search_cursor(&format_search_cursor(&cursor)),
+            Some(cursor.clone())
+        );
+        assert_eq!(search_scan_limit(None, 50), 50);
+        assert_eq!(search_scan_limit(Some(&cursor), 50), 100);
     }
 
     #[test]

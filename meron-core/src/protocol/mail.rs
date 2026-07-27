@@ -507,32 +507,39 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
             unread_only,
         )?,
         thread_list::MailSource::Search => {
-            match search_live_mobile_mail_messages(
+            // One folder list for both halves: the live search and the offline
+            // fallback must cover the same mailboxes, or losing the network
+            // would silently drop the Sent hits from the results.
+            let folders = mobile_search_folders(data_dir, &account_id, &folder_id)?;
+            let messages = match search_live_mobile_mail_messages(
                 data_dir,
                 &account_id,
-                &folder_id,
+                &folders,
                 &request.query,
                 limit,
+                request.search_before_cursor.as_ref(),
             ) {
-                Ok(messages) => (messages, None),
+                Ok(messages) => messages,
                 Err(err) => {
                     crate::mlog!(
                         crate::log::Level::Warn,
                         "mail.search",
                         "live search failed for account={account_id} folder={folder_id}: {err}"
                     );
-                    (
-                        search_cached_mobile_mail_messages(
-                            data_dir,
-                            &account_id,
-                            &folder_id,
-                            &request.query,
-                            limit,
-                        )?,
-                        None,
-                    )
+                    search_cached_mobile_mail_messages(
+                        data_dir,
+                        &account_id,
+                        &folders,
+                        &request.query,
+                        limit,
+                        request.search_before_cursor.as_ref(),
+                    )?
                 }
-            }
+            };
+            let scanned =
+                thread_list::search_scan_limit(request.search_before_cursor.as_ref(), limit);
+            let next_cursor = store::search_next_cursor(&messages, limit, scanned);
+            (messages, next_cursor)
         }
     };
     with_mobile_db(data_dir, |conn| {
@@ -647,24 +654,37 @@ fn get_cached_mobile_starred(
     store::get_starred(&conn, account_id, folder_id, limit).map_err(|err| err.to_string())
 }
 
-fn search_cached_mobile_mail_messages(
+/// The mailboxes a mobile search covers: the open folder plus Sent, read from
+/// the local store so it works with or without a connection.
+fn mobile_search_folders(
     data_dir: &str,
     account_id: &str,
     folder_id: &str,
+) -> Result<Vec<String>, String> {
+    let conn = open_mobile_db(data_dir)?;
+    Ok(crate::engine::search_folders(&conn, account_id, folder_id))
+}
+
+fn search_cached_mobile_mail_messages(
+    data_dir: &str,
+    account_id: &str,
+    folders: &[String],
     query: &str,
     limit: u32,
+    before_cursor: Option<&crate::thread_list::SearchCursor>,
 ) -> Result<Vec<MessageHeader>, String> {
     let conn = open_mobile_db(data_dir)?;
-    store::search_messages(&conn, account_id, folder_id, query, limit)
+    store::search_messages_in_folders(&conn, account_id, folders, query, limit, before_cursor)
         .map_err(|err| err.to_string())
 }
 
 fn search_live_mobile_mail_messages(
     data_dir: &str,
     account_id: &str,
-    folder_id: &str,
+    folders: &[String],
     query: &str,
     limit: u32,
+    before_cursor: Option<&crate::thread_list::SearchCursor>,
 ) -> Result<Vec<MessageHeader>, String> {
     let engine = crate::ffi::engine_for(data_dir)?;
     if engine.is_paused(account_id) {
@@ -675,12 +695,13 @@ fn search_live_mobile_mail_messages(
         return Err(format!("account needs reconnect: {account_id}"));
     }
 
-    let mut folders = vec![folder_id.to_string()];
-    if let Some(sent) = crate::engine::cached_sent_folder(&engine, account_id, folder_id) {
-        folders.push(sent);
-    }
     crate::ffi::engine_block_on(crate::engine::search_mail_messages(
-        &engine, account_id, &folders, query, limit,
+        &engine,
+        account_id,
+        folders,
+        query,
+        limit,
+        before_cursor,
     ))
 }
 
