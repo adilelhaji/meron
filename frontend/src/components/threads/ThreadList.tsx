@@ -195,7 +195,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
         </div>
       )}
       {bulkInThisList ? (
-        <BulkActionBar items={bulkItems} className="min-h-16" />
+        <BulkActionBar items={bulkItems} allItems={filteredThreads.map(bulkItemFor)} className="min-h-16" />
       ) : (
         <div className="flex h-16 shrink-0 flex-row items-center gap-3 px-4 border-b border-border bg-white dark:bg-[#0f172a]/40">
           <div className="flex items-center gap-2 w-full">

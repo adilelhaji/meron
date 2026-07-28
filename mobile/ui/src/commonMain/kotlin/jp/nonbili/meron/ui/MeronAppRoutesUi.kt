@@ -349,7 +349,7 @@ internal fun KanbanRouteContent(
                                                 .toSet()
                                         if (!selectedMailThreadIds.containsAll(selectableThreadIds)) {
                                             DropdownMenuItem(
-                                                text = { Text(tr("mobile.actions.selectAll")) },
+                                                text = { Text(tr("threads.actions.selectAll")) },
                                                 leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null) },
                                                 onClick = {
                                                     mailSelectionMenuOpen = false
@@ -715,7 +715,7 @@ internal fun MailRouteContent(
                                         val selectableThreadIds = coreThreads.map { it.id }.toSet()
                                         if (!selectedMailThreadIds.containsAll(selectableThreadIds)) {
                                             DropdownMenuItem(
-                                                text = { Text(tr("mobile.actions.selectAll")) },
+                                                text = { Text(tr("threads.actions.selectAll")) },
                                                 leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null) },
                                                 onClick = {
                                                     mailSelectionMenuOpen = false

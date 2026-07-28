@@ -217,7 +217,11 @@ function KanbanColumnContent({
       )}
     >
       {bulkInColumn ? (
-        <BulkActionBar items={bulkItems} className="min-h-12 rounded-t-lg border-b border-border bg-transparent" />
+        <BulkActionBar
+          items={bulkItems}
+          allItems={threads.map(bulkItemFor)}
+          className="min-h-12 rounded-t-lg border-b border-border bg-transparent"
+        />
       ) : (
         <div
           className={`flex h-12 shrink-0 items-center gap-2 border-b border-border px-3 ${

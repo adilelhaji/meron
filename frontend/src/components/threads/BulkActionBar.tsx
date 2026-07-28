@@ -1,10 +1,22 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, ChevronRight, Copy, FolderInput, Mail, MailOpen, MoreHorizontal, Star, Trash2, X } from 'lucide-react'
+import {
+  Archive,
+  ChevronRight,
+  Copy,
+  FolderInput,
+  Mail,
+  MailOpen,
+  MoreHorizontal,
+  Star,
+  Trash2,
+  ListChecks,
+  X,
+} from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { clsx } from '../../lib/utils'
 import type { BulkSelectionItem } from '../../states/ui'
-import { clearBulkSelection } from '../../states/ui'
+import { clearBulkSelection, setBulkSelection } from '../../states/ui'
 import { accounts$, isSendableAccount } from '../../states/accounts'
 import {
   bulkArchiveSelected,
@@ -21,7 +33,16 @@ import { IconButton } from '../button/IconButton'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
 import { MenuItem } from '../menu/MenuItem'
 
-export function BulkActionBar({ items, className }: { items: BulkSelectionItem[]; className?: string }) {
+export function BulkActionBar({
+  items,
+  allItems,
+  className,
+}: {
+  items: BulkSelectionItem[]
+  /** Every selectable row of the surface the bar belongs to, in display order — backs "select all". */
+  allItems?: BulkSelectionItem[]
+  className?: string
+}) {
   const { t } = useTranslation()
   const accounts = useValue(accounts$)
   const foldersByAccount = useValue(mail$.foldersByAccount)
@@ -130,6 +151,9 @@ export function BulkActionBar({ items, className }: { items: BulkSelectionItem[]
   }))
 
   const selectedLabel = items.length === 1 ? '1 selected' : `${items.length} selected`
+  // Hidden once every row is already selected, so the menu never offers a no-op.
+  const selectableItems = allItems ?? []
+  const canSelectAll = selectableItems.some((item) => !items.some((selected) => selected.key === item.key))
 
   return (
     <div
@@ -150,6 +174,16 @@ export function BulkActionBar({ items, className }: { items: BulkSelectionItem[]
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="min-w-0 truncate text-sm font-semibold text-primary">{selectedLabel}</span>
         </div>
+        {canSelectAll && (
+          <IconButton
+            icon={ListChecks}
+            size="md"
+            radius="lg"
+            label={t('threads.actions.selectAll')}
+            className="hover:bg-accent/10"
+            onClick={() => setBulkSelection(selectableItems)}
+          />
+        )}
         <IconButton
           icon={MoreHorizontal}
           size="md"
