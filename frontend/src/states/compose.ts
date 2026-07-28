@@ -74,14 +74,15 @@ function forwardedPlainBody(message: Message): string {
 }
 
 function forwardedHtmlBody(message: Message): string {
-  const rows = [
+  const rows: Array<[string, string | undefined]> = [
     ['From', formatMessageFrom(message)],
     ['Date', formatFullTimestamp(message.date)],
     ['Subject', message.subject || '(no subject)'],
     ['To', message.to],
     ['Cc', message.cc],
-  ].filter(([, value]) => value?.trim())
-  const header = rows
+  ]
+  const presentRows = rows.filter((row): row is [string, string] => !!row[1]?.trim())
+  const header = presentRows
     .map(([label, value]) => `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}</div>`)
     .join('')
   const body = message.body_html || textToHtml(message.body ?? '')

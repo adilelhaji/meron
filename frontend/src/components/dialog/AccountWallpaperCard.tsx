@@ -43,8 +43,8 @@ export function AccountWallpaperCard({ account }: { account: Account }) {
           </button>
           {dialogOpen && (
             <WallpaperDialog
-              title={t('wallpaper.chatTitle', { name: account.name || account.email })}
-              previewName={account.name}
+              title={t('wallpaper.chatTitle', { name: account.display_name || account.email })}
+              previewName={account.display_name}
               wallpaper={account.chat_wallpaper}
               onSelect={(next) => setAccountChatWallpaper(account.id, next)}
               onUploadFile={async (file) => {

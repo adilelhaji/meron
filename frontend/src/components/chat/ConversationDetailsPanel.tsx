@@ -23,6 +23,7 @@ export type ConversationMediaItem = {
 
 export type ConversationFileItem = {
   filename: string
+  mime: string
   size: number
   // Media key for the on-disk bytes; null when the file wasn't persisted.
   key: string | null

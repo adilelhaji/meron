@@ -166,7 +166,6 @@ describe('markAllRead', () => {
         smtp_host: '',
         smtp_port: 465,
         tls: true,
-        signature: '',
       },
     ])
     mail$.threads.set([])

@@ -170,7 +170,7 @@ export function HtmlMessageView({ scrollKey, title, html, text, attachments, vie
     <div className="relative flex min-h-0 flex-1 flex-col" onMouseLeave={() => setHoveredLink(null)}>
       <HtmlFrame
         ref={iframeRef}
-        html={sanitizedHtml}
+        html={sanitizedHtml ?? ''}
         title={title}
         className="flex-1 w-full border-0 bg-white"
         onFrameClick={handleFrameClick}

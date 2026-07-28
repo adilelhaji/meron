@@ -1,4 +1,4 @@
-import type { Observable } from '@legendapp/state'
+import type { ObservableParam } from '@legendapp/state'
 import { invoke } from './bridge'
 
 // Co-located session persistence. "Session" state is window/navigation state that
@@ -11,7 +11,7 @@ import { invoke } from './bridge'
 // seeds it back at boot. The returned `restore` is re-exported by the store for
 // boot to call; the suppression guard lives here so seeding a value never echoes
 // straight back as a fresh write.
-export function persistedField<T>(obs$: Observable<T>, key: string, parse: (raw: unknown) => T | undefined) {
+export function persistedField<T>(obs$: ObservableParam<T>, key: string, parse: (raw: unknown) => T | undefined) {
   let restoring = false
   obs$.onChange(({ value }) => {
     if (restoring) return

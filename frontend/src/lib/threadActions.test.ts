@@ -39,13 +39,27 @@ describe('filterThreads', () => {
 })
 
 describe('isRssAccount', () => {
+  const account = (overrides: Partial<Account>): Account => ({
+    id: 'acc1',
+    email: 'me@example.com',
+    display_name: 'Me',
+    provider: 'imap',
+    auth_type: 'password',
+    imap_host: '',
+    imap_port: 993,
+    smtp_host: '',
+    smtp_port: 465,
+    tls: true,
+    ...overrides,
+  })
+
   it('detects rss provider, rss auth_type, and rss- id prefix', () => {
-    expect(isRssAccount({ provider: 'rss' } as Account, 'x')).toBe(true)
-    expect(isRssAccount({ auth_type: 'rss' } as Account, 'x')).toBe(true)
+    expect(isRssAccount(account({ provider: 'rss' }), 'x')).toBe(true)
+    expect(isRssAccount(account({ auth_type: 'rss' }), 'x')).toBe(true)
     expect(isRssAccount(undefined, 'rss-feeds')).toBe(true)
   })
 
   it('is false for a plain mail account', () => {
-    expect(isRssAccount({ provider: 'gmail', auth_type: 'oauth' } as Account, 'acc1')).toBe(false)
+    expect(isRssAccount(account({ provider: 'gmail', auth_type: 'gmail_oauth' }), 'acc1')).toBe(false)
   })
 })

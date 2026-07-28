@@ -28,12 +28,12 @@ export async function pickImageFile(title = 'Choose image'): Promise<File | null
 
 export async function pickFiles(title = 'Choose files'): Promise<File[]> {
   const res = await invoke<{ files: PickedFile[] } | { cancelled: true }>('system.pickFiles', { title })
-  if ('cancelled' in res && res.cancelled) return []
+  if (!('files' in res)) return []
   return Promise.all(res.files.map(pickedToFile))
 }
 
 export async function pickImageFiles(title = 'Choose images'): Promise<File[]> {
   const res = await invoke<{ files: PickedFile[] } | { cancelled: true }>('system.pickImageFiles', { title })
-  if ('cancelled' in res && res.cancelled) return []
+  if (!('files' in res)) return []
   return Promise.all(res.files.map(pickedToFile))
 }

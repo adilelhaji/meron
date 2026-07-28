@@ -39,7 +39,6 @@ describe('markColumnAllRead', () => {
         smtp_host: '',
         smtp_port: 465,
         tls: true,
-        signature: '',
       },
       {
         id: 'acc2',
@@ -52,7 +51,6 @@ describe('markColumnAllRead', () => {
         smtp_host: '',
         smtp_port: 465,
         tls: true,
-        signature: '',
       },
     ])
     kanban$.threads.set({})

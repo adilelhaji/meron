@@ -54,8 +54,8 @@ export function VideoAttachment({
           controls
           autoPlay
           preload="metadata"
-          onPause={clearMediaSession}
-          onEnded={clearMediaSession}
+          onPause={() => clearMediaSession()}
+          onEnded={() => clearMediaSession()}
           className={videoClassName}
         />
       ) : (

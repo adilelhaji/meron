@@ -40,7 +40,6 @@ describe('removeFeed', () => {
         smtp_host: '',
         smtp_port: 0,
         tls: false,
-        signature: '',
       },
     ])
     mail$.threads.set([feed()])
@@ -97,7 +96,6 @@ describe('nextRssAccountDisplayName', () => {
       smtp_host: '',
       smtp_port: 0,
       tls: false,
-      signature: '',
       ...overrides,
     }) as Account
 

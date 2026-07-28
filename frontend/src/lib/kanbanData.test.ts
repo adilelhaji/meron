@@ -480,7 +480,7 @@ describe('labels', () => {
 
   it('folderLabel names unified, inbox, and stored folders', () => {
     const folders = [{ account_id: 'acc1', id: 'f1', name: 'Receipts' } as Folder]
-    const accs = [{ id: 'acc1', provider: 'gmail', auth_type: 'oauth' }] as Account[]
+    const accs = [account('acc1')]
     expect(folderLabel({ accountId: 'unified', folderId: 'inbox' }, folders, accs)).toBe('Unified Inbox')
     expect(isUnifiedStarredColumn({ accountId: 'unified', folderId: 'starred' })).toBe(true)
     expect(folderLabel({ accountId: 'unified', folderId: 'starred' }, folders, accs)).toBe('Unified Starred')

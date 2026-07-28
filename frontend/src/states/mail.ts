@@ -938,7 +938,7 @@ export async function markThreadRead(threadId: string) {
   try {
     applyMutationFolderUnreads(await invoke<MutationResult>('mail.markRead', { thread_id: threadId }))
   } catch (error) {
-    mail$.readThreads[threadId].set(undefined)
+    mail$.readThreads[threadId].delete()
     mail$.threads.set(previousThreads)
     mail$.messages.set(previousMessages)
     mail$.folders.set(previousFolders)
@@ -960,7 +960,7 @@ export async function markThreadUnread(threadId: string) {
     )
   if (alreadyAllUnread) return
 
-  mail$.readThreads[threadId].set(undefined)
+  mail$.readThreads[threadId].delete()
 
   mail$.threads.set(
     mail$.threads
@@ -1636,7 +1636,11 @@ export async function markMessagesRead(threadId: string, messageIds: string[]) {
     mail$.foldersByAccount.set(previousFoldersByAccount)
     kanban$.threads.set(previousKanbanThreads)
     kanban$.unreadCounts.set(previousKanbanUnreadCounts)
-    mail$.readThreads[threadId].set(previousReadThread)
+    if (previousReadThread === undefined) {
+      mail$.readThreads[threadId].delete()
+    } else {
+      mail$.readThreads[threadId].set(previousReadThread)
+    }
     throw error
   } finally {
     refreshFoldersAfterFlagChange(accountId)

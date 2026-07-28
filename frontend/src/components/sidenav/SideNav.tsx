@@ -61,13 +61,13 @@ export function SideNav() {
   const isRssAccount = (account: { provider: string; auth_type: string }) =>
     account.provider === 'rss' || account.auth_type === 'rss'
 
-  function parseFeedDrag(event: DragEvent) {
+  function parseFeedDrag(event: DragEvent): { threadId: string; accountId?: string } | null {
     if (!Array.from(event.dataTransfer.types).includes(RSS_FEED_DRAG_TYPE)) return null
     try {
       const raw = event.dataTransfer.getData(RSS_FEED_DRAG_TYPE)
       const parsed = JSON.parse(raw) as { threadId?: string; accountId?: string }
       if (!parsed.threadId) return null
-      return parsed
+      return { threadId: parsed.threadId, accountId: parsed.accountId }
     } catch {
       return null
     }

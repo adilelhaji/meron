@@ -250,9 +250,9 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                 onEmptyFolder={
                   emptiableTarget
                     ? () =>
-                        void emptyFolder(selectedAccount, selectedFolder, emptiableTarget).then(
-                          (emptied) => emptied && loadThreads(false),
-                        )
+                        void emptyFolder(selectedAccount, selectedFolder, emptiableTarget).then(async (emptied) => {
+                          if (emptied) await loadThreads(false)
+                        })
                     : undefined
                 }
                 emptyFolderLabel={

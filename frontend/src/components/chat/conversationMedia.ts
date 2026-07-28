@@ -60,7 +60,7 @@ export function buildThreadMedia(messages: Message[], accounts: Account[], revea
       galleryIndex++
     }
     for (const file of msgFiles) {
-      files.push({ filename: file.filename, size: file.size, key: file.key })
+      files.push({ filename: file.filename, mime: file.mime, size: file.size, key: file.key })
     }
   }
   media.reverse()
