@@ -275,6 +275,8 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.markStarred(payload)
 	case "mail.markAllRead":
 		return a.markAllRead(payload)
+	case "mail.emptyFolder":
+		return a.emptyFolder(payload)
 	case "mail.move":
 		return a.mailMove(payload)
 	case "mail.copy":

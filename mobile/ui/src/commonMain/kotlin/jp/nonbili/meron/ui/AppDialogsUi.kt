@@ -64,6 +64,36 @@ internal fun AddFeedDialog(
 }
 
 /**
+ * Confirms emptying a Trash or Junk folder. The delete is permanent — there is no
+ * Trash left to restore from — so the action always goes through this dialog.
+ */
+@Composable
+internal fun EmptyFolderDialog(
+    folderName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(tr("threads.emptyFolder.confirmTitle", mapOf("folder" to folderName))) },
+        text = { Text(tr("threads.emptyFolder.confirmMessage", mapOf("folder" to folderName))) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    tr("threads.emptyFolder.confirmButton"),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(tr("buttons.cancel"))
+            }
+        },
+    )
+}
+
+/**
  * Offered on the launch after a crash. Nothing has been sent at this point —
  * "send" opens the platform share sheet with the redacted diagnostic log, so
  * the user sees the contents and picks the recipient.

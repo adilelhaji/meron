@@ -1267,6 +1267,66 @@ pub(crate) fn mark_mobile_folder_all_read(data_dir: &str, params: &Value) -> Res
     })
 }
 
+// Permanently delete every message in a folder, server side and in the store.
+// Restricted to Trash and Junk, and re-checked here rather than trusting the
+// caller: the delete is unrecoverable.
+pub(crate) fn empty_mobile_folder(data_dir: &str, params: &Value) -> Result<Value, String> {
+    let account_id = req_account_id(params)?;
+    let folder = params
+        .get("folder_id")
+        .or_else(|| params.get("folder"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(canon_folder)
+        .ok_or_else(|| "folder_id is required".to_string())?;
+    if account_id == "unified" {
+        return Err("Only Trash and Junk folders can be emptied".to_string());
+    }
+
+    let engine = crate::ffi::engine_for(data_dir)?;
+    with_mobile_db(data_dir, |conn| {
+        if is_rss_account(&conn, &account_id)? {
+            return Err("Only Trash and Junk folders can be emptied".to_string());
+        }
+        let role =
+            store::folder_role(&conn, &account_id, &folder).map_err(|err| err.to_string())?;
+        if role != "trash" && role != "junk" {
+            return Err("Only Trash and Junk folders can be emptied".to_string());
+        }
+        let creds = load_mobile_account_creds(&conn, &account_id)?;
+        if account_needs_reconnect(&creds) {
+            return Err(format!("account needs reconnect: {account_id}"));
+        }
+        let expunged = {
+            let folder = folder.clone();
+            crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
+                let folder = folder.clone();
+                Box::pin(async move { imap::empty_folder(session, &folder).await })
+            }))?
+        };
+        let deleted = store::delete_folder_messages(&conn, &account_id, &folder)
+            .map_err(|err| err.to_string())?;
+        crate::mail_model::mutation_result(
+            json!({
+                "ok": true,
+                "deleted": deleted,
+                "expunged": expunged,
+                "folder": folder,
+                "role": role,
+            }),
+            &conn,
+            &account_id,
+            "",
+            &folder,
+            None,
+            None,
+            None,
+            true,
+        )
+        .map_err(|err| err.to_string())
+    })
+}
+
 pub(crate) fn mark_mobile_thread_starred(data_dir: &str, params: &Value) -> Result<Value, String> {
     let thread_id = req_str(params, "thread_id")?;
     let starred = req_bool(params, "starred")?;

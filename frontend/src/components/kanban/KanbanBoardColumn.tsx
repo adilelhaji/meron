@@ -7,7 +7,7 @@ import { Loader2, Minus, Pause } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { clsx } from '../../lib/utils'
 import { accounts$ } from '../../states/accounts'
-import { isDraftFolder, mail$ } from '../../states/mail'
+import { emptiableFolder, emptyFolder, isDraftFolder, mail$ } from '../../states/mail'
 import {
   clearBulkSelection,
   isWailsDesktopRuntime,
@@ -129,6 +129,24 @@ function KanbanColumnContent({
   const emptyText = columnEmptyText(filterMode, searchActive, rawThreads.length > 0, isRss)
   const [syncing, setSyncing] = useState(false)
   const [headerMenu, setHeaderMenu] = useState<{ x: number; y: number } | null>(null)
+  // Only a per-account Trash/Junk column can be emptied — never a unified or
+  // starred column, which span folders the action must not touch.
+  const emptiableTarget =
+    starredColumn || isRss || column.accountId === 'unified'
+      ? null
+      : emptiableFolder(
+          labelFolders.find((folder) => folder.account_id === column.accountId && folder.id === column.folderId),
+        )
+  const emptyColumnFolder = async () => {
+    if (!emptiableTarget) return
+    if (!(await emptyFolder(column.accountId, column.folderId, emptiableTarget))) return
+    setSyncing(true)
+    try {
+      await syncKanbanColumn(column)
+    } finally {
+      setSyncing(false)
+    }
+  }
   const desktopBulk = isWailsDesktopRuntime() || !!system
   const bulkItems = Object.values(bulkSelection)
   const bulkInColumn =
@@ -265,6 +283,10 @@ function KanbanColumnContent({
               }}
               hasUnread={hasUnread}
               onMarkAllRead={() => void markColumnAllRead(column)}
+              onEmptyFolder={emptiableTarget ? () => void emptyColumnFolder() : undefined}
+              emptyFolderLabel={
+                emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
+              }
               onSync={async () => {
                 setSyncing(true)
                 try {
@@ -306,6 +328,10 @@ function KanbanColumnContent({
             }}
             hasUnread={hasUnread}
             onMarkAllRead={() => void markColumnAllRead(column)}
+            onEmptyFolder={emptiableTarget ? () => void emptyColumnFolder() : undefined}
+            emptyFolderLabel={
+              emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
+            }
             onSync={async () => {
               setSyncing(true)
               try {

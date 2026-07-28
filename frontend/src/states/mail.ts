@@ -1,6 +1,7 @@
 import { observable } from '@legendapp/state'
 import type { Folder, Message } from '../types'
 import { invoke } from '../lib/bridge'
+import { t } from '../lib/i18n'
 import { clearBulkSelection, confirmAction, ui$, showToast, showUndoToast, type BulkSelectionItem } from './ui'
 import { accounts$, unifiedAccounts } from './accounts'
 import { kanban$ } from './kanban'
@@ -194,6 +195,65 @@ export function isTrashFolderId(accountId: string, folderId: string): boolean {
     (item) => item.account_id === accountId && item.id === folderId,
   )
   return isTrashFolder(folder) || looksLikeTrashName(folderId)
+}
+
+function looksLikeJunkName(value: string): boolean {
+  return ['junk', 'spam', 'junk e-mail', 'junk email', 'bulk mail', '[gmail]/spam'].includes(value.trim().toLowerCase())
+}
+
+// Trash and Junk are the only folders that may be emptied: the delete is
+// permanent, so anywhere else it would be an unrecoverable mis-tap. Takes the
+// folder the caller already has in hand (so the lookup stays inside the
+// caller's reactive folder list) and returns the role plus display name for the
+// menu label and confirm wording, or null when the folder is not emptiable.
+export function emptiableFolder(folder?: Folder | null): { role: 'trash' | 'junk'; name: string } | null {
+  if (!folder) return null
+  const name = folder.name || folder.id
+  if (folder.role === 'junk' || looksLikeJunkName(folder.id) || looksLikeJunkName(folder.name)) {
+    return { role: 'junk', name }
+  }
+  if (isTrashFolder(folder)) return { role: 'trash', name }
+  return null
+}
+
+// Permanently delete every message in a Trash or Junk folder, server side and in
+// the store. Confirms first — there is no Trash left to restore from. `target`
+// comes from `emptiableFolder`; the sidecar re-checks the folder role anyway.
+// Returns true when the folder was emptied, so the caller can refresh its view.
+export async function emptyFolder(
+  accountId: string,
+  folderId: string,
+  target: { role: 'trash' | 'junk'; name: string },
+): Promise<boolean> {
+  if (!accountId || !folderId || accountId === 'unified') return false
+
+  if (
+    !(await confirmAction({
+      title: t('threads.emptyFolder.confirmTitle', { folder: target.name }),
+      message: t('threads.emptyFolder.confirmMessage', { folder: target.name }),
+      confirmLabel: t('threads.emptyFolder.confirmButton'),
+      tone: 'danger',
+    }))
+  ) {
+    return false
+  }
+
+  try {
+    const res = await invoke<MutationResult>('mail.emptyFolder', { account_id: accountId, folder_id: folderId })
+    applyMutationFolderUnreads(res)
+    // The open conversation may have just been deleted along with the folder.
+    const openThread = findLocalThread(ui$.selectedThread.get())
+    if (openThread?.account_id === accountId && openThread?.folder_id === folderId) ui$.selectedThread.set('')
+    void loadFolders(accountId, false)
+    showToast(t('threads.emptyFolder.done', { folder: target.name }))
+    return true
+  } catch (error) {
+    showToast(
+      error instanceof Error ? error.message : t('threads.emptyFolder.failed', { folder: target.name }),
+      'error',
+    )
+    return false
+  }
 }
 
 export function findLocalThread(threadId: string): Message | undefined {

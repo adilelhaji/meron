@@ -154,6 +154,16 @@ internal data class KanbanColumnSpec(
     val folderId: String,
 )
 
+/** A Trash or Junk folder awaiting "empty folder" confirmation. [column] is set
+ *  when the action came from a Kanban column, so that column is refreshed after. */
+internal data class EmptyFolderTarget(
+    val accountId: String,
+    val folderId: String,
+    val folderName: String,
+    val role: String,
+    val column: KanbanColumnSpec? = null,
+)
+
 internal data class KanbanBoardSpec(
     val id: String,
     val name: String,

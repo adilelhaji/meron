@@ -591,6 +591,50 @@ func TestIntegrationMailFlow(t *testing.T) {
 		})
 	})
 
+	t.Run("empty trash", func(t *testing.T) {
+		// Emptying is folder-wide and permanent — it clears the server folder
+		// itself, not just the UIDs the client cached — and role-gated, so a
+		// request for INBOX must be refused before anything is touched.
+		emptySubject := "Meron integration empty " + nonce
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "alice",
+			"to":         "bob@maddy.test",
+			"subject":    emptySubject,
+			"body":       "empty me",
+			"message_id": fmt.Sprintf("itest-empty-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send empty fixture: %v", err)
+		}
+		message := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == emptySubject
+		})
+		uid := num(message, "uid")
+		if uid == 0 {
+			t.Fatalf("empty fixture has no uid: %v", message)
+		}
+		callMap(t, sidecar, "messages.delete", map[string]any{
+			"account": "bob",
+			"folder":  "INBOX",
+			"uid":     uid,
+		})
+		pollFolder(t, sidecar, "bob", "Trash", func(m map[string]any) bool {
+			return str(m, "subject") == emptySubject
+		})
+
+		if _, err := sidecar.Call("messages.emptyFolder", map[string]any{
+			"account": "bob",
+			"folder":  "INBOX",
+		}); err == nil {
+			t.Fatal("messages.emptyFolder accepted INBOX, want refusal")
+		}
+
+		callMap(t, sidecar, "messages.emptyFolder", map[string]any{
+			"account": "bob",
+			"folder":  "Trash",
+		})
+		assertNoMessageInFolder(t, sidecar, "bob", "Trash", func(map[string]any) bool { return true })
+	})
+
 	t.Run("copy keeps original", func(t *testing.T) {
 		// Copy must duplicate, not move: the source UID stays put while a copy
 		// appears in the target folder.

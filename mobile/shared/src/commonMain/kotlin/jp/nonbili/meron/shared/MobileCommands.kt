@@ -52,6 +52,7 @@ object MobileCommand {
     const val Copy = "mail.copy"
     const val MarkRead = "mail.markRead"
     const val MarkAllRead = "mail.markAllRead"
+    const val EmptyFolder = "mail.emptyFolder"
     const val MarkStarred = "mail.markStarred"
     const val RssSync = "rss.sync"
     const val RssThread = "rss.thread"
@@ -735,6 +736,18 @@ data class MarkAllReadParams(
         )
 }
 
+/** Permanently deletes a Trash or Junk folder; the core rejects any other role. */
+data class EmptyFolderParams(
+    val accountId: String,
+    val folderId: String,
+) {
+    fun toJson(): String =
+        jsonObject(
+            "account_id" to accountId.jsonString(),
+            "folder_id" to folderId.jsonString(),
+        )
+}
+
 data class MarkStarredParams(
     val threadId: String,
     val starred: Boolean,
@@ -886,6 +899,8 @@ class MobileMailCommandClient(
     suspend fun markRead(params: MarkReadParams): String = core.invoke(MobileCommand.MarkRead, params.toJson())
 
     suspend fun markAllRead(params: MarkAllReadParams): String = core.invoke(MobileCommand.MarkAllRead, params.toJson())
+
+    suspend fun emptyFolder(params: EmptyFolderParams): String = core.invoke(MobileCommand.EmptyFolder, params.toJson())
 
     suspend fun markStarred(params: MarkStarredParams): String = core.invoke(MobileCommand.MarkStarred, params.toJson())
 }
@@ -1112,6 +1127,11 @@ fun markAllReadRequest(
     id: Long = 1,
     params: MarkAllReadParams,
 ): CoreRequest = CoreRequest(id, MobileCommand.MarkAllRead, params.toJson())
+
+fun emptyFolderRequest(
+    id: Long = 1,
+    params: EmptyFolderParams,
+): CoreRequest = CoreRequest(id, MobileCommand.EmptyFolder, params.toJson())
 
 fun markStarredRequest(
     id: Long = 1,

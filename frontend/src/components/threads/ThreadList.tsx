@@ -30,6 +30,9 @@ import {
   loadMoreThreads,
   isDraftFolder,
   folderUnread,
+  emptiableFolder,
+  emptyFolder,
+  loadThreads,
 } from '../../states/mail'
 import { isRssAccount } from '../../lib/threadActions'
 import { EmptyState } from '../empty-state/EmptyState'
@@ -104,6 +107,12 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
   const activeAccount = accounts.find((acc) => acc.id === selectedAccount)
   const isRSSAccount = activeAccount?.provider === 'rss' || activeAccount?.auth_type === 'rss'
   const hasSendableAccount = accounts.some(isSendableAccount)
+  // Non-null only in a per-account Trash/Junk folder, which is where the
+  // destructive "empty" action is offered.
+  const emptiableTarget =
+    isStarredView || isRSSAccount || selectedAccount === 'unified'
+      ? null
+      : emptiableFolder(folders.find((folder) => folder.id === selectedFolder))
   const hasUnread = isRSSAccount
     ? filteredThreads.some((thread) => thread.unread)
     : folderUnread(folders, selectedFolder) > 0 || filteredThreads.some((thread) => thread.unread)
@@ -238,6 +247,17 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                 onFilterChange={(mode) => ui$.filterMode.set(mode)}
                 hasUnread={hasUnread}
                 onMarkAllRead={() => markAllRead()}
+                onEmptyFolder={
+                  emptiableTarget
+                    ? () =>
+                        void emptyFolder(selectedAccount, selectedFolder, emptiableTarget).then(
+                          (emptied) => emptied && loadThreads(false),
+                        )
+                    : undefined
+                }
+                emptyFolderLabel={
+                  emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
+                }
                 onSync={syncMail}
                 syncing={busy}
                 allLabel={isRSSAccount ? t('filters.allFeeds') : t('filters.all')}

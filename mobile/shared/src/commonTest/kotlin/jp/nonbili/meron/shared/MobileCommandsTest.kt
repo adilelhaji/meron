@@ -548,6 +548,10 @@ class MobileCommandsTest {
         assertEquals(MobileCommand.MarkAllRead, core.lastCommand)
         assertEquals("""{"account_id":"acc1","folder_id":"INBOX"}""", core.lastPayloadJson)
 
+        runSuspend { client.emptyFolder(EmptyFolderParams(accountId = "acc1", folderId = "Trash")) }
+        assertEquals(MobileCommand.EmptyFolder, core.lastCommand)
+        assertEquals("""{"account_id":"acc1","folder_id":"Trash"}""", core.lastPayloadJson)
+
         runSuspend { client.readAttachment(AttachmentReadParams(key = "acc/INBOX/1/note.txt")) }
         assertEquals(MobileCommand.AttachmentRead, core.lastCommand)
         assertEquals("""{"key":"acc/INBOX/1/note.txt"}""", core.lastPayloadJson)
@@ -1139,6 +1143,10 @@ class MobileCommandsTest {
         assertEquals(
             """{"id":24,"method":"mail.markStarred","params":{"thread_id":"t1","starred":false}}""",
             markStarredRequest(id = 24, MarkStarredParams(threadId = "t1", starred = false)).toJson(),
+        )
+        assertEquals(
+            """{"id":25,"method":"mail.emptyFolder","params":{"account_id":"acc1","folder_id":"Trash"}}""",
+            emptyFolderRequest(id = 25, EmptyFolderParams(accountId = "acc1", folderId = "Trash")).toJson(),
         )
     }
 

@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -452,6 +453,7 @@ internal fun KanbanScreen(
     onRefreshColumn: (KanbanColumnSpec) -> Unit,
     onLoadMoreColumn: (KanbanColumnSpec) -> Unit,
     onMarkColumnAllRead: (KanbanColumnSpec) -> Unit,
+    onEmptyColumnFolder: (KanbanColumnSpec, FolderSummary) -> Unit,
     onRemoveColumn: (KanbanColumnSpec) -> Unit,
     onMoveColumn: (KanbanColumnSpec, Int) -> Unit,
     onSearchColumn: (KanbanColumnSpec) -> Unit,
@@ -528,6 +530,7 @@ internal fun KanbanScreen(
                             onRefresh = { onRefreshColumn(column) },
                             onLoadMore = { onLoadMoreColumn(column) },
                             onMarkAllRead = { onMarkColumnAllRead(column) },
+                            onEmptyFolder = { folder -> onEmptyColumnFolder(column, folder) },
                             onRemove = { onRemoveColumn(column) },
                             onMoveLeft = { onMoveColumn(column, -1) },
                             onMoveRight = { onMoveColumn(column, 1) },
@@ -620,6 +623,7 @@ internal fun KanbanColumn(
     onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onMarkAllRead: () -> Unit,
+    onEmptyFolder: (FolderSummary) -> Unit,
     onRemove: () -> Unit,
     onMoveLeft: () -> Unit,
     onMoveRight: () -> Unit,
@@ -656,6 +660,7 @@ internal fun KanbanColumn(
                 unread = kanbanColumnUnreadCount(column, state.unreadCount, state.threads),
                 onRefresh = onRefresh,
                 onMarkAllRead = onMarkAllRead,
+                onEmptyFolder = onEmptyFolder,
                 onRemove = onRemove,
                 onMoveLeft = onMoveLeft,
                 onMoveRight = onMoveRight,
@@ -765,6 +770,7 @@ internal fun KanbanColumnHeader(
     unread: Int,
     onRefresh: () -> Unit,
     onMarkAllRead: () -> Unit,
+    onEmptyFolder: (FolderSummary) -> Unit,
     onRemove: () -> Unit,
     onMoveLeft: () -> Unit,
     onMoveRight: () -> Unit,
@@ -772,6 +778,16 @@ internal fun KanbanColumnHeader(
     onSearch: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    // Emptying is offered only for a per-account Trash or Junk column; a unified
+    // column spans accounts and has no single folder to empty.
+    val emptiableFolder =
+        if (column.accountId == UNIFIED_ACCOUNT_ID) {
+            null
+        } else {
+            foldersByAccount[column.accountId]?.firstOrNull { folder ->
+                folder.name == column.folderId && (folder.role == "trash" || folder.role == "junk")
+            }
+        }
     Row(
         Modifier
             .fillMaxWidth()
@@ -812,6 +828,23 @@ internal fun KanbanColumnHeader(
                     menuOpen = false
                     onMarkAllRead()
                 }, enabled = unread > 0)
+                emptiableFolder?.let { folder ->
+                    DropdownMenuItem(text = {
+                        Text(
+                            if (folder.role == "junk") tr("threads.actions.emptyJunk") else tr("threads.actions.emptyTrash"),
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }, leadingIcon = {
+                        Icon(
+                            Icons.Filled.DeleteForever,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }, onClick = {
+                        menuOpen = false
+                        onEmptyFolder(folder)
+                    })
+                }
                 DropdownMenuItem(text = { Text(tr("kanban.actions.searchColumn")) }, leadingIcon = {
                     Icon(Icons.Filled.Search, contentDescription = null)
                 }, onClick = {

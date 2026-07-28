@@ -157,6 +157,7 @@ import jp.nonbili.meron.shared.ContactSuggestion
 import jp.nonbili.meron.shared.CopyThreadParams
 import jp.nonbili.meron.shared.DiscardDraftParams
 import jp.nonbili.meron.shared.DraftAttachment
+import jp.nonbili.meron.shared.EmptyFolderParams
 import jp.nonbili.meron.shared.ExchangeOAuthCodeParams
 import jp.nonbili.meron.shared.ExportOpmlParams
 import jp.nonbili.meron.shared.FolderCreateParams
@@ -1610,6 +1611,55 @@ internal fun MeronMobileState.markKanbanColumnAllRead(column: KanbanColumnSpec) 
             coreThreads = threadsBefore
             kanbanColumns = kanbanBefore
             status = "Kanban mark all read failed: ${it.message}"
+        }
+    }
+}
+
+// Permanently delete every message in a Trash or Junk folder. The core re-checks
+// the folder role, so a stale menu can never empty anything else. Callers confirm
+// first: there is no Trash left to restore from.
+internal fun MeronMobileState.emptyMailFolder(
+    accountId: String,
+    folderId: String,
+    column: KanbanColumnSpec? = null,
+) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    val account = coreAccounts.firstOrNull { it.id == accountId }
+    if (accountId == UNIFIED_ACCOUNT_ID || account == null || accountSummaryIsRss(account)) return
+
+    val threadsBefore = coreThreads
+    val kanbanBefore = kanbanColumns
+    val inFolder = { thread: ThreadSummary -> thread.accountId == accountId && thread.folder == folderId }
+    coreThreads = coreThreads.filterNot(inFolder)
+    kanbanColumns =
+        kanbanColumns.mapValues { (_, state) ->
+            state.copy(threads = state.threads.filterNot(inFolder))
+        }
+    selectedMailThreadIds = emptySet()
+    mailSelectionMenuOpen = false
+
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                val client = MobileMailCommandClient(core)
+                requireCoreOk(
+                    withManagedGoogleAuth(client, accountId) {
+                        client.emptyFolder(EmptyFolderParams(accountId = accountId, folderId = folderId))
+                    },
+                )
+            }
+        }.onSuccess { response ->
+            applyCoreFolderUnreadChanges(response)
+            status = "Folder emptied"
+            if (column != null) loadKanbanColumn(column, refresh = true) else syncCoreThreads(syncFirst = false)
+        }.onFailure {
+            Log.w("Mail", "empty folder failed", it)
+            coreThreads = threadsBefore
+            kanbanColumns = kanbanBefore
+            status = "Empty folder failed: ${it.message}"
         }
     }
 }

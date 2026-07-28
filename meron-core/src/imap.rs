@@ -1069,6 +1069,33 @@ pub async fn expunge_uids(session: &mut Session, folder: &str, uids: &[u32]) -> 
     Ok(())
 }
 
+/// Permanently delete every message in `folder`: mark the whole mailbox
+/// `\Deleted` by sequence set, then EXPUNGE. Used by "empty trash"/"empty junk",
+/// which must clear the server folder itself rather than the UIDs we happen to
+/// have cached. Returns the message count reported by SELECT.
+pub async fn empty_folder(session: &mut Session, folder: &str) -> Result<u32> {
+    let mailbox = session.select(folder).await.context("SELECT")?;
+    let total = mailbox.exists;
+    if total == 0 {
+        return Ok(0);
+    }
+    let mut stream = session
+        .store("1:*", "+FLAGS.SILENT (\\Deleted)")
+        .await
+        .context("STORE Deleted")?;
+    while let Some(item) = stream.next().await {
+        item.context("STORE item")?;
+    }
+    drop(stream);
+
+    let estream = session.expunge().await.context("EXPUNGE")?;
+    futures::pin_mut!(estream);
+    while let Some(item) = estream.next().await {
+        item.context("EXPUNGE item")?;
+    }
+    Ok(total)
+}
+
 /// Append a raw RFC822 message to `folder` with the `\Seen` flag, so the user's
 /// own sent reply appears in Sent without being marked unread. Used after SMTP
 /// send so the message threads back into the conversation on next sync.

@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { MoreVertical, Inbox, Mail, Star, CheckCheck, EyeOff, RefreshCw, Search } from 'lucide-react'
+import { MoreVertical, Inbox, Mail, Star, CheckCheck, EyeOff, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import type { FilterMode } from '../../states/ui'
 import { useDismissOnOutside } from '../menu/useDismissOnOutside'
@@ -12,6 +12,9 @@ export type ThreadActionsMenuItemsProps = {
   onFilterChange: (mode: FilterMode) => void
   hasUnread: boolean
   onMarkAllRead: () => void
+  /** Only wired for a per-account Trash or Junk folder; the item is hidden otherwise. */
+  onEmptyFolder?: () => void
+  emptyFolderLabel?: string
   onSync?: () => void
   syncing?: boolean
   syncLabel?: string
@@ -28,6 +31,8 @@ export function ThreadActionsMenuItems({
   onFilterChange,
   hasUnread,
   onMarkAllRead,
+  onEmptyFolder,
+  emptyFolderLabel,
   onSync,
   syncing = false,
   syncLabel,
@@ -71,6 +76,19 @@ export function ThreadActionsMenuItems({
           closeMenu()
         }}
       />
+      {onEmptyFolder && (
+        <MenuItem
+          className="flex-nowrap text-rose-600 dark:text-rose-400"
+          icon={<Trash2 size={13} className="shrink-0" />}
+          label={
+            <span className="whitespace-nowrap shrink-0">{emptyFolderLabel ?? t('threads.actions.emptyTrash')}</span>
+          }
+          onClick={() => {
+            onEmptyFolder()
+            closeMenu()
+          }}
+        />
+      )}
       {onSearch && (
         <MenuItem
           className="flex-nowrap"
@@ -136,6 +154,8 @@ export function ThreadActionsMenu({
   onFilterChange,
   hasUnread,
   onMarkAllRead,
+  onEmptyFolder,
+  emptyFolderLabel,
   onSync,
   syncing = false,
   syncLabel,
@@ -151,6 +171,8 @@ export function ThreadActionsMenu({
   onFilterChange: (mode: FilterMode) => void
   hasUnread: boolean
   onMarkAllRead: () => void
+  onEmptyFolder?: () => void
+  emptyFolderLabel?: string
   onSync?: () => void
   syncing?: boolean
   syncLabel?: string
@@ -198,6 +220,8 @@ export function ThreadActionsMenu({
             onFilterChange={onFilterChange}
             hasUnread={hasUnread}
             onMarkAllRead={onMarkAllRead}
+            onEmptyFolder={onEmptyFolder}
+            emptyFolderLabel={emptyFolderLabel}
             onSync={onSync}
             syncing={syncing}
             syncLabel={syncLabel}

@@ -2180,6 +2180,53 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             }))
         }
 
+        // Permanently delete every message in a folder, server side and in the
+        // store. Restricted to Trash and Junk: the operation is unrecoverable,
+        // so an arbitrary folder must never reach it even if a caller asks.
+        "messages.emptyFolder" => {
+            let account = req_str(p, "account")?;
+            let folder = canon_folder(&req_str(p, "folder")?);
+            let role = {
+                let db = engine.db.lock().unwrap();
+                store::folder_role(&db, &account, &folder)?
+            };
+            if role != "trash" && role != "junk" {
+                return Err(anyhow::anyhow!(
+                    "Only Trash and Junk folders can be emptied"
+                ));
+            }
+
+            // Mutating, so it never auto-retries.
+            let expunged = engine
+                .with_write_session(&account, |session| {
+                    let folder = folder.clone();
+                    Box::pin(async move { imap::empty_folder(session, &folder).await })
+                })
+                .await?;
+
+            let deleted = {
+                let db = engine.db.lock().unwrap();
+                store::delete_folder_messages(&db, &account, &folder)?
+            };
+            mail_model::mutation_result(
+                json!({
+                    "ok": true,
+                    "deleted": deleted,
+                    "expunged": expunged,
+                    "folder": folder,
+                    "role": role,
+                }),
+                &engine.db.lock().unwrap(),
+                &account,
+                "",
+                &folder,
+                None,
+                None,
+                None,
+                true,
+            )
+        }
+
         // Forget an account: drop its in-memory creds, cached state, and the
         // keychain secret. The IDLE watcher notices the account is gone on its
         // next loop and exits.

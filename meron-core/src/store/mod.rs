@@ -1669,6 +1669,16 @@ pub fn delete_messages_by_uid(
     Ok(deleted)
 }
 
+/// Drop every cached message in a folder. Pairs with `imap::empty_folder`, which
+/// clears the server side.
+pub fn delete_folder_messages(conn: &Connection, account: &str, folder: &str) -> Result<usize> {
+    let deleted = conn.execute(
+        "DELETE FROM messages WHERE account = ?1 AND folder = ?2",
+        params![account, folder],
+    )?;
+    Ok(deleted)
+}
+
 #[allow(dead_code)]
 pub fn move_messages_by_uid(
     conn: &Connection,

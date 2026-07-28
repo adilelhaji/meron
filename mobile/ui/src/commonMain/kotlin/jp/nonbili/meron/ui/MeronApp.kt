@@ -1250,6 +1250,21 @@ private fun MeronMobileScreenContent(
             )
         }
 
+        pendingEmptyFolder?.let { target ->
+            EmptyFolderDialog(
+                folderName = target.folderName,
+                onConfirm = {
+                    pendingEmptyFolder = null
+                    emptyMailFolder(
+                        accountId = target.accountId,
+                        folderId = target.folderId,
+                        column = target.column,
+                    )
+                },
+                onDismiss = { pendingEmptyFolder = null },
+            )
+        }
+
         if (showAboutDialog) {
             AboutDialog(
                 appVersion = appVersion,

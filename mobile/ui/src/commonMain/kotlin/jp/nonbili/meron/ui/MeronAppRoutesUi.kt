@@ -15,12 +15,14 @@ import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
@@ -341,6 +343,21 @@ internal fun KanbanRouteContent(
                                         expanded = mailSelectionMenuOpen,
                                         onDismissRequest = { mailSelectionMenuOpen = false },
                                     ) {
+                                        val selectableThreadIds =
+                                            kanbanColumns.values
+                                                .flatMap { column -> column.threads.map { it.id } }
+                                                .toSet()
+                                        if (!selectedMailThreadIds.containsAll(selectableThreadIds)) {
+                                            DropdownMenuItem(
+                                                text = { Text(tr("mobile.actions.selectAll")) },
+                                                leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null) },
+                                                onClick = {
+                                                    mailSelectionMenuOpen = false
+                                                    selectedMailThreadIds = selectableThreadIds
+                                                },
+                                            )
+                                            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                        }
                                         val markRead = selectedMailThreads.any { it.unread }
                                         DropdownMenuItem(
                                             text = { Text(if (markRead) tr("threads.actions.markAsRead") else tr("threads.actions.markAsUnread")) },
@@ -520,6 +537,16 @@ internal fun KanbanRouteContent(
                     onRefreshColumn = { loadKanbanColumn(it, refresh = true) },
                     onLoadMoreColumn = ::loadMoreKanbanColumn,
                     onMarkColumnAllRead = ::markKanbanColumnAllRead,
+                    onEmptyColumnFolder = { column, folder ->
+                        pendingEmptyFolder =
+                            EmptyFolderTarget(
+                                accountId = folder.accountId,
+                                folderId = folder.name,
+                                folderName = folder.name,
+                                role = folder.role,
+                                column = column,
+                            )
+                    },
                     onRemoveColumn = ::removeKanbanColumn,
                     onMoveColumn = ::moveKanbanColumn,
                     onSearchColumn = { column ->
@@ -685,6 +712,18 @@ internal fun MailRouteContent(
                                         expanded = mailSelectionMenuOpen,
                                         onDismissRequest = { mailSelectionMenuOpen = false },
                                     ) {
+                                        val selectableThreadIds = coreThreads.map { it.id }.toSet()
+                                        if (!selectedMailThreadIds.containsAll(selectableThreadIds)) {
+                                            DropdownMenuItem(
+                                                text = { Text(tr("mobile.actions.selectAll")) },
+                                                leadingIcon = { Icon(Icons.Filled.SelectAll, contentDescription = null) },
+                                                onClick = {
+                                                    mailSelectionMenuOpen = false
+                                                    selectedMailThreadIds = selectableThreadIds
+                                                },
+                                            )
+                                            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                                        }
                                         val markRead = selectedMailThreads.any { it.unread }
                                         DropdownMenuItem(
                                             text = { Text(if (markRead) tr("threads.actions.markAsRead") else tr("threads.actions.markAsUnread")) },
@@ -768,6 +807,18 @@ internal fun MailRouteContent(
                                     }
                                 val showMarkAllRead = folderUnreadTotal > 0 || loadedUnread
                                 val showAccountActions = selectedAccount != null
+                                // Emptying is offered only in a per-account Trash or Junk
+                                // folder — never the unified inbox, which spans accounts.
+                                val emptiableFolder =
+                                    if (selectedAccountIsRss || selectedCoreAccountId == UNIFIED_ACCOUNT_ID) {
+                                        null
+                                    } else {
+                                        coreFolders.firstOrNull { folder ->
+                                            folder.accountId == selectedCoreAccountId &&
+                                                folder.name == selectedCoreFolder &&
+                                                (folder.role == "trash" || folder.role == "junk")
+                                        }
+                                    }
                                 Box {
                                     IconButton(onClick = { mailboxMenuOpen = true }) {
                                         Icon(
@@ -808,6 +859,37 @@ internal fun MailRouteContent(
                                                 onClick = {
                                                     mailboxMenuOpen = false
                                                     markVisibleMailboxAllRead()
+                                                },
+                                            )
+                                        }
+                                        emptiableFolder?.let { folder ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        if (folder.role == "junk") {
+                                                            tr("threads.actions.emptyJunk")
+                                                        } else {
+                                                            tr("threads.actions.emptyTrash")
+                                                        },
+                                                        color = MaterialTheme.colorScheme.error,
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Filled.DeleteForever,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.error,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    mailboxMenuOpen = false
+                                                    pendingEmptyFolder =
+                                                        EmptyFolderTarget(
+                                                            accountId = folder.accountId,
+                                                            folderId = folder.name,
+                                                            folderName = folder.name,
+                                                            role = folder.role,
+                                                        )
                                                 },
                                             )
                                         }

@@ -489,6 +489,24 @@ func (a *App) markAllRead(payload map[string]any) (any, error) {
 	})
 }
 
+// emptyFolder permanently deletes every message in one account's Trash or Junk
+// folder. The sidecar re-checks the folder role, so a bad payload cannot empty
+// anything else. RSS accounts and the unified view have no folder to empty.
+func (a *App) emptyFolder(payload map[string]any) (any, error) {
+	accountID, _ := payload["account_id"].(string)
+	folderID, _ := payload["folder_id"].(string)
+	if a.sidecar == nil || !a.sidecar.Started() || accountID == "" || folderID == "" {
+		return map[string]any{"ok": true}, nil
+	}
+	if isRSSAccountID(accountID) || accountID == "unified" {
+		return map[string]any{"ok": true}, nil
+	}
+	return a.sidecar.Call("messages.emptyFolder", map[string]any{
+		"account": accountID,
+		"folder":  folderID,
+	})
+}
+
 // saveAttachment copies an attachment the sidecar already wrote under the media
 // dir (served at /media/<key>) to a user-chosen path via a native save dialog.
 // The key is path-cleaned and confined to the media root to block traversal.

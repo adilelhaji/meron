@@ -1694,6 +1694,32 @@ fn mobile_protocol_mark_read_persists_locally_before_server_sync() {
     assert_eq!(mark_all["id"], 72);
     assert_eq!(mark_all["result"]["ok"], true);
 
+    // Emptying is gated on the folder role, before any account/network work:
+    // INBOX is refused outright, while Trash gets as far as the creds check.
+    let empty_inbox = invoke_mobile_protocol_json(
+        r#"{"id":73,"method":"mail.emptyFolder","params":{"account_id":"me@example.com","folder_id":"INBOX"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    assert_eq!(empty_inbox["id"], 73);
+    assert!(
+        empty_inbox["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("Only Trash and Junk folders can be emptied")
+    );
+
+    let empty_trash = invoke_mobile_protocol_json(
+        r#"{"id":74,"method":"mail.emptyFolder","params":{"account_id":"me@example.com","folder_id":"Trash"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    assert_eq!(empty_trash["id"], 74);
+    assert!(
+        empty_trash["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("account needs reconnect")
+    );
+
     let threads = invoke_mobile_protocol_json(
         r#"{"id":70,"method":"mail.threadList","params":{"account_id":"me@example.com","folder_id":"INBOX","filter":"all"}}"#,
         Some(data_dir.to_str().unwrap()),
@@ -2373,6 +2399,10 @@ fn protocol_invoke_wraps_noop_mail_mutations() {
         (
             r#"{"id":53,"method":"mail.markStarred","params":{"thread_id":"thread","starred":true}}"#,
             json!({ "ok": true }),
+        ),
+        (
+            r#"{"id":54,"method":"mail.emptyFolder","params":{"account_id":"acc","folder_id":"Trash"}}"#,
+            json!({ "ok": true, "deleted": 0, "expunged": 0 }),
         ),
     ];
 
