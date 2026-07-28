@@ -380,6 +380,7 @@ internal fun HtmlMessageBody(
     maxHeight: Dp = Dp.Unspecified,
     onOpenUrl: (String) -> Unit,
     onOpenImage: (String) -> Unit = {},
+    fitWideContent: Boolean = false,
 ) {
     // The WebView can't tell Compose how tall its content is, so a tiny script
     // reports document height through a platform bridge and we size the view to
@@ -387,7 +388,7 @@ internal fun HtmlMessageBody(
     // past that; the full-screen reader passes no cap and shows the whole email.
     var contentHeight by remember(html) { mutableStateOf(0.dp) }
     val mobileHtml =
-        remember(html) {
+        remember(html, fitWideContent) {
             """
             <!doctype html>
             <html>
@@ -426,6 +427,19 @@ internal fun HtmlMessageBody(
                    cells and full-width dividers. */
                 table {
                   max-width: 100% !important;
+                }
+                /* ...but max-width cannot shrink a table below its min-content
+                   width, and nested fixed-width tables make that constraint
+                   circular: the outer table's cell is sized by the inner
+                   <table width="640">, so the inner table's max-width:100%
+                   resolves against a 640px cell and never clamps, leaving the
+                   outer table a 640px min-content width to inherit. The page
+                   then lays out wider than the view and is clipped, not
+                   scrolled. Clearing the width only where it is declared in
+                   pixels breaks that chain at its source while leaving the
+                   width="100%" tables above untouched. */
+                table[width]:not([width$="%"]) {
+                  width: auto !important;
                 }
                 table.code .diff-line-num {
                   width: 35px !important;
@@ -524,12 +538,54 @@ internal fun HtmlMessageBody(
                       i = j;
                     }
                   }
+                  // The CSS overrides reflow most mail into the view. What they
+                  // cannot shrink -- a wide <pre>, an oversized image, a fixed
+                  // width in an inline style rather than the width attribute --
+                  // would otherwise be clipped outright, because the view is
+                  // sized to its content and never scrolls sideways. Widening
+                  // the viewport to the content's natural width instead makes
+                  // WebView scale the whole page down to fit.
+                  var fitWide = ${if (fitWideContent) "true" else "false"};
+                  var fitScale = 1;
+                  var viewWidth = 0;
+                  function visibleWidth() {
+                    return (
+                      (window.visualViewport && window.visualViewport.width) ||
+                      window.innerWidth ||
+                      0
+                    );
+                  }
+                  function applyWidthFit() {
+                    // Pin once: after the viewport widens, the page is no longer
+                    // overflowing, so re-measuring would just undo the fit.
+                    if (!fitWide || fitScale !== 1) return;
+                    var meta = document.querySelector('meta[name="viewport"]');
+                    if (!meta) return;
+                    // Captured before the viewport widens, so it stays the view's
+                    // width in dp -- the denominator the height bridge needs.
+                    if (!viewWidth) viewWidth = visibleWidth();
+                    if (!viewWidth) return;
+                    var natural = Math.max(
+                      document.documentElement.scrollWidth || 0,
+                      document.body ? document.body.scrollWidth : 0
+                    );
+                    // A little slack: sub-pixel table borders routinely round up
+                    // and are not worth shrinking the whole page for.
+                    if (natural <= viewWidth + 2) return;
+                    fitScale = viewWidth / natural;
+                    // Dropping initial-scale lets WebView pick the fit scale.
+                    meta.setAttribute('content', 'width=' + Math.ceil(natural));
+                  }
                   function report() {
+                    applyWidthFit();
+                    // scrollHeight is in the (possibly widened) layout viewport's
+                    // CSS pixels; the view renders it at fitScale, so scale it
+                    // back to dp or the view gets sized to a phantom tail.
                     var h = Math.ceil(
                       Math.max(
                         document.documentElement.scrollHeight || 0,
                         document.body ? document.body.scrollHeight : 0
-                      )
+                      ) * fitScale
                     );
                     if (window.MeronHeight && window.MeronHeight.report) {
                       window.MeronHeight.report(h);
@@ -615,6 +671,7 @@ internal fun HtmlMessageBody(
                 onOpenUrl = onOpenUrl,
                 onOpenImage = onOpenImage,
                 modifier = webViewModifier,
+                fitWideContent = fitWideContent,
             )
         }
     } else {
@@ -624,6 +681,7 @@ internal fun HtmlMessageBody(
             onOpenUrl = onOpenUrl,
             onOpenImage = onOpenImage,
             modifier = webViewModifier,
+            fitWideContent = fitWideContent,
         )
     }
 }
@@ -637,6 +695,7 @@ private fun MailWebViewWithLinkMenu(
     onOpenUrl: (String) -> Unit,
     onOpenImage: (String) -> Unit,
     modifier: Modifier,
+    fitWideContent: Boolean,
 ) {
     var menuTarget by remember { mutableStateOf<MessageLinkMenuTarget?>(null) }
     Box(modifier) {
@@ -646,6 +705,7 @@ private fun MailWebViewWithLinkMenu(
             onOpenUrl = onOpenUrl,
             onOpenImage = onOpenImage,
             onLinkLongPress = { url, offset -> menuTarget = MessageLinkMenuTarget(url, offset) },
+            fitWideContent = fitWideContent,
             modifier = Modifier.fillMaxSize(),
         )
         MessageLinkContextMenu(

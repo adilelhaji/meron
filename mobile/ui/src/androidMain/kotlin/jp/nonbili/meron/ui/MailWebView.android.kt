@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.runtime.Composable
@@ -29,6 +30,7 @@ actual fun MailWebView(
     onOpenUrl: (String) -> Unit,
     onOpenImage: (String) -> Unit,
     onLinkLongPress: (String, DpOffset) -> Unit,
+    fitWideContent: Boolean,
 ) {
     val latestOnHeight = rememberUpdatedState(onContentHeight)
     val latestOnOpenUrl = rememberUpdatedState(onOpenUrl)
@@ -68,8 +70,6 @@ actual fun MailWebView(
                 // desktop reader, whose iframe also runs email scripts.
                 settings.javaScriptEnabled = true
                 settings.domStorageEnabled = false
-                settings.loadWithOverviewMode = false
-                settings.useWideViewPort = false
                 settings.defaultFontSize = 16
                 // The view sizes to content, so it never scrolls internally.
                 isVerticalScrollBarEnabled = false
@@ -124,6 +124,33 @@ actual fun MailWebView(
             // the page keeps loading and measuring while INVISIBLE.
             webView.visibility =
                 if (lifecycleState.isAtLeast(Lifecycle.State.RESUMED)) View.VISIBLE else View.INVISIBLE
+            // Set here rather than in the factory: the view is retained across
+            // recompositions, so a factory-only assignment would leave a mode
+            // change applying to the reloaded html below but not to the settings
+            // that html assumes. Both branches are explicit for the same reason —
+            // switching back has to actually switch back. Assigned before the
+            // load so the page never parses under the previous mode.
+            with(webView.settings) {
+                // Off, the viewport meta in the document is ignored outright and
+                // the page always renders at scale 1, which is what keeps the
+                // height bridge's CSS-px-to-dp identity exact. On, the script may
+                // widen the viewport to the content's natural width so an
+                // over-wide mail shrinks to fit rather than being clipped.
+                loadWithOverviewMode = fitWideContent
+                useWideViewPort = fitWideContent
+                // Fitting a 640px mail into a phone means ~0.56 scale, which would
+                // leave 15px body text at ~8px. Text autosizing inflates fonts
+                // within the preserved table structure so the shrunken page stays
+                // readable — the half of Gmail's approach that makes the other
+                // half usable. NORMAL is the modern WebView default the reflow-only
+                // path has always rendered under.
+                layoutAlgorithm =
+                    if (fitWideContent) {
+                        WebSettings.LayoutAlgorithm.TEXT_AUTOSIZING
+                    } else {
+                        WebSettings.LayoutAlgorithm.NORMAL
+                    }
+            }
             if (webView.tag != html) {
                 webView.tag = html
                 webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null)

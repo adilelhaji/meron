@@ -26,6 +26,11 @@ actual fun MailWebView(
     onOpenUrl: (String) -> Unit,
     onOpenImage: (String) -> Unit,
     onLinkLongPress: (String, DpOffset) -> Unit,
+    // Unused: shrink-to-fit is driven by Android's useWideViewPort/text
+    // autosizing, which WKWebView has no equivalent for. The script's fit pass
+    // is gated on the same flag and stays off here, so iOS keeps reflow-only
+    // rendering and the height bridge's scale-1 assumption holds.
+    @Suppress("UNUSED_PARAMETER") fitWideContent: Boolean,
 ) {
     val latestOnHeight = rememberUpdatedState(onContentHeight)
     val latestOnOpenUrl = rememberUpdatedState(onOpenUrl)

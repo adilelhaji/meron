@@ -243,7 +243,15 @@ internal fun MessageReaderScreen(
                 }
                 HorizontalDivider()
                 if (preferHtml && message.bodyHtml.isNotBlank()) {
-                    HtmlMessageBody(html = message.bodyHtml, onOpenUrl = onOpenUrl, onOpenImage = onOpenHtmlImage)
+                    // Only the reader shrinks over-wide mail to fit: it has the
+                    // full screen to scale into, where a bubble would render the
+                    // same mail as an unreadable thumbnail.
+                    HtmlMessageBody(
+                        html = message.bodyHtml,
+                        onOpenUrl = onOpenUrl,
+                        onOpenImage = onOpenHtmlImage,
+                        fitWideContent = true,
+                    )
                 } else {
                     SelectableMessageText(
                         text =
