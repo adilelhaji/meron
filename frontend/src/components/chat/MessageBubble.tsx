@@ -30,7 +30,6 @@ import {
   getVisibleMedia,
   htmlReferencesMedia,
   mediaSrc,
-  parseAddressList,
 } from './messageHelpers'
 import { AddressRow } from './AddressList'
 import { MessageBubbleBody } from './MessageBubbleBody'
@@ -82,30 +81,15 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
   const toRaw = message.to?.trim()
   const replyToDiffers =
     !outgoing && !!replyToRaw && extractAddr(replyToRaw).toLowerCase() !== message.from_addr.toLowerCase()
-  // For incoming mail, hide To only when this account is the sole visible
-  // recipient. If there are other To recipients, show the whole list.
-  const accountEmails = new Set(
-    account
-      ? accountIdentities(account)
-          .map((identity) => identity.email.trim().toLowerCase())
-          .filter(Boolean)
-      : [],
-  )
-  const toRecipients = parseAddressList(toRaw ?? '')
-  const showTo =
-    !outgoing &&
-    !!toRaw &&
-    toRecipients.length > 0 &&
-    (accountEmails.size === 0 || toRecipients.some((a) => !accountEmails.has(a.email.toLowerCase())))
   // Outgoing bubbles have no sender name to show, and without recipients a reply
   // and a forward of the same text are indistinguishable — so they take the
   // sender slot, the way Gmail's "to …" line does.
   const bccRaw = message.bcc?.trim()
   const recipientSummary = outgoing ? formatRecipientSummary(toRaw, ccRaw) : ''
-  // The summary shows names, not addresses, so every outgoing bubble with
-  // recipients can expand — otherwise the chevron appears only on the ones that
-  // happen to carry a Cc, which reads as a difference between messages.
-  const hasMeta = outgoing ? !!(toRaw || ccRaw || bccRaw) : !!(replyToDiffers || ccRaw || showTo)
+  // The header shows names, not addresses, so every bubble has something to
+  // reveal — the panel always leads with From. Gating the chevron on Cc or a
+  // wider To list made it blink in and out between messages of one thread.
+  const fromRaw = message.from_name ? `${message.from_name} <${message.from_addr}>` : message.from_addr
 
   const onOpenImage = (idx: number) => thread$.galleryIndex.set(idx)
   const openActionsMenu = (event: MouseEvent<HTMLButtonElement>) => {
@@ -169,24 +153,23 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
                 </span>
               )
             )}
-            {hasMeta && (
-              <button
-                type="button"
-                onClick={() => setMetaOpen((open) => !open)}
-                title={metaOpen ? t('chat.hideDetails') : t('chat.showDetails')}
-                className="flex items-center justify-center w-4 h-4 rounded text-secondary hover:text-primary hover:bg-black/[0.05] dark:hover:bg-white/[0.08] cursor-pointer transition-colors"
-              >
-                <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
-              </button>
-            )}
-            {hasMeta && metaOpen && (
+            <button
+              type="button"
+              onClick={() => setMetaOpen((open) => !open)}
+              title={metaOpen ? t('chat.hideDetails') : t('chat.showDetails')}
+              className="flex items-center justify-center w-4 h-4 rounded text-secondary hover:text-primary hover:bg-black/[0.05] dark:hover:bg-white/[0.08] cursor-pointer transition-colors"
+            >
+              <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {metaOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setMetaOpen(false)} />
                 <div className="absolute left-0 top-full mt-1 z-50 w-[460px] max-w-[calc(100vw-48px)] max-h-[260px] overflow-y-auto space-y-2 rounded-lg border border-border bg-chats p-3 shadow-xl text-secondary select-text">
-                  {(showTo || (outgoing && toRaw)) && <AddressRow label={t('composer.fields.to')} rawList={toRaw!} />}
-                  {replyToDiffers && <AddressRow label="Reply-To" rawList={replyToRaw!} />}
+                  <AddressRow label={t('composer.fields.from')} rawList={fromRaw} />
+                  {toRaw && <AddressRow label={t('composer.fields.to')} rawList={toRaw} />}
                   {ccRaw && <AddressRow label={t('composer.fields.cc')} rawList={ccRaw} />}
-                  {outgoing && bccRaw && <AddressRow label={t('composer.fields.bcc')} rawList={bccRaw} />}
+                  {bccRaw && <AddressRow label={t('composer.fields.bcc')} rawList={bccRaw} />}
+                  {replyToDiffers && <AddressRow label="Reply-To" rawList={replyToRaw!} />}
                 </div>
               </>
             )}

@@ -5,7 +5,7 @@ import type { MessageTab } from '../../types'
 import { Composer } from '../composer/Composer'
 import { HtmlMessageView } from './HtmlMessageView'
 import { AddressRow } from './AddressList'
-import { formatFullTimestamp } from './messageHelpers'
+import { extractAddr, formatFullTimestamp } from './messageHelpers'
 
 // Renders the active reader/compose tab: a compose tab shows the Composer, a
 // reader tab shows the message header, address rows and the HTML/plain body.
@@ -15,7 +15,12 @@ export function ReaderTabView({ tab }: { tab: MessageTab }) {
     return <Composer key={tab.id} tabId={tab.id} />
   }
 
-  const hasAddresses = tab.fromRaw || tab.to || tab.cc || tab.bcc || tab.replyTo
+  // A Reply-To equal to From is what most mail carries and says nothing, so it
+  // only earns a row when it points somewhere else — the same rule the bubbles
+  // and the mobile reader use.
+  const replyToDiffers =
+    !!tab.replyTo && extractAddr(tab.replyTo).toLowerCase() !== extractAddr(tab.fromRaw ?? '').toLowerCase()
+  const hasAddresses = tab.fromRaw || tab.to || tab.cc || tab.bcc || replyToDiffers
 
   return (
     <>
@@ -62,7 +67,7 @@ export function ReaderTabView({ tab }: { tab: MessageTab }) {
           {tab.to && <AddressRow label={t('composer.fields.to')} rawList={tab.to} />}
           {tab.cc && <AddressRow label={t('composer.fields.cc')} rawList={tab.cc} />}
           {tab.bcc && <AddressRow label={t('composer.fields.bcc')} rawList={tab.bcc} />}
-          {tab.replyTo && <AddressRow label="Reply-To" rawList={tab.replyTo} />}
+          {replyToDiffers && <AddressRow label="Reply-To" rawList={tab.replyTo!} />}
         </div>
       )}
       <HtmlMessageView

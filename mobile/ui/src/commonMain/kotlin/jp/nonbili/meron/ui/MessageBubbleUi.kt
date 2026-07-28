@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -131,47 +130,47 @@ internal fun MessageBubble(
                     } else {
                         ""
                     }
-                if (outgoing && recipients.isBlank()) {
-                    Spacer(Modifier.weight(1f))
-                } else {
-                    Row(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(4.dp))
-                            .clickable { addressesOpen = !addressesOpen },
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        if (!outgoing) {
-                            Text(
-                                message.from.ifBlank { message.fromAddr },
-                                modifier = Modifier.weight(1f, fill = false),
-                                fontSize = 12.5.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        } else {
-                            // An outgoing bubble has no sender to name, and a reply and a
-                            // forward of the same text look identical without recipients —
-                            // so the slot shows who received it instead.
-                            Text(
-                                tr("chat.toRecipients", mapOf("recipients" to recipients)),
-                                modifier = Modifier.weight(1f, fill = false),
-                                fontSize = 11.sp,
-                                color = textColor.copy(alpha = 0.6f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
-                        Icon(
-                            if (addressesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                            contentDescription = if (addressesOpen) tr("chat.hideDetails") else tr("chat.showDetails"),
-                            modifier = Modifier.size(14.dp),
-                            tint = textColor.copy(alpha = 0.55f),
+                // The toggle is on every bubble, even a draft with no recipients
+                // yet: the details always lead with From, and a chevron that
+                // came and went between messages read as an arbitrary
+                // difference between them.
+                Row(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { addressesOpen = !addressesOpen },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    if (!outgoing) {
+                        Text(
+                            message.from.ifBlank { message.fromAddr },
+                            modifier = Modifier.weight(1f, fill = false),
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else if (recipients.isNotBlank()) {
+                        // An outgoing bubble has no sender to name, and a reply and a
+                        // forward of the same text look identical without recipients —
+                        // so the slot shows who received it instead.
+                        Text(
+                            tr("chat.toRecipients", mapOf("recipients" to recipients)),
+                            modifier = Modifier.weight(1f, fill = false),
+                            fontSize = 11.sp,
+                            color = textColor.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    Icon(
+                        if (addressesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                        contentDescription = if (addressesOpen) tr("chat.hideDetails") else tr("chat.showDetails"),
+                        modifier = Modifier.size(14.dp),
+                        tint = textColor.copy(alpha = 0.55f),
+                    )
                 }
                 if (folderIsDrafts(message.folderId)) {
                     Surface(
