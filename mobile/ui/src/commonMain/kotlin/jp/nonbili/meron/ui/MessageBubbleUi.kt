@@ -430,7 +430,7 @@ internal fun HtmlMessageBody(
             <!doctype html>
             <html>
             <head>
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <meta id="meron-viewport" name="viewport" content="width=device-width, initial-scale=1.0">
               <style>
                 html, body {
                   margin: 0;
@@ -575,6 +575,33 @@ internal fun HtmlMessageBody(
                       i = j;
                     }
                   }
+                  // Mail bodies arrive as whole documents and routinely carry
+                  // their own <meta name="viewport">, which lands in our body
+                  // and, being later in the document, is the one Blink honours.
+                  // A single stray `content="target-densitydpi=device-dpi"` --
+                  // common in mail templates, and what Gemini's welcome mail
+                  // ships -- declares no width at all, so with useWideViewPort
+                  // on the layout falls back to the 980px desktop default and
+                  // the whole page renders at ~0.37 scale: legible mail shrunk
+                  // to nothing. Dropping every viewport but ours puts the width
+                  // back under our control, which is also what applyWidthFit
+                  // below assumes when it measures and rewrites.
+                  function dropForeignViewports() {
+                    var metas = document.querySelectorAll('meta[name="viewport"]');
+                    var ours = null;
+                    for (var i = 0; i < metas.length; i++) {
+                      if (metas[i].id === 'meron-viewport') {
+                        ours = metas[i];
+                      } else if (metas[i].parentNode) {
+                        metas[i].parentNode.removeChild(metas[i]);
+                      }
+                    }
+                    // Removing a meta does not make Blink recompute the viewport
+                    // -- the mail's description stays in effect over an empty
+                    // head -- but writing to one does. Re-asserting the same
+                    // content is what actually applies the width above.
+                    if (ours) ours.setAttribute('content', ours.getAttribute('content'));
+                  }
                   // The CSS overrides reflow most mail into the view. What they
                   // cannot shrink -- a wide <pre>, an oversized image, a fixed
                   // width in an inline style rather than the width attribute --
@@ -596,7 +623,10 @@ internal fun HtmlMessageBody(
                     // Pin once: after the viewport widens, the page is no longer
                     // overflowing, so re-measuring would just undo the fit.
                     if (!fitWide || fitScale !== 1) return;
-                    var meta = document.querySelector('meta[name="viewport"]');
+                    // By id, not by name: a mail's own viewport meta would win
+                    // over ours in Blink, so rewriting the first match could
+                    // rewrite a tag the engine is already ignoring.
+                    var meta = document.getElementById('meron-viewport');
                     if (!meta) return;
                     // Captured before the viewport widens, so it stays the view's
                     // width in dp -- the denominator the height bridge needs.
@@ -669,6 +699,10 @@ internal fun HtmlMessageBody(
                       window.webkit.messageHandlers.meronLink.postMessage(url);
                     }
                   });
+                  // Before the first report: every width the script measures,
+                  // and the view height derived from them, is read under the
+                  // viewport this leaves in place.
+                  dropForeignViewports();
                   groupConsecutiveImages();
                   window.addEventListener('load', report);
                   document.addEventListener('DOMContentLoaded', report);
