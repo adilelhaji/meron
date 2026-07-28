@@ -1947,3 +1947,82 @@ fn thread_key_inheritance_matches_parent_message_id_case_insensitively() {
         .unwrap();
     assert_eq!(child_key, "Root@Mail.example");
 }
+
+/// The account address and the mailbox login are separate fields, so both are
+/// identities the user owns — a custom account whose server authenticates by
+/// user name has them differ, and picking its own address used to fall through
+/// to the login.
+#[test]
+fn resolve_send_from_honors_account_address_login_and_aliases() {
+    let conn = test_conn();
+    conn.execute(
+        "INSERT INTO accounts(id, engine, email, sender_name, prefs)
+         VALUES('acct', 'mail', 'me@example.com', 'Me',
+                '{\"aliases\":[{\"email\":\"Sales@Example.JP\",\"name\":\"Sales\"},
+                               {\"email\":\"quiet@example.com\"}]}')",
+        [],
+    )
+    .unwrap();
+    let resolve = |requested| resolve_send_from(&conn, "acct", "login-name", requested);
+
+    // No request: the account's own address, not the login it authenticates as.
+    assert_eq!(
+        resolve("").unwrap(),
+        ("me@example.com".to_string(), "Me".to_string())
+    );
+    assert_eq!(
+        resolve("ME@example.com").unwrap(),
+        ("me@example.com".to_string(), "Me".to_string())
+    );
+    // The login is still a legitimate send-as identity.
+    assert_eq!(
+        resolve("login-name").unwrap(),
+        ("login-name".to_string(), "Me".to_string())
+    );
+    // Aliases match case-insensitively and keep their own display name.
+    assert_eq!(
+        resolve(" sales@example.jp ").unwrap(),
+        ("Sales@Example.JP".to_string(), "Sales".to_string())
+    );
+    // A blank alias name inherits the account's sender name.
+    assert_eq!(
+        resolve("quiet@example.com").unwrap(),
+        ("quiet@example.com".to_string(), "Me".to_string())
+    );
+}
+
+/// An address the account doesn't own must fail the send rather than quietly
+/// going out as someone else — a silent substitution is invisible to the sender.
+#[test]
+fn resolve_send_from_rejects_an_unowned_address() {
+    let conn = test_conn();
+    conn.execute(
+        "INSERT INTO accounts(id, engine, email, sender_name, prefs)
+         VALUES('acct', 'mail', 'me@example.com', 'Me', '{}')",
+        [],
+    )
+    .unwrap();
+
+    let err = resolve_send_from(&conn, "acct", "me@example.com", "someone@else.com").unwrap_err();
+    assert!(
+        err.to_string().contains("someone@else.com"),
+        "error should name the rejected address: {err}"
+    );
+}
+
+/// Accounts stored without an explicit address fall back to the login, matching
+/// what `account.list` shows as the account's address.
+#[test]
+fn resolve_send_from_falls_back_to_the_login_without_an_account_address() {
+    let conn = test_conn();
+    conn.execute(
+        "INSERT INTO accounts(id, engine, email, sender_name) VALUES('acct', 'mail', '', 'Me')",
+        [],
+    )
+    .unwrap();
+
+    assert_eq!(
+        resolve_send_from(&conn, "acct", "me@example.com", "").unwrap(),
+        ("me@example.com".to_string(), "Me".to_string())
+    );
+}

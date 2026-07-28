@@ -21,9 +21,11 @@ pub enum ChatWallpaper {
 }
 // ---- Accounts ---------------------------------------------------------------
 
-/// A send-as identity for an account: an address the user owns (verified with
-/// their provider) and an optional From display name. A blank `name` falls back
-/// to the account's `sender_name` when composing.
+/// A send-as identity for an account: an address the user owns and an optional
+/// From display name. A blank `name` falls back to the account's `sender_name`
+/// when composing. Purely local — meron cannot check whether the provider will
+/// accept the address, and providers that authorize senders themselves (Gmail's
+/// "Send mail as") rewrite the `From` of anything they haven't verified.
 #[derive(Clone, Default, Serialize, Deserialize)]
 pub struct Alias {
     pub email: String,
@@ -303,6 +305,76 @@ pub fn account_aliases(conn: &Connection, id: &str) -> Result<Vec<Alias>> {
         Some(prefs) => AccountPrefs::parse(&prefs).aliases(),
         None => Vec::new(),
     })
+}
+
+/// Resolve the `From` address and display name for an outgoing message, shared
+/// by desktop and mobile so both honor the same send-as rules.
+///
+/// An account may send as its own address, as the mailbox login, or as any
+/// configured alias; an empty request means "the account's own address". The
+/// account address and the login are separate fields (a custom IMAP account
+/// carries both, and they differ whenever the server authenticates by user
+/// name), so both count as identities the user owns.
+///
+/// An address that is none of those is an error rather than a silent
+/// substitution: quietly rewriting the sender is how a message goes out as the
+/// wrong identity without anyone noticing. Note that a provider can still
+/// override the `From` we transmit — Gmail rewrites it to the authenticated
+/// address unless the alias is verified in its own settings — which is outside
+/// what this can enforce.
+pub fn resolve_send_from(
+    conn: &Connection,
+    id: &str,
+    login_user: &str,
+    requested_from: &str,
+) -> Result<(String, String)> {
+    let (email, sender_name) = conn
+        .query_row(
+            "SELECT email, sender_name FROM accounts WHERE id = ?1",
+            params![id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?.unwrap_or_default(),
+                    row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+                ))
+            },
+        )
+        .optional()?
+        .unwrap_or_default();
+
+    let login = login_user.trim();
+    // Mirrors `account.list`, which falls back to the login when the account
+    // was stored without an explicit address.
+    let primary = if email.trim().is_empty() {
+        login
+    } else {
+        email.trim()
+    };
+
+    let requested = requested_from.trim().to_lowercase();
+    if requested.is_empty() || requested == primary.to_lowercase() {
+        return Ok((primary.to_string(), sender_name));
+    }
+    if requested == login.to_lowercase() {
+        return Ok((login.to_string(), sender_name));
+    }
+    match account_aliases(conn, id)?
+        .into_iter()
+        .find(|alias| alias.email.trim().to_lowercase() == requested)
+    {
+        Some(alias) => {
+            let name = if alias.name.trim().is_empty() {
+                sender_name
+            } else {
+                alias.name
+            };
+            Ok((alias.email.trim().to_string(), name))
+        }
+        None => Err(anyhow::anyhow!(
+            "{} is not an address this account can send from",
+            requested_from.trim()
+        )),
+    }
 }
 
 /// The account's own email addresses (primary + send-as aliases), lowercased, for

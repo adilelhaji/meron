@@ -113,36 +113,17 @@ pub(crate) fn parse_mobile_attachments(params: &Value) -> Result<Vec<AttachmentI
     }
 }
 
+/// The mobile send/draft paths' view of the shared send-as rule; an address the
+/// account doesn't own fails the call instead of going out under a substituted
+/// sender.
 pub(crate) fn resolve_mobile_send_from(
     conn: &rusqlite::Connection,
     account_id: &str,
     creds: &Creds,
     requested_from: &str,
-) -> (String, String) {
-    let sender_name = conn
-        .query_row(
-            "SELECT sender_name FROM accounts WHERE id = ?1",
-            rusqlite::params![account_id],
-            |row| row.get::<_, String>(0),
-        )
-        .unwrap_or_default();
-    let aliases = store::account_aliases(conn, account_id).unwrap_or_default();
-    let requested = requested_from.trim().to_lowercase();
-    if requested.is_empty() || requested == creds.user.trim().to_lowercase() {
-        return (creds.user.clone(), sender_name);
-    }
-    if let Some(alias) = aliases
-        .iter()
-        .find(|alias| alias.email.trim().to_lowercase() == requested)
-    {
-        let name = if alias.name.trim().is_empty() {
-            sender_name
-        } else {
-            alias.name.clone()
-        };
-        return (alias.email.trim().to_string(), name);
-    }
-    (creds.user.clone(), sender_name)
+) -> Result<(String, String), String> {
+    store::resolve_send_from(conn, account_id, &creds.user, requested_from)
+        .map_err(|err| format!("{err:#}"))
 }
 
 pub(crate) fn with_mobile_db<F>(data_dir: &str, f: F) -> Result<Value, String>

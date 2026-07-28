@@ -1333,7 +1333,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let requested_from = req_str(p, "from").unwrap_or_default();
             let creds = engine.ensure_valid_creds(&account).await?;
             let (from_addr, sender_name) =
-                resolve_send_from(engine, &account, &creds, &requested_from);
+                resolve_send_from(engine, &account, &creds, &requested_from)?;
             let raw = smtp::send(
                 &creds,
                 &from_addr,
@@ -1376,7 +1376,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let requested_from = req_str(p, "from").unwrap_or_default();
             let creds = engine.ensure_valid_creds(&account).await?;
             let (from_addr, sender_name) =
-                resolve_send_from(engine, &account, &creds, &requested_from);
+                resolve_send_from(engine, &account, &creds, &requested_from)?;
             // Stable per-draft Message-ID: each autosave reuses it so the IMAP
             // layer can find and prune the prior copy instead of piling up dups.
             let draft_id = req_str(p, "draft_id").unwrap_or_default();
@@ -2581,44 +2581,18 @@ fn req_str_array(params: &Value, key: &str) -> anyhow::Result<Vec<String>> {
 /// Sent folder and upsert them into the local store. Without this, the just-
 /// sent message would only land in the DB at the next periodic sync — meaning
 /// it wouldn't appear in the thread view until the user reconnects or refreshes.
-/// Resolve the outgoing From address + display name for a send/draft. Only a
-/// requested address the user actually owns is honored — the primary login or a
-/// configured alias — otherwise we fall back to the primary. An alias with its
-/// own display name overrides the account's sender name.
+/// Resolve the outgoing From address + display name for a send/draft, deferring
+/// to the shared store rule so desktop and mobile accept the same identities.
+/// An unowned address is an error, surfaced to the composer rather than sent
+/// under a substituted sender.
 fn resolve_send_from(
     engine: &Arc<Engine>,
     account: &str,
     creds: &imap::Creds,
     requested_from: &str,
-) -> (String, String) {
-    let (sender_name, aliases) = {
-        let db = engine.db.lock().unwrap();
-        let sender_name = db
-            .query_row(
-                "SELECT sender_name FROM accounts WHERE id = ?1",
-                rusqlite::params![account],
-                |row| row.get::<_, String>(0),
-            )
-            .unwrap_or_default();
-        let aliases = store::account_aliases(&db, account).unwrap_or_default();
-        (sender_name, aliases)
-    };
-    let requested = requested_from.trim().to_lowercase();
-    if requested.is_empty() || requested == creds.user.trim().to_lowercase() {
-        return (creds.user.clone(), sender_name);
-    }
-    if let Some(alias) = aliases
-        .iter()
-        .find(|a| a.email.trim().to_lowercase() == requested)
-    {
-        let name = if alias.name.trim().is_empty() {
-            sender_name
-        } else {
-            alias.name.clone()
-        };
-        return (alias.email.trim().to_string(), name);
-    }
-    (creds.user.clone(), sender_name)
+) -> anyhow::Result<(String, String)> {
+    let db = engine.db.lock().unwrap();
+    store::resolve_send_from(&db, account, &creds.user, requested_from)
 }
 
 async fn write_line(out: &Writer, value: Value) {

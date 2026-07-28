@@ -159,7 +159,7 @@ pub(crate) fn send_mobile_message(data_dir: &str, params: &Value) -> Result<Valu
     }
     let (from_addr, sender_name) = {
         let conn = engine.db.lock().unwrap();
-        resolve_mobile_send_from(&conn, &account_id, &creds, &requested_from)
+        resolve_mobile_send_from(&conn, &account_id, &creds, &requested_from)?
     };
     let raw = crate::ffi::engine_block_on(smtp::send(
         &creds,
@@ -212,7 +212,7 @@ pub(crate) fn save_mobile_draft(data_dir: &str, params: &Value) -> Result<Value,
             return Err(format!("account needs reconnect: {account_id}"));
         }
         let (from_addr, sender_name) =
-            resolve_mobile_send_from(&conn, &account_id, &creds, &requested_from);
+            resolve_mobile_send_from(&conn, &account_id, &creds, &requested_from)?;
         let raw = smtp::build_message(
             &sender_name,
             &from_addr,

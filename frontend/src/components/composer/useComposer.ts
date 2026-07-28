@@ -46,6 +46,7 @@ export function useComposer(tabId: string) {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [saveError, setSaveError] = useState('')
   const lastImagePasteAtRef = useRef(0)
+  const previousFromEmailRef = useRef(draft?.fromEmail)
   // Captured once so the editor isn't reset on every keystroke / re-render.
   const initialHtml = useRef(draft?.html ?? '').current
   // When the composer opens with recipients already filled (reply/forward/
@@ -103,11 +104,13 @@ export function useComposer(tabId: string) {
   }, [editor, spellCheck])
 
   useEffect(() => {
+    const sendAsChanged = previousFromEmailRef.current !== draft?.fromEmail
+    previousFromEmailRef.current = draft?.fromEmail
     if (!draft || !draft.accountId || sending) return
 
     setSaveStatus('idle')
     setSaveError('')
-    const timer = setTimeout(async () => {
+    const saveDraft = async () => {
       setSaveStatus('saving')
       setSaveError('')
       try {
@@ -141,11 +144,20 @@ export function useComposer(tabId: string) {
         setSaveStatus('error')
         setSaveError(contextualErrorMessage(err, 'Draft autosave failed'))
       }
-    }, 3000)
+    }
 
+    // A send-as choice is often the last edit before the composer closes. Start
+    // that save immediately so unmounting cannot cancel it with the debounce.
+    if (sendAsChanged) {
+      void saveDraft()
+      return
+    }
+
+    const timer = setTimeout(() => void saveDraft(), 3000)
     return () => clearTimeout(timer)
   }, [
     draft?.accountId,
+    draft?.fromEmail,
     draft?.to,
     draft?.cc,
     draft?.bcc,
