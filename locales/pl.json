@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Załącz pliki",
   "composer.actions.ccBcc": "DW/UDW",
+  "composer.actions.chooseSendAddress": "Wybierz adres wysyłki",
   "composer.actions.hideCcBcc": "Ukryj DW/UDW",
   "composer.actions.insertInlineImage": "Wstaw obraz w tekście",
   "composer.actions.newMessage": "Nowa wiadomość",

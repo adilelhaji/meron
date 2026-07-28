@@ -27,7 +27,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Archive
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
@@ -85,11 +87,13 @@ import jp.nonbili.meron.shared.DraftAttachment
 import jp.nonbili.meron.shared.FolderSummary
 import jp.nonbili.meron.shared.MessageAttachment
 import jp.nonbili.meron.shared.MessageBody
+import jp.nonbili.meron.shared.SendIdentity
 import jp.nonbili.meron.shared.ThreadMediaItem
 import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.attachmentMediaRef
 import jp.nonbili.meron.shared.buildThreadGalleryImages
 import jp.nonbili.meron.shared.buildThreadMediaItems
+import jp.nonbili.meron.shared.formatSendIdentity
 import jp.nonbili.meron.shared.threadIdIsRss
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -129,6 +133,9 @@ internal fun ThreadScreen(
     onRemoveQuickReplyAttachment: (DraftAttachment) -> Unit,
     onOpenFullReply: () -> Unit,
     onSendReply: () -> Unit,
+    quickReplyFromIdentities: List<SendIdentity>,
+    quickReplySelectedFrom: SendIdentity?,
+    onSelectQuickReplyFrom: (SendIdentity) -> Unit,
     onForward: (MessageBody) -> Unit,
     onEditAsNew: (MessageBody) -> Unit,
     onOpenDraft: (MessageBody) -> Unit,
@@ -571,6 +578,9 @@ internal fun ThreadScreen(
                         onOpenFullEditor = onOpenFullReply,
                         onSend = onSendReply,
                         sending = quickReplySending,
+                        fromIdentities = quickReplyFromIdentities,
+                        selectedFrom = quickReplySelectedFrom,
+                        onSelectFrom = onSelectQuickReplyFrom,
                     )
                 }
             }
@@ -1023,12 +1033,22 @@ internal fun ReplyBar(
     onOpenFullEditor: () -> Unit,
     onSend: () -> Unit,
     sending: Boolean = false,
+    fromIdentities: List<SendIdentity> = emptyList(),
+    selectedFrom: SendIdentity? = null,
+    onSelectFrom: (SendIdentity) -> Unit = {},
 ) {
     Surface(tonalElevation = 3.dp, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(
             Modifier.fillMaxWidth().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            if (selectedFrom != null && fromIdentities.size > 1) {
+                ReplyFromRow(
+                    identities = fromIdentities,
+                    selected = selectedFrom,
+                    onSelect = onSelectFrom,
+                )
+            }
             if (attachments.isNotEmpty()) {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(attachments, key = { it.id }) { attachment ->
@@ -1116,6 +1136,67 @@ internal fun ReplyBar(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.Send, contentDescription = tr("reply.send"))
                 }
+            }
+        }
+    }
+}
+
+// The reply bar's send-as identity: shows which address the reply goes out from,
+// and opens a picker to override it. Only rendered when the account has more
+// than one identity — with a single address there is nothing to disclose.
+@Composable
+private fun ReplyFromRow(
+    identities: List<SendIdentity>,
+    selected: SendIdentity,
+    onSelect: (SendIdentity) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        Row(
+            Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { expanded = true }
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                tr("composer.fields.from"),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                formatSendIdentity(selected),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Icon(
+                Icons.Filled.ArrowDropDown,
+                contentDescription = tr("composer.actions.chooseSendAddress"),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(16.dp),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            identities.forEach { identity ->
+                DropdownMenuItem(
+                    text = {
+                        Text(formatSendIdentity(identity), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    leadingIcon = {
+                        if (identity.email.equals(selected.email, ignoreCase = true)) {
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    },
+                    onClick = {
+                        expanded = false
+                        onSelect(identity)
+                    },
+                )
             }
         }
     }

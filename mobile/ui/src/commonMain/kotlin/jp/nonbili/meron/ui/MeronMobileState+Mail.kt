@@ -768,6 +768,7 @@ internal fun MeronMobileState.readCoreThread(
         quickReplyDraftSaved = false
         quickReplyInReplyTo = ""
         quickReplyReferences = ""
+        quickReplyFrom = ""
         quickReplyThreadId = backendThreadId
     }
     if (!readsDraftThread) {
@@ -816,7 +817,7 @@ internal fun MeronMobileState.readCoreThread(
 // instead of being forced into the full editor. No-op when the tail message
 // isn't a draft, or is already the one loaded (e.g. re-entrant calls from
 // loadMoreThreadMessages).
-private fun MeronMobileState.hydrateQuickReplyFromTailDraft(
+internal fun MeronMobileState.hydrateQuickReplyFromTailDraft(
     threadBackendId: String,
     mergedMessages: List<MessageBody>,
 ) {
@@ -834,6 +835,7 @@ private fun MeronMobileState.hydrateQuickReplyFromTailDraft(
     quickReplyDraftSaved = true
     quickReplyInReplyTo = tail.inReplyTo
     quickReplyReferences = tail.references
+    quickReplyFrom = tail.fromAddr
     quickReplyFailure = ""
     if (!tail.hasAttachments) {
         quickReplyAttachments = emptyList()

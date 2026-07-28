@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "파일 첨부",
   "composer.actions.ccBcc": "참조/숨은 참조",
+  "composer.actions.chooseSendAddress": "보내는 주소 선택",
   "composer.actions.hideCcBcc": "참조/숨은 참조 숨기기",
   "composer.actions.insertInlineImage": "인라인 이미지 삽입",
   "composer.actions.newMessage": "새 메시지",

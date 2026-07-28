@@ -481,12 +481,53 @@ private suspend fun MeronMobileState.saveComposeDraft(showStatus: Boolean): Bool
     )
 }
 
+// The message a quick reply answers: the newest one that isn't a draft (the
+// thread's own quick-reply draft would otherwise be the target), falling back to
+// the newest of all when every message is a draft.
+internal fun MeronMobileState.quickReplyParent(): MessageBody? = messages.lastOrNull { !folderIsDrafts(it.folderId) } ?: messages.lastOrNull()
+
+// The address the quick reply sends from: the identity picked in the reply bar's
+// From row, else the alias the original was delivered to. Blank means the
+// account primary, which the send and draft paths read as "use the default".
+internal fun MeronMobileState.resolveQuickReplyFrom(
+    parent: MessageBody,
+    account: AccountSummary?,
+): String {
+    if (account == null) return ""
+    if (quickReplyFrom.isNotBlank()) {
+        return if (quickReplyFrom.equals(account.email, ignoreCase = true)) "" else quickReplyFrom
+    }
+    return detectReplyFromIdentity(parent, account)
+}
+
+// Identities the open thread's quick reply can send as. Empty when there is
+// nothing to choose between (no thread, unknown account, or a single address) —
+// the reply bar hides its From row rather than stating the obvious.
+internal fun MeronMobileState.quickReplyIdentities(): List<SendIdentity> {
+    val thread = selectedCoreThread ?: return emptyList()
+    val accountId = thread.accountId.ifBlank { defaultSendAccountId() }
+    val account = coreAccounts.firstOrNull { it.id == accountId } ?: return emptyList()
+    val identities = accountSendIdentities(account)
+    return if (identities.size < 2) emptyList() else identities
+}
+
+// The identity the reply bar's From row shows as current — the resolved send-as
+// address matched back to the pickable list.
+internal fun MeronMobileState.selectedQuickReplyIdentity(): SendIdentity? {
+    val identities = quickReplyIdentities()
+    if (identities.isEmpty()) return null
+    val account = coreAccounts.firstOrNull { it.id == identities.first().accountId } ?: return null
+    val parent = quickReplyParent()
+    val email = (parent?.let { resolveQuickReplyFrom(it, account) } ?: quickReplyFrom).ifBlank { account.email }
+    return identities.firstOrNull { it.email.equals(email, ignoreCase = true) } ?: identities.first()
+}
+
 private suspend fun MeronMobileState.saveQuickReplyDraft(showStatus: Boolean): Boolean {
     // A send is about to discard the draft; saving now could resurrect it.
     if (quickReplySendInFlight) return false
     val thread = selectedCoreThread
     val accountId = thread?.accountId?.ifBlank { defaultSendAccountId() }.orEmpty()
-    val parent = messages.lastOrNull { !folderIsDrafts(it.folderId) } ?: messages.lastOrNull()
+    val parent = quickReplyParent()
     if (accountId.isBlank() || thread == null || parent == null) {
         if (showStatus) status = "Open a mail thread before saving a reply draft."
         return false
@@ -496,7 +537,7 @@ private suspend fun MeronMobileState.saveQuickReplyDraft(showStatus: Boolean): B
         return false
     }
     val account = coreAccounts.firstOrNull { it.id == accountId }
-    val replyFrom = account?.let { detectReplyFromIdentity(parent, it) }.orEmpty()
+    val replyFrom = resolveQuickReplyFrom(parent, account)
     val replyParams =
         parent.toReplyMailParams(
             accountId = accountId,
@@ -623,7 +664,7 @@ internal fun MeronMobileState.onQuickReplyBodyChange(value: String) {
 internal fun MeronMobileState.openQuickReplyInFullEditor() {
     val thread = selectedCoreThread
     val accountId = thread?.accountId?.ifBlank { defaultSendAccountId() }.orEmpty()
-    val parent = messages.lastOrNull { !folderIsDrafts(it.folderId) } ?: messages.lastOrNull()
+    val parent = quickReplyParent()
     if (accountId.isBlank() || thread == null || parent == null) {
         status = "Open a mail thread before replying."
         return
@@ -632,11 +673,7 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
         status = "RSS items do not support replies."
         return
     }
-    val replyFrom =
-        coreAccounts
-            .firstOrNull { it.id == accountId }
-            ?.let { detectReplyFromIdentity(parent, it) }
-            .orEmpty()
+    val replyFrom = resolveQuickReplyFrom(parent, coreAccounts.firstOrNull { it.id == accountId })
     val params =
         parent.toReplyMailParams(
             accountId = accountId,
@@ -672,6 +709,7 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
     quickReplyDraftSaved = false
     quickReplyInReplyTo = ""
     quickReplyReferences = ""
+    quickReplyFrom = ""
     composeReturnScreen = Screen.Thread
     screen = Screen.Compose
     status = ""
@@ -751,7 +789,7 @@ internal fun MeronMobileState.sendQuickReply() {
     if (quickReplySendInFlight) return
     val thread = selectedCoreThread
     val accountId = thread?.accountId?.ifBlank { defaultSendAccountId() }.orEmpty()
-    val parent = messages.lastOrNull { !folderIsDrafts(it.folderId) } ?: messages.lastOrNull()
+    val parent = quickReplyParent()
     val sentBody = quickReplyBody.trim()
     val sentAttachments = quickReplyAttachments
     if (accountId.isBlank() || thread == null || parent == null) {
@@ -770,7 +808,7 @@ internal fun MeronMobileState.sendQuickReply() {
     quickReplyAutosaveJob?.cancel()
     quickReplySendInFlight = true
     val account = coreAccounts.firstOrNull { it.id == accountId }
-    val replyFrom = account?.let { detectReplyFromIdentity(parent, it) }.orEmpty()
+    val replyFrom = resolveQuickReplyFrom(parent, account)
     val baseParams =
         parent.toReplyMailParams(
             accountId = accountId,

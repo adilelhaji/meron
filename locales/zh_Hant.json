@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "附加檔案",
   "composer.actions.ccBcc": "副本/密件副本",
+  "composer.actions.chooseSendAddress": "選擇寄件地址",
   "composer.actions.hideCcBcc": "隱藏 副本/密件副本",
   "composer.actions.insertInlineImage": "插入內嵌圖片",
   "composer.actions.newMessage": "新增訊息",

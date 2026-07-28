@@ -12,6 +12,8 @@ import {
   openReplyInFullEditor,
   openThreadTab,
   openThreadTabById,
+  quickReplyFromState,
+  resolveQuickReplyFrom,
   saveQuickReplyDraft,
   withoutHydratedQuickReplyDraft,
 } from './compose'
@@ -416,6 +418,7 @@ describe('quick reply draft sharing', () => {
     compose$.composerAttachments.set([])
     compose$.quickReplyDraftId.set('')
     compose$.quickReplyDraftSaved.set(false)
+    compose$.quickReplyFrom.set('')
     mail$.messages.set([])
     mail$.threads.set([])
     mail$.folders.set([])
@@ -589,6 +592,7 @@ describe('quick reply draft sharing', () => {
       id: 'd1',
       thread_id: 't-2',
       folder_id: 'Drafts',
+      from_addr: 'me@example.com',
       message_id: 'draft-1@example.com',
       body: 'saved draft body',
       date: 2000,
@@ -599,6 +603,7 @@ describe('quick reply draft sharing', () => {
     expect(compose$.composer.get()).toBe('saved draft body')
     expect(compose$.quickReplyDraftId.get()).toBe('draft-1@example.com')
     expect(compose$.quickReplyDraftSaved.get()).toBe(true)
+    expect(compose$.quickReplyFrom.get()).toBe('me@example.com')
   })
 
   it('keeps the hydrated draft hidden after an optimistic sent bubble is appended', () => {
@@ -669,5 +674,117 @@ describe('quick reply draft sharing', () => {
     expect(compose$.tabs.get()[0].compose?.draftMessageId).toBe(draftId)
     expect(compose$.quickReplyDraftId.get()).toBe('')
     expect(compose$.quickReplyDraftSaved.get()).toBe(false)
+  })
+})
+
+describe('quick reply send-as identity', () => {
+  const calls: { command: string; payload: unknown }[] = []
+
+  const setUpThread = (overrides: Partial<Message> = {}) => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      to: 'sales@example.com',
+      message_id: 'root@example.com',
+      ...overrides,
+    })
+    mail$.threads.set([thread])
+    mail$.messages.set([thread])
+    ui$.selectedThread.set('t-1')
+    return thread
+  }
+
+  beforeEach(() => {
+    calls.length = 0
+    compose$.tabs.set([])
+    compose$.activeTab.set('')
+    compose$.composer.set('')
+    compose$.composerAttachments.set([])
+    compose$.quickReplyDraftId.set('')
+    compose$.quickReplyDraftSaved.set(false)
+    compose$.quickReplyFrom.set('')
+    mail$.messages.set([])
+    mail$.threads.set([])
+    mail$.folders.set([])
+    mail$.foldersByAccount.set({})
+    ui$.selectedThread.set('')
+    ui$.selectedAccount.set('acc-1')
+    accounts$.set([
+      {
+        id: 'acc-1',
+        email: 'me@example.com',
+        display_name: 'Me',
+        sender_name: 'Me',
+        provider: 'custom',
+        auth_type: 'password',
+        imap_host: 'imap.example.com',
+        imap_port: 993,
+        smtp_host: 'smtp.example.com',
+        smtp_port: 465,
+        tls: true,
+        aliases: [{ email: 'sales@example.com', name: 'Sales' }],
+      },
+    ])
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (command: string, payload: unknown) => {
+            calls.push({ command, payload })
+            if (command === 'mail.allocateIdentity') return { message_id: 'draft-core@example.com' }
+            return {}
+          },
+        },
+      },
+    }
+  })
+
+  it('offers every identity and preselects the alias the original was delivered to', () => {
+    setUpThread()
+
+    const { identities, selected } = quickReplyFromState()
+
+    expect(identities.map((id) => id.email)).toEqual(['me@example.com', 'sales@example.com'])
+    expect(selected?.email).toBe('sales@example.com')
+  })
+
+  it('hides the picker when the account has a single identity', () => {
+    accounts$.set(accounts$.get().map((acc) => ({ ...acc, aliases: [] })))
+    setUpThread()
+
+    expect(quickReplyFromState().identities).toEqual([])
+  })
+
+  it('prefers an explicit override over the detected alias', () => {
+    const thread = setUpThread()
+    compose$.quickReplyFrom.set('me@example.com')
+
+    expect(quickReplyFromState().selected?.email).toBe('me@example.com')
+    // The primary normalizes back to "", which the send path reads as the default.
+    expect(resolveQuickReplyFrom(thread, accounts$.get()[0])).toBe('')
+  })
+
+  it('sends the overridden alias as the draft From', async () => {
+    setUpThread({ to: 'me@example.com' })
+    compose$.composer.set('Hello there')
+    compose$.quickReplyFrom.set('sales@example.com')
+
+    await saveQuickReplyDraft()
+
+    const saved = calls.find((c) => c.command === 'mail.saveDraft')?.payload as { from?: string }
+    expect(saved.from).toBe('sales@example.com')
+  })
+
+  it('carries the override into the full editor and clears it with the quick reply', () => {
+    setUpThread({ to: 'me@example.com' })
+    compose$.composer.set('Hello there')
+    compose$.quickReplyFrom.set('sales@example.com')
+
+    openReplyInFullEditor()
+
+    expect(compose$.tabs.get()[0].compose?.fromEmail).toBe('sales@example.com')
+    expect(compose$.quickReplyFrom.get()).toBe('')
   })
 })

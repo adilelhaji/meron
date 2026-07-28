@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "ファイルを添付",
   "composer.actions.ccBcc": "Cc/Bcc",
+  "composer.actions.chooseSendAddress": "送信元アドレスを選択",
   "composer.actions.hideCcBcc": "Cc/Bccを非表示",
   "composer.actions.insertInlineImage": "インライン画像を挿入",
   "composer.actions.newMessage": "新規メッセージ",

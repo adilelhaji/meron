@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Dosya ekle",
   "composer.actions.ccBcc": "Bilgi/Gizli",
+  "composer.actions.chooseSendAddress": "Gönderim adresini seç",
   "composer.actions.hideCcBcc": "Bilgi/Gizli alanını gizle",
   "composer.actions.insertInlineImage": "Satır içi resim ekle",
   "composer.actions.newMessage": "Yeni mesaj",

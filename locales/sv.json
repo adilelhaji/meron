@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Bifoga filer",
   "composer.actions.ccBcc": "Kopia/Dold kopia",
+  "composer.actions.chooseSendAddress": "Välj avsändaradress",
   "composer.actions.hideCcBcc": "Dölj kopia/dold kopia",
   "composer.actions.insertInlineImage": "Infoga bild",
   "composer.actions.newMessage": "Nytt meddelande",

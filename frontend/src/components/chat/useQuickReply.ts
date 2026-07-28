@@ -84,6 +84,7 @@ export function useQuickReply() {
     compose$.composer.set('')
     compose$.quickReplyDraftId.set('')
     compose$.quickReplyDraftSaved.set(false)
+    compose$.quickReplyFrom.set('')
   }, [activeThreadId])
 
   // Save or discard the current quick reply after text changes. Keyed on

@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Pievienot failus",
   "composer.actions.ccBcc": "Kopija/Slēptā kopija",
+  "composer.actions.chooseSendAddress": "Izvēlieties sūtīšanas adresi",
   "composer.actions.hideCcBcc": "Slēpt Kopiju/Slēpto kopiju",
   "composer.actions.insertInlineImage": "Ievietot attēlu tekstā",
   "composer.actions.newMessage": "Jauns ziņojums",

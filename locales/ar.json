@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "إرفاق ملفات",
   "composer.actions.ccBcc": "نسخة/نسخة مخفية",
+  "composer.actions.chooseSendAddress": "اختر عنوان الإرسال",
   "composer.actions.hideCcBcc": "إخفاء نسخة/نسخة مخفية",
   "composer.actions.insertInlineImage": "إدراج صورة مضمنة",
   "composer.actions.newMessage": "رسالة جديدة",

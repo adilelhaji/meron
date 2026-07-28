@@ -1,5 +1,5 @@
 import { observable } from '@legendapp/state'
-import type { Account, Attachment, ComposeDraft, ComposerAttachment, Message, MessageTab } from '../types'
+import type { Account, Alias, Attachment, ComposeDraft, ComposerAttachment, Message, MessageTab } from '../types'
 import { invoke } from '../lib/bridge'
 import { CONVERSATION_PAGE_SIZE } from '../lib/pagination'
 import { ui$, showToast } from './ui'
@@ -173,6 +173,11 @@ export const compose$ = observable({
   // saved draft (see hydrateQuickReplyFromTailDraft below).
   quickReplyDraftId: '',
   quickReplyDraftSaved: false,
+  // Send-as address explicitly chosen for the active thread's quick reply, set
+  // by the From indicator's picker. Empty means "auto" — fall back to the alias
+  // the original was delivered to (detectAliasFrom). Reset on thread switch, so
+  // an override never leaks into the next conversation.
+  quickReplyFrom: '',
 })
 
 // While the Current conversation tab is active (activeTab ""), mirror every
@@ -295,7 +300,7 @@ async function performQuickReplyDraftSave() {
   const ownAddrs = ownAddressSet(accounts)
   const { to, cc } = buildReplyRecipients(target, ownAddrs)
   const { in_reply_to, references } = buildReplyThreading(target)
-  const fromEmail = activeAcc ? detectAliasFrom(target, activeAcc) : ''
+  const fromEmail = resolveQuickReplyFrom(target, activeAcc)
   const subject = activeT.subject.startsWith('Re:') ? activeT.subject : `Re: ${activeT.subject}`
   const draftId = compose$.quickReplyDraftId.peek() || newDraftMessageId()
   compose$.quickReplyDraftId.set(draftId)
@@ -420,6 +425,7 @@ ui$.selectedThread.onChange(({ value }) => {
   compose$.composerAttachments.set([])
   compose$.quickReplyDraftId.set('')
   compose$.quickReplyDraftSaved.set(false)
+  compose$.quickReplyFrom.set('')
 })
 
 // Pre-fills the quick reply with an already-saved draft sitting at the tail of
@@ -439,6 +445,7 @@ function hydrateQuickReplyFromTailDraft(messages: Message[]) {
   compose$.composerAttachments.set([])
   compose$.quickReplyDraftId.set(tailDraftId)
   compose$.quickReplyDraftSaved.set(true)
+  compose$.quickReplyFrom.set(tail.from_addr ?? '')
 
   if (tail.has_attachments) {
     void readComposerAttachments(tail.attachments ?? [], tail.body_html ?? '').then((valid) => {
@@ -629,7 +636,7 @@ export function openReplyInFullEditor() {
   cancelQuickReplyDraftSave()
   openComposeTab({
     accountId: t.account_id || undefined,
-    fromEmail: replyAcc ? detectAliasFrom(target, replyAcc) : '',
+    fromEmail: resolveQuickReplyFrom(target, replyAcc),
     to,
     cc,
     showCcBcc: !!cc.trim(),
@@ -646,6 +653,7 @@ export function openReplyInFullEditor() {
   compose$.composerAttachments.set([])
   compose$.quickReplyDraftId.set('')
   compose$.quickReplyDraftSaved.set(false)
+  compose$.quickReplyFrom.set('')
 }
 
 export function openMailtoCompose(raw: string) {
@@ -1118,6 +1126,39 @@ export function detectAliasFrom(target: Message, acc: Account): string {
   return match && match.email.toLowerCase() !== acc.email.toLowerCase() ? match.email : ''
 }
 
+/** The address the active thread's quick reply sends from: the identity the user
+ * picked in the From indicator, or — when they haven't picked one — the alias
+ * detected from the original. Like {@link detectAliasFrom} this returns "" for
+ * the account primary, which every send/draft path reads as "use the default".
+ * Peeks rather than gets: the send and autosave paths are not reactive. */
+export function resolveQuickReplyFrom(target: Message, acc: Account | null | undefined): string {
+  const override = compose$.quickReplyFrom.peek()
+  if (!acc) return ''
+  if (override) return override.toLowerCase() === acc.email.toLowerCase() ? '' : override
+  return detectAliasFrom(target, acc)
+}
+
+/** Backs the quick reply's From indicator: the identities the active thread's
+ * account can send as, plus the one currently resolved. `identities` is empty
+ * when there is nothing to choose between (no thread, an unsendable account, or
+ * a single identity) — the indicator hides itself in that case rather than
+ * stating the obvious. Reactive: safe to read from a component. */
+export function quickReplyFromState(): { identities: Alias[]; selected: Alias | null } {
+  const none = { identities: [] as Alias[], selected: null }
+  const thread = getActiveThread()
+  if (!thread) return none
+  const accounts = accounts$.get()
+  const accountId = thread.account_id || ui$.selectedAccount.get()
+  const acc = accounts.find((a) => a.id === accountId) ?? accounts[0] ?? null
+  if (!isSendableAccount(acc) || !acc) return none
+  const identities = accountIdentities(acc)
+  if (identities.length < 2) return none
+  const override = compose$.quickReplyFrom.get()
+  const email = override || detectAliasFrom(pickReplyTarget(thread), acc) || acc.email
+  const selected = identities.find((id) => id.email.toLowerCase() === email.toLowerCase()) ?? identities[0]
+  return { identities, selected }
+}
+
 /** Build the To/Cc for a reply: To is the Reply-To header (or From), Cc is
  * the source Cc minus our own address and minus anything already in To.
  *
@@ -1193,8 +1234,9 @@ export async function sendReply() {
   const ownAddrs = ownAddressSet(accounts)
   const { to, cc } = buildReplyRecipients(target, ownAddrs)
   const { in_reply_to, references } = buildReplyThreading(target)
-  // Reply from the alias the original was delivered to, when there is one.
-  const fromEmail = activeAcc ? detectAliasFrom(target, activeAcc) : ''
+  // Reply from the identity picked in the From indicator, else the alias the
+  // original was delivered to.
+  const fromEmail = resolveQuickReplyFrom(target, activeAcc)
 
   const text = composerText
   const prepared = prepareConversationAttachments(attachments)

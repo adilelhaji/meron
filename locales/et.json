@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Lisa manuseid",
   "composer.actions.ccBcc": "Koopia/Pimekoopia",
+  "composer.actions.chooseSendAddress": "Vali saatmisaadress",
   "composer.actions.hideCcBcc": "Peida Koopia/Pimekoopia",
   "composer.actions.insertInlineImage": "Lisa tekstisisene pilt",
   "composer.actions.newMessage": "Uus sõnum",

@@ -841,6 +841,15 @@ private fun MeronMobileScreenContent(
                     },
                     onOpenFullReply = ::openQuickReplyInFullEditor,
                     onSendReply = ::sendQuickReply,
+                    quickReplyFromIdentities = quickReplyIdentities(),
+                    quickReplySelectedFrom = selectedQuickReplyIdentity(),
+                    onSelectQuickReplyFrom = { identity ->
+                        quickReplyFrom = identity.email
+                        // The saved draft carries the From header, so re-save it
+                        // against the newly chosen identity instead of waiting
+                        // for the next keystroke's debounce.
+                        if (quickReplyDraftSaved) autoSaveQuickReplyDraft()
+                    },
                     onForward = { openMessageCompose(it, forward = true) },
                     onEditAsNew = { openMessageCompose(it, forward = false) },
                     onOpenDraft = { message ->

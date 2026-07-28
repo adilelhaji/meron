@@ -1,5 +1,7 @@
 package jp.nonbili.meron.ui
 
+import jp.nonbili.meron.shared.AccountAlias
+import jp.nonbili.meron.shared.AccountSummary
 import jp.nonbili.meron.shared.CloseableHandle
 import jp.nonbili.meron.shared.CoreEvent
 import jp.nonbili.meron.shared.CoreEventStream
@@ -291,6 +293,86 @@ class ComposeUiTest {
         assertEquals(state.messages, state.visibleThreadMessages())
     }
 
+    @Test
+    fun quickReplyIdentitiesHiddenWithoutAliases() {
+        val state = testState()
+        state.coreAccounts = listOf(aliasAccount(aliases = emptyList()))
+        state.selectedCoreThread = threadSummary(id = "t1")
+
+        assertEquals(emptyList(), state.quickReplyIdentities())
+        assertNull(state.selectedQuickReplyIdentity())
+    }
+
+    @Test
+    fun quickReplyPreselectsTheAliasTheOriginalWasDeliveredTo() {
+        val state = testState()
+        state.coreAccounts = listOf(aliasAccount())
+        state.selectedCoreThread = threadSummary(id = "t1")
+        state.messages = listOf(messageBody(id = "m1", folderId = "INBOX", to = "sales@example.com"))
+
+        assertEquals(
+            listOf("me@example.com", "sales@example.com"),
+            state.quickReplyIdentities().map { it.email },
+        )
+        assertEquals("sales@example.com", state.selectedQuickReplyIdentity()?.email)
+    }
+
+    @Test
+    fun quickReplyOverrideWinsOverTheDetectedAlias() {
+        val state = testState()
+        state.coreAccounts = listOf(aliasAccount())
+        state.selectedCoreThread = threadSummary(id = "t1")
+        val parent = messageBody(id = "m1", folderId = "INBOX", to = "sales@example.com")
+        state.messages = listOf(parent)
+        state.quickReplyFrom = "me@example.com"
+
+        assertEquals("me@example.com", state.selectedQuickReplyIdentity()?.email)
+        // The primary normalizes back to blank, which the send path reads as the default.
+        assertEquals("", state.resolveQuickReplyFrom(parent, state.coreAccounts.first()))
+    }
+
+    @Test
+    fun quickReplyOverrideSendsFromTheChosenAlias() {
+        val state = testState()
+        state.coreAccounts = listOf(aliasAccount())
+        state.selectedCoreThread = threadSummary(id = "t1")
+        val parent = messageBody(id = "m1", folderId = "INBOX")
+        state.messages = listOf(parent)
+        state.quickReplyFrom = "sales@example.com"
+
+        assertEquals("sales@example.com", state.resolveQuickReplyFrom(parent, state.coreAccounts.first()))
+        assertEquals("sales@example.com", state.selectedQuickReplyIdentity()?.email)
+    }
+
+    @Test
+    fun hydratedQuickReplyRestoresTheDraftFromIdentity() {
+        val state = testState()
+        state.coreAccounts = listOf(aliasAccount())
+        state.selectedCoreThread = threadSummary(id = "t1")
+        state.quickReplyThreadId = "t1"
+        val parent = messageBody(id = "m1", folderId = "INBOX", to = "sales@example.com")
+        val draft =
+            messageBody(
+                id = "d1",
+                folderId = "Drafts",
+                messageId = "draft-1",
+                fromAddr = "me@example.com",
+            )
+
+        state.hydrateQuickReplyFromTailDraft("t1", listOf(parent, draft))
+
+        assertEquals("me@example.com", state.quickReplyFrom)
+        assertEquals("me@example.com", state.selectedQuickReplyIdentity()?.email)
+    }
+
+    private fun aliasAccount(aliases: List<AccountAlias> = listOf(AccountAlias(email = "sales@example.com", name = "Sales"))): AccountSummary =
+        AccountSummary(
+            id = "acc",
+            email = "me@example.com",
+            senderName = "Me",
+            aliases = aliases,
+        )
+
     private fun threadSummary(
         id: String,
         threadId: String = "",
@@ -310,17 +392,20 @@ class ComposeUiTest {
         inReplyTo: String = "",
         references: String = "",
         messageId: String = "",
+        to: String = "me@example.com",
+        fromAddr: String = "",
     ): MessageBody =
         MessageBody(
             id = id,
             folderId = folderId,
             from = "sender@example.com",
-            to = "me@example.com",
+            to = to,
             subject = "Subject",
             body = "Body",
             inReplyTo = inReplyTo,
             references = references,
             messageId = messageId,
+            fromAddr = fromAddr,
         )
 
     private fun testState(): MeronMobileState =

@@ -177,6 +177,12 @@ internal class MeronMobileState(
     var quickReplyReferences by mutableStateOf("")
     var quickReplyThreadId by mutableStateOf("")
 
+    // Send-as address explicitly chosen in the reply bar's From row. Blank means
+    // "auto" — fall back to the alias the original was delivered to
+    // (detectReplyFromIdentity). Cleared on thread switch, so an override never
+    // leaks into the next conversation.
+    var quickReplyFrom by mutableStateOf("")
+
     // Same double-send/autosave-race gate as composeSendInFlight, for the
     // inline reply bar.
     var quickReplySendInFlight by mutableStateOf(false)

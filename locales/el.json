@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Επισύναψη αρχείων",
   "composer.actions.ccBcc": "Κοιν./Κρυφή κοιν.",
+  "composer.actions.chooseSendAddress": "Επιλογή διεύθυνσης αποστολής",
   "composer.actions.hideCcBcc": "Απόκρυψη Κοιν./Κρυφής κοιν.",
   "composer.actions.insertInlineImage": "Εισαγωγή ενσωματωμένης εικόνας",
   "composer.actions.newMessage": "Νέο μήνυμα",

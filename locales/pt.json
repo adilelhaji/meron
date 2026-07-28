@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Anexar ficheiros",
   "composer.actions.ccBcc": "Cc/Bcc",
+  "composer.actions.chooseSendAddress": "Escolher endereço de envio",
   "composer.actions.hideCcBcc": "Ocultar Cc/Bcc",
   "composer.actions.insertInlineImage": "Inserir imagem incorporada",
   "composer.actions.newMessage": "Nova mensagem",

@@ -176,6 +176,7 @@
   "common.unread": "Unread",
   "composer.actions.attachFiles": "Đính kèm tệp",
   "composer.actions.ccBcc": "Cc/Bcc",
+  "composer.actions.chooseSendAddress": "Chọn địa chỉ gửi",
   "composer.actions.hideCcBcc": "Ẩn Cc/Bcc",
   "composer.actions.insertInlineImage": "Chèn ảnh nội dòng",
   "composer.actions.newMessage": "Tin nhắn mới",
