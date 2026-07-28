@@ -83,7 +83,7 @@ func (a *App) folderCreate(payload map[string]any) (any, error) {
 		return nil, errors.New("RSS accounts do not support folders")
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	res, err := a.sidecar.Call("folders.create", map[string]any{"account": req.AccountID, "name": req.Name})
 	if err != nil {
@@ -237,7 +237,7 @@ func (a *App) mailDelete(payload map[string]any) (any, error) {
 		return map[string]any{"ok": true}, nil
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, _, ok := parseRSSThreadID(threadID); ok {
 		return nil, errors.New("feed items cannot be moved to trash")
@@ -275,7 +275,7 @@ func (a *App) mailMove(payload map[string]any) (any, error) {
 		return map[string]any{"ok": true}, nil
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, _, ok := parseRSSThreadID(threadID); ok {
 		return nil, errors.New("feed items cannot be moved between folders")
@@ -308,7 +308,7 @@ func (a *App) mailCopy(payload map[string]any) (any, error) {
 		return map[string]any{"ok": true}, nil
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, _, ok := parseRSSThreadID(threadID); ok {
 		return nil, errors.New("feed items cannot be copied between folders")
@@ -359,7 +359,7 @@ func (a *App) mailArchive(payload map[string]any) (any, error) {
 		return map[string]any{"ok": true}, nil
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, _, ok := parseRSSThreadID(threadID); ok {
 		return nil, errors.New("feed items cannot be archived")
@@ -609,7 +609,7 @@ func (a *App) mailSend(payload map[string]any) (any, error) {
 		return nil, errors.New("invalid message")
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("send", map[string]any{
 		"account":     req.AccountID,
@@ -637,7 +637,7 @@ func (a *App) mailSaveDraft(payload map[string]any) (any, error) {
 		return nil, err
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("save_draft", map[string]any{
 		"account":     req.AccountID,
@@ -666,7 +666,7 @@ func (a *App) mailDiscardDraft(payload map[string]any) (any, error) {
 		return map[string]any{"ok": true, "deleted": 0}, nil
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	params := map[string]any{
 		"account":  accountID,

@@ -13,7 +13,7 @@ func (a *App) accountAddRSS(payload map[string]any) (any, error) {
 	feedURL, _ := payload["feed_url"].(string)
 	displayName, _ := payload["display_name"].(string)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	res, err := a.sidecar.Call("account.addRss", map[string]any{
 		"feed_url":     feedURL,
@@ -31,7 +31,7 @@ func (a *App) feedAdd(payload map[string]any) (any, error) {
 	accountID, _ := payload["account_id"].(string)
 	feedURL, _ := payload["feed_url"].(string)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	res, err := a.sidecar.Call("feed.add", map[string]any{"account": accountID, "feed_url": feedURL})
 	if err != nil {
@@ -44,7 +44,7 @@ func (a *App) feedAdd(payload map[string]any) (any, error) {
 func (a *App) feedRemove(payload map[string]any) (any, error) {
 	threadID, _ := payload["thread_id"].(string)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	res, err := a.sidecar.Call("feed.remove", map[string]any{"thread_id": threadID})
 	if err != nil {
@@ -61,7 +61,7 @@ func (a *App) feedMove(payload map[string]any) (any, error) {
 		targetAccount, _ = payload["target_account"].(string)
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	res, err := a.sidecar.Call("feed.move", map[string]any{"thread_id": threadID, "target_account": targetAccount})
 	if err != nil {
@@ -75,7 +75,7 @@ func (a *App) feedMove(payload map[string]any) (any, error) {
 // then writes it to a user-chosen path via a native save dialog.
 func (a *App) exportOpml(payload map[string]any) (any, error) {
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	account, _ := payload["account"].(string)
 	if account == "" {
@@ -117,7 +117,7 @@ func (a *App) exportOpml(payload map[string]any) (any, error) {
 // the number of feeds added.
 func (a *App) importOpml(payload map[string]any) (any, error) {
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	account, _ := payload["account"].(string)
 	if account == "" {

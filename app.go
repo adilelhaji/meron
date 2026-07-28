@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -40,6 +41,34 @@ type App struct {
 	updater            *updater
 	updateChannelOnce  sync.Once
 	updateChannelValue updateChannel
+
+	coreErrorMu sync.Mutex
+	coreError   string
+}
+
+// setCoreError remembers the last fatal condition the core reported, so the
+// generic "engine unavailable" replies can name the actual cause.
+func (a *App) setCoreError(message string) {
+	a.coreErrorMu.Lock()
+	a.coreError = message
+	a.coreErrorMu.Unlock()
+}
+
+func (a *App) lastCoreError() string {
+	a.coreErrorMu.Lock()
+	defer a.coreErrorMu.Unlock()
+	return a.coreError
+}
+
+// engineUnavailable is the error every handler returns when the core isn't
+// usable. It carries the core's own error message when there is one: without
+// it the UI can only say the engine is unavailable, which is true of a missing
+// binary, a crashed process, and an unreachable keychain alike.
+func (a *App) engineUnavailable() error {
+	if message := a.lastCoreError(); message != "" {
+		return fmt.Errorf("mail engine unavailable: %s", message)
+	}
+	return errors.New("mail engine unavailable")
 }
 
 func NewApp() *App {
@@ -64,6 +93,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.sidecar = NewSidecar(coreBinaryPath(), a.logWriter())
 	a.sidecar.onEvent = a.handleSidecarEvent
 	if err := a.sidecar.Start(ctx); err != nil {
+		a.setCoreError(fmt.Sprintf("core failed to start: %v (path: %s)", err, coreBinaryPath()))
 		a.logf("core failed to start: %v", err)
 		fmt.Fprintf(os.Stderr, "meron: core failed to start: %v (path: %s)\n", err, coreBinaryPath())
 	} else {
@@ -226,7 +256,7 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.starredItems(payload)
 	case "mail.allocateIdentity":
 		if a.sidecar == nil || !a.sidecar.Started() {
-			return nil, fmt.Errorf("mail engine unavailable")
+			return nil, a.engineUnavailable()
 		}
 		return a.sidecar.Call("identity.allocate", payload)
 	case "mail.suggestContacts":

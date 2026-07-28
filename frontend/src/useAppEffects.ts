@@ -52,7 +52,11 @@ export function useAppEffects() {
   }, [language])
 
   useEffect(() => {
-    void boot()
+    void boot().catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      console.error('App startup failed:', error)
+      showToast(message, 'error')
+    })
   }, [])
 
   useEffect(() => {
@@ -132,6 +136,24 @@ export function useAppEffects() {
     })
     return () => {
       if (typeof offMailto === 'function') offMailto()
+    }
+  }, [])
+
+  // The core pushes an `error` event when it hits a condition it cannot serve
+  // through — an unreachable keychain, an unopenable store. Nothing consumed it
+  // before, so such a startup left the UI with no explanation and every request
+  // failing on its own timeout.
+  useEffect(() => {
+    const eventsOn = (window as any).runtime?.EventsOn
+    if (!eventsOn) return
+    const offError = eventsOn('core.fatal', (detail: { message?: string } | string) => {
+      const message = typeof detail === 'string' ? detail : detail?.message
+      if (!message) return
+      console.error('Mail engine error:', message)
+      showToast(message, 'error')
+    })
+    return () => {
+      if (typeof offError === 'function') offError()
     }
   }, [])
 

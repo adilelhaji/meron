@@ -48,6 +48,10 @@ apps:
       - x11
       - unity7
       - browser-support
+      # Manual-connect: snapd never auto-connects this, so out of the box the
+      # Secret Service is denied and the core falls back to its local file
+      # keyring. Connecting the interface later enables the desktop keyring for
+      # new profiles; profiles already using the fallback remain on it.
       - password-manager-service
       - audio-playback
 

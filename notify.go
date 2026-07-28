@@ -49,9 +49,28 @@ func (a *App) handleSidecarEvent(name string, detail any) {
 	case "ready":
 		a.checkProtocolVersion(detail)
 		return
+	case "core.fatal":
+		a.recordCoreError(detail)
+		return
 	case "mail.newMessages":
 		a.notifyNewMail(detail)
 	}
+}
+
+// recordCoreError logs the core's own fatal-condition report and keeps it for
+// engineUnavailable. The event already reaches the frontend; dropping it here
+// meant a core that could not open its store failed silently, leaving only
+// per-call timeouts in the log.
+func (a *App) recordCoreError(detail any) {
+	message := ""
+	if m, ok := detail.(map[string]any); ok {
+		message, _ = m["message"].(string)
+	}
+	if message == "" {
+		message = fmt.Sprint(detail)
+	}
+	a.logf("core error: %s", message)
+	a.setCoreError(message)
 }
 
 // expectedProtocolVersion is the stdio protocol version this bridge speaks. It

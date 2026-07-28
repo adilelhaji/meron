@@ -671,12 +671,15 @@ async fn main() {
     let engine = match Engine::new(Box::new(DesktopHost)) {
         Ok(engine) => Arc::new(engine),
         Err(e) => {
-            emit(
-                &out,
-                "error",
-                json!({ "message": format!("store init: {e:#}") }),
-            )
-            .await;
+            // Storage is unusable (an unreachable keychain, a store encrypted
+            // with a key we no longer hold). Keep serving stdin anyway: exiting
+            // here left the bridge writing into a dead pipe, so every request
+            // died of its own timeout and the UI could only report the engine
+            // as generically unavailable. Answering each one with the real
+            // reason is what makes the failure diagnosable.
+            let message = format!("store init: {e:#}");
+            emit(&out, "core.fatal", json!({ "message": message })).await;
+            run_degraded(&out, &message).await;
             return;
         }
     };
@@ -723,6 +726,28 @@ async fn main() {
                 )
                 .await
             }
+        }
+    }
+}
+
+/// Serve stdin without an engine: answer `ping` (so the bridge can still tell a
+/// live process from a dead one) and fail everything else with `reason`. Runs
+/// until the bridge closes stdin.
+async fn run_degraded(out: &Writer, reason: &str) {
+    eprintln!("meron-core: running degraded, storage unavailable: {reason}");
+    let mut lines = BufReader::new(tokio::io::stdin()).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Ok(req) = serde_json::from_str::<Request>(line) else {
+            continue;
+        };
+        if req.method == "ping" {
+            respond(out, req.id, ping_response()).await;
+        } else {
+            respond_error(out, req.id, reason).await;
         }
     }
 }

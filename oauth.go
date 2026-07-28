@@ -65,7 +65,7 @@ func (a *App) accountAddGmailOAuth(payload map[string]any) (any, error) {
 	expiresAt := time.Now().Unix() + req.ExpiresIn
 	a.logf("account.addGmailOAuth: connecting account=%s email=%s token_present=%t refresh_present=%t", id, req.Email, req.AccessToken != "", req.RefreshToken != "")
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.connect", map[string]any{
 		"id":               id,
@@ -152,7 +152,7 @@ func (a *App) accountAddOutlookOAuth(payload map[string]any) (any, error) {
 	expiresAt := time.Now().Unix() + req.ExpiresIn
 	a.logf("account.addOutlookOAuth: connecting account=%s email=%s token_present=%t refresh_present=%t", id, req.Email, req.AccessToken != "", req.RefreshToken != "")
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.connect", map[string]any{
 		"id":               id,

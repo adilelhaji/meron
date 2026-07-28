@@ -29,7 +29,7 @@ func (a *App) accountAddPassword(payload map[string]any) (any, error) {
 	id := accountID(req.Email)
 	a.logf("account.addPassword: connecting account=%s imap=%s:%d smtp=%s:%d", id, req.IMAPHost, req.IMAPPort, req.SMTPHost, req.SMTPPort)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	imapTLS, imapStartTLS := tlsMode(req.TLS, req.IMAPPort)
 	smtpTLS, smtpStartTLS := tlsMode(req.TLS, req.SMTPPort)
@@ -94,7 +94,7 @@ func (a *App) accountSetImages(payload map[string]any) (any, error) {
 	}
 	enabled, _ := payload["enabled"].(bool)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.setImages", map[string]any{"account": id, "enabled": enabled}); err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ func (a *App) accountSetImages(payload map[string]any) (any, error) {
 func (a *App) accountReorder(payload map[string]any) (any, error) {
 	accounts, _ := payload["accounts"].([]any)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.reorder", map[string]any{"accounts": accounts}); err != nil {
 		return nil, err
@@ -124,7 +124,7 @@ func (a *App) accountSetName(payload map[string]any) (any, error) {
 	}
 	name, _ := payload["name"].(string)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.setName", map[string]any{"account": id, "name": name}); err != nil {
 		return nil, err
@@ -143,7 +143,7 @@ func (a *App) accountSetSenderName(payload map[string]any) (any, error) {
 	}
 	name, _ := payload["name"].(string)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.setSenderName", map[string]any{"account": id, "name": name}); err != nil {
 		return nil, err
@@ -163,7 +163,7 @@ func (a *App) accountSetAvatar(payload map[string]any) (any, error) {
 	avatarURL, _ := payload["avatar_url"].(string)
 	avatarURL = a.downloadAndSaveAvatar(id, avatarURL)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.setAvatar", map[string]any{"account": id, "avatar_url": strings.TrimSpace(avatarURL)}); err != nil {
 		return nil, err
@@ -183,7 +183,7 @@ func (a *App) accountSetAliases(payload map[string]any) (any, error) {
 		return nil, errors.New("account id required")
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	aliases := payload["aliases"]
 	if aliases == nil {
@@ -209,7 +209,7 @@ func (a *App) accountSetPref(payload map[string]any, method string) (any, error)
 	}
 	enabled, _ := payload["enabled"].(bool)
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call(method, map[string]any{"account": id, "enabled": enabled}); err != nil {
 		return nil, err
@@ -227,7 +227,7 @@ func (a *App) accountSetSaveSentCopy(payload map[string]any) (any, error) {
 		return nil, errors.New("account id required")
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	value, ok := payload["value"]
 	if !ok {
@@ -254,7 +254,7 @@ func (a *App) accountSetChatWallpaper(payload map[string]any) (any, error) {
 		return nil, errors.New("account id required")
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	wallpaper, ok := payload["wallpaper"]
 	if !ok {
@@ -285,7 +285,7 @@ func (a *App) accountSetRSSSyncInterval(payload map[string]any) (any, error) {
 		minutes = 1440
 	}
 	if a.sidecar == nil || !a.sidecar.Started() {
-		return nil, errors.New("mail engine unavailable")
+		return nil, a.engineUnavailable()
 	}
 	if _, err := a.sidecar.Call("account.setRSSSyncInterval", map[string]any{"account": id, "minutes": minutes}); err != nil {
 		return nil, err

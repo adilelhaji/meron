@@ -183,7 +183,24 @@ const BODY_CACHE_VERSION: &str = "1";
 
 pub fn open() -> Result<Connection> {
     let path = db_path();
-    match crate::secrets::db_key()? {
+    // The key comes from the OS keychain, historically the slowest and most
+    // failure-prone step of startup (a Flatpak Secret portal with no backend
+    // used to hang here forever). Bracket it in the log so a stall is visible.
+    crate::mlog!(crate::log::Level::Warn, "store", "resolving store key");
+    let started = std::time::Instant::now();
+    let key = crate::secrets::db_key();
+    crate::mlog!(
+        crate::log::Level::Warn,
+        "store",
+        "store key resolved in {:?}: {}",
+        started.elapsed(),
+        match &key {
+            Ok(Some(_)) => "encrypted".to_string(),
+            Ok(None) => "plaintext (keychain disabled)".to_string(),
+            Err(error) => format!("failed: {error:#}"),
+        }
+    );
+    match key? {
         Some(key) => open_at_keyed(path, &key),
         // Keyring disabled (tests/headless): keep the store plaintext as before.
         None => open_at(path),
@@ -243,9 +260,18 @@ fn open_keyed_connection(path: &Path, key: Option<&str>) -> Result<Connection> {
     if database_readable(&conn) {
         return Ok(conn);
     }
-    // The key didn't unlock the file: it predates encryption and is plaintext
-    // (a wrong/empty file would also land here, but the key is persistent so in
-    // practice this is the one-time legacy-plaintext upgrade). Migrate in place.
+    // The key didn't unlock the file. Either it predates encryption and is
+    // plaintext (the one-time upgrade below), or we were handed the wrong key —
+    // which happens when the keychain lost our entry and minted a fresh one.
+    // Refuse the migration in that case: it would fail anyway, and the explicit
+    // error names the real problem instead of blaming the schema.
+    if is_encrypted_database(path) {
+        anyhow::bail!(
+            "{} is encrypted with a different key — the keychain entry holding \
+             the store key is missing or was replaced",
+            path.display()
+        );
+    }
     drop(conn);
     encrypt_plaintext_db(path, key)
         .with_context(|| format!("encrypt legacy plaintext db {}", path.display()))?;
@@ -265,6 +291,22 @@ fn open_keyed_connection(path: &Path, key: Option<&str>) -> Result<Connection> {
 fn apply_key(conn: &Connection, key: &str) -> Result<()> {
     conn.execute_batch(&format!("PRAGMA key = \"x'{key}'\";"))
         .context("apply sqlcipher key")
+}
+
+/// Whether `path` holds an existing *encrypted* database, i.e. a non-empty file
+/// that does not carry SQLite's plaintext header. Used to tell "wrong key" from
+/// "legacy plaintext database" without guessing.
+fn is_encrypted_database(path: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut header = [0u8; 16];
+    match file.read_exact(&mut header) {
+        Ok(()) => &header != b"SQLite format 3\0",
+        // Shorter than a header: a freshly created or empty file, not encrypted.
+        Err(_) => false,
+    }
 }
 
 /// A cheap probe that succeeds only when the page cipher matches the file: a
@@ -374,6 +416,16 @@ fn db_path() -> PathBuf {
         return PathBuf::from(path);
     }
     config_dir().join("meron.db")
+}
+
+/// The directory holding the store, and the natural home for anything else that
+/// belongs to this app profile (the local keyring, for one). Follows
+/// `MERON_CORE_DB`, so dev and production profiles stay separate.
+pub fn app_dir() -> PathBuf {
+    db_path()
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(config_dir)
 }
 
 fn config_dir() -> PathBuf {
@@ -650,5 +702,38 @@ mod tests {
             .query_row("SELECT value FROM settings WHERE key='k'", [], |r| r.get(0))
             .unwrap();
         assert_eq!(value, "legacy");
+    }
+
+    #[test]
+    fn wrong_key_on_an_encrypted_store_is_named_not_migrated() {
+        let path = tmp_db_path();
+        {
+            let conn = open_at_keyed(&path, TEST_KEY).unwrap();
+            conn.execute("INSERT INTO settings(key, value) VALUES('k', 'v')", [])
+                .unwrap();
+        }
+        assert!(is_encrypted_database(&path));
+
+        // A keychain that lost our entry hands back a freshly minted key. Opening
+        // with it must report that, not run the plaintext migration over an
+        // encrypted file.
+        let other = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+        let error = open_at_keyed(&path, other).unwrap_err().to_string();
+        assert!(error.contains("encrypted with a different key"), "{error}");
+
+        // The original file is untouched: the real key still opens it.
+        let conn = open_at_keyed(&path, TEST_KEY).unwrap();
+        let value: String = conn
+            .query_row("SELECT value FROM settings WHERE key='k'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(value, "v");
+    }
+
+    #[test]
+    fn plaintext_and_missing_files_are_not_taken_for_encrypted() {
+        let path = tmp_db_path();
+        assert!(!is_encrypted_database(&path), "missing file");
+        drop(open_at(&path).unwrap());
+        assert!(!is_encrypted_database(&path), "plaintext file");
     }
 }
