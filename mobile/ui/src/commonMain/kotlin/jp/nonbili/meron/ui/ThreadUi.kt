@@ -358,7 +358,7 @@ internal fun ThreadScreen(
                                 fontWeight = FontWeight.SemiBold,
                                 style = MaterialTheme.typography.titleMedium,
                             )
-                            val subtitle = threadHeaderSubtitle(messages, accountEmail, isRss)
+                            val subtitle = threadHeaderSubtitle(messages, isRss)
                             if (subtitle.isNotBlank()) {
                                 Text(
                                     subtitle,
@@ -550,6 +550,7 @@ internal fun ThreadScreen(
                                     onOpenImageAttachment = ::openGalleryForAttachment,
                                     onOpenHtmlImage = ::openGalleryForHtmlSrc,
                                     onCopyMessageText = onCopyMessageText,
+                                    onComposeTo = onComposeTo,
                                     onOpenMessage = { readerMessage = it },
                                     onOpenUrl = services::openUrl,
                                     onRetryLoad = onRetryLoadMessages,
@@ -604,8 +605,25 @@ internal fun ThreadScreen(
             MessageReaderScreen(
                 message = reader,
                 preferHtml = preferHtml,
+                actionsEnabled = !isRss,
                 onBack = { readerMessage = null },
                 onCopy = { label, value -> services.copyText(label, value) },
+                onComposeTo = { email ->
+                    readerMessage = null
+                    onComposeTo(email)
+                },
+                onForward = { message ->
+                    readerMessage = null
+                    onForward(message)
+                },
+                onEditAsNew = { message ->
+                    readerMessage = null
+                    onEditAsNew(message)
+                },
+                onDelete = { message ->
+                    readerMessage = null
+                    onDeleteMessage(message)
+                },
                 onOpenAttachment = onOpenAttachment,
                 onSaveAttachment = onSaveAttachment,
                 loadImageAttachment = loadImageAttachment,

@@ -107,7 +107,7 @@
   "chat.conversationDetails": "会話の詳細",
   "chat.copyCode": "コードをコピー",
   "chat.copyEmailAddress": "メールアドレスをコピー",
-  "chat.copyFullAddress": "フルアドレスをコピー",
+  "chat.copyFullAddress": "名前とメールアドレスをコピー",
   "chat.copyMessageId": "メッセージIDをコピー",
   "chat.copyMessageText": "メッセージ本文をコピー",
   "chat.copySubject": "件名をコピー",

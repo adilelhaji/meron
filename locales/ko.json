@@ -107,7 +107,7 @@
   "chat.conversationDetails": "대화 세부 정보",
   "chat.copyCode": "코드 복사",
   "chat.copyEmailAddress": "이메일 주소 복사",
-  "chat.copyFullAddress": "전체 주소 복사",
+  "chat.copyFullAddress": "이름과 이메일 복사",
   "chat.copyMessageId": "메시지 ID 복사",
   "chat.copyMessageText": "메시지 텍스트 복사",
   "chat.copySubject": "제목 복사",

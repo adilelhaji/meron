@@ -11,29 +11,16 @@ import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.folderIsDrafts
 import jp.nonbili.meron.shared.folderIsTrash
 
-// One-line header subtitle: who's in the conversation plus message count, so the
-// header carries context the way a mail client's thread view does.
+// One-line header subtitle. The bubbles already name their sender, so the
+// header only carries the message count (or the feed's latest date for RSS).
 internal fun threadHeaderSubtitle(
     messages: List<MessageBody>,
-    ownEmail: String,
     isRss: Boolean,
 ): String {
     if (messages.isEmpty()) return ""
-    val count = messages.size
-    val countLabel = if (count == 1) "1 message" else "$count messages"
     if (isRss) return formatInboxTimestamp(messages.maxOf { it.dateEpochSeconds })
-    val others =
-        messages
-            .filterNot { isOutgoing(it, ownEmail) }
-            .map { it.from.ifBlank { it.fromAddr } }
-            .filter { it.isNotBlank() }
-            .distinct()
-    val people = others.take(2).joinToString(", ")
-    return when {
-        people.isBlank() -> countLabel
-        count == 1 -> people
-        else -> "$people · $countLabel"
-    }
+    val count = messages.size
+    return if (count == 1) "" else "$count messages"
 }
 
 // How long after open the list keeps re-anchoring to the target message while
@@ -204,6 +191,42 @@ internal fun conversationParticipants(
     return byEmail.values
         .map { ConversationParticipant(it.name, it.email, it.count, it.isSelf) }
         .sortedWith(compareBy<ConversationParticipant> { it.isSelf }.thenByDescending { it.count })
+}
+
+// One entry of an address header: the name a chip shows, the address shown
+// under it (blank when the name already is the address), and the full
+// `Name <addr>` text tapping it copies.
+internal data class AddressChipItem(
+    val display: String,
+    val email: String,
+    val full: String,
+)
+
+internal fun addressChipItems(rawList: String): List<AddressChipItem> =
+    rawList.split(',', ';').mapNotNull { raw ->
+        val entry = raw.trim()
+        if (entry.isBlank()) return@mapNotNull null
+        val bracket = Regex("""^(.*)<([^>]+)>$""").matchEntire(entry)
+        if (bracket == null) return@mapNotNull AddressChipItem(entry, "", entry)
+        val address = bracket.groupValues[2].trim()
+        val name = bracket.groupValues[1].trim().trim('"')
+        if (name.isBlank() || name.equals(address, ignoreCase = true)) {
+            AddressChipItem(address, "", entry)
+        } else {
+            AddressChipItem(name, address, entry)
+        }
+    }
+
+// The sender as a single address header, so it renders like To/Cc do.
+internal fun fullFromAddress(message: MessageBody): String {
+    val name = message.from.trim()
+    val addr = message.fromAddr.trim()
+    return when {
+        addr.isBlank() -> name
+        name.isBlank() || name.equals(addr, ignoreCase = true) -> addr
+        name.contains('<') -> name
+        else -> "$name <$addr>"
+    }
 }
 
 internal fun parseAddressList(value: String): List<Pair<String, String>> {

@@ -107,7 +107,7 @@
   "chat.conversationDetails": "会话详情",
   "chat.copyCode": "复制代码",
   "chat.copyEmailAddress": "复制电子邮件地址",
-  "chat.copyFullAddress": "复制完整地址",
+  "chat.copyFullAddress": "复制姓名和邮箱",
   "chat.copyMessageId": "复制消息 ID",
   "chat.copyMessageText": "复制消息文本",
   "chat.copySubject": "复制主题",

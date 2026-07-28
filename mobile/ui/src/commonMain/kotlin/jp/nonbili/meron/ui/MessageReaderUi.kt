@@ -15,7 +15,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -43,7 +45,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import jp.nonbili.meron.shared.MessageAttachment
@@ -58,8 +59,13 @@ import kotlinx.coroutines.launch
 internal fun MessageReaderScreen(
     message: MessageBody,
     preferHtml: Boolean,
+    actionsEnabled: Boolean,
     onBack: () -> Unit,
     onCopy: (String, String) -> Unit,
+    onComposeTo: (String) -> Unit,
+    onForward: (MessageBody) -> Unit,
+    onEditAsNew: (MessageBody) -> Unit,
+    onDelete: (MessageBody) -> Unit,
     onOpenAttachment: (MessageAttachment) -> Unit,
     onSaveAttachment: (MessageAttachment) -> Unit,
     loadImageAttachment: suspend (MessageAttachment) -> ImageBitmap?,
@@ -68,6 +74,10 @@ internal fun MessageReaderScreen(
     onOpenUrl: (String) -> Unit,
 ) {
     val messageTextLabel = tr("chat.messageText")
+    val subjectLabel = tr("composer.fields.subject")
+    val messageIdLabel = tr("chat.messageId")
+    val noSubjectLabel = tr("threads.noSubject")
+    var menuOpen by remember(message.id) { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     val density = LocalDensity.current
     val dismissThresholdPx = remember(density) { with(density) { 120.dp.toPx() } }
@@ -196,23 +206,67 @@ internal fun MessageReaderScreen(
                                 },
                             )
                         },
-                    title = {
-                        Text(
-                            message.subject.ifBlank { tr("threads.noSubject") },
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontWeight = FontWeight.SemiBold,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                    },
+                    // The subject lives in the content area below, so the bar
+                    // stays empty and gives the body the full width.
+                    title = {},
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = tr("buttons.back"))
                         }
                     },
                     actions = {
-                        IconButton(onClick = { onCopy(messageTextLabel, messagePlainText(message)) }) {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = tr("chat.copyMessageText"))
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = tr("chat.moreMessageActions"))
+                            }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(tr("chat.copyMessageText")) },
+                                    onClick = {
+                                        menuOpen = false
+                                        onCopy(messageTextLabel, messagePlainText(message))
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text(tr("chat.copySubject")) },
+                                    onClick = {
+                                        menuOpen = false
+                                        onCopy(subjectLabel, message.subject.ifBlank { noSubjectLabel })
+                                    },
+                                )
+                                if (message.messageId.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text(tr("chat.copyMessageId")) },
+                                        onClick = {
+                                            menuOpen = false
+                                            onCopy(messageIdLabel, message.messageId)
+                                        },
+                                    )
+                                }
+                                if (actionsEnabled) {
+                                    DropdownMenuItem(
+                                        text = { Text(tr("chat.actions.forward")) },
+                                        onClick = {
+                                            menuOpen = false
+                                            onForward(message)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(tr("chat.actions.editAsNewMessage")) },
+                                        onClick = {
+                                            menuOpen = false
+                                            onEditAsNew(message)
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(tr("chat.actions.deleteMessage"), color = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            menuOpen = false
+                                            onDelete(message)
+                                        },
+                                    )
+                                }
+                            }
                         }
                     },
                 )
@@ -227,14 +281,21 @@ internal fun MessageReaderScreen(
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        message.from.ifBlank { message.fromAddr },
-                        fontWeight = FontWeight.SemiBold,
-                        style = MaterialTheme.typography.titleSmall,
+                Text(
+                    message.subject.ifBlank { noSubjectLabel },
+                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleLarge,
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // The From chip already names the sender, so there is no
+                    // separate sender line. Tapping any chip copies the full
+                    // `Name <addr>`.
+                    MessageAddressDetails(
+                        message = message,
+                        onCopy = onCopy,
+                        onComposeTo = onComposeTo,
+                        textColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    MessageReaderHeaderRow(tr("composer.fields.to"), message.to)
-                    MessageReaderHeaderRow(tr("composer.fields.cc"), message.cc)
                     Text(
                         formatMessageFullTimestamp(message.dateEpochSeconds),
                         style = MaterialTheme.typography.bodySmall,
@@ -286,17 +347,4 @@ internal fun MessageReaderScreen(
             }
         }
     }
-}
-
-@Composable
-private fun MessageReaderHeaderRow(
-    label: String,
-    value: String,
-) {
-    if (value.isBlank()) return
-    Text(
-        "$label: $value",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-    )
 }

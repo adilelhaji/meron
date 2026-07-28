@@ -2,6 +2,7 @@ package jp.nonbili.meron.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material3.DropdownMenu
@@ -74,11 +77,13 @@ internal fun MessageBubble(
     onOpenImageAttachment: (MessageAttachment) -> Unit,
     onOpenHtmlImage: (String) -> Unit,
     onCopyMessageText: (String, String) -> Unit,
+    onComposeTo: (String) -> Unit,
     onOpenMessage: (MessageBody) -> Unit,
     onOpenUrl: (String) -> Unit,
     onRetryLoad: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var addressesOpen by remember(message.id) { mutableStateOf(false) }
     val bubbleShape =
         if (outgoing) {
             RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomEnd = 16.dp, bottomStart = 16.dp)
@@ -117,31 +122,54 @@ internal fun MessageBubble(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                if (!outgoing) {
-                    Text(
-                        message.from.ifBlank { message.fromAddr },
-                        modifier = Modifier.weight(1f),
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                } else {
-                    // An outgoing bubble has no sender to name, and a reply and a
-                    // forward of the same text look identical without recipients —
-                    // so the slot shows who received it instead.
-                    val recipients = remember(message.to, message.cc) { formatRecipientSummary(message.to, message.cc) }
-                    if (recipients.isBlank()) {
-                        Spacer(Modifier.weight(1f))
+                // Tapping the sender (or, on outgoing bubbles, the recipient
+                // summary) expands the full addresses, the way clicking the
+                // sender does on desktop.
+                val recipients =
+                    if (outgoing) {
+                        remember(message.to, message.cc) { formatRecipientSummary(message.to, message.cc) }
                     } else {
-                        Text(
-                            tr("chat.toRecipients", mapOf("recipients" to recipients)),
-                            modifier = Modifier.weight(1f),
-                            fontSize = 11.sp,
-                            color = textColor.copy(alpha = 0.6f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
+                        ""
+                    }
+                if (outgoing && recipients.isBlank()) {
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { addressesOpen = !addressesOpen },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        if (!outgoing) {
+                            Text(
+                                message.from.ifBlank { message.fromAddr },
+                                modifier = Modifier.weight(1f, fill = false),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        } else {
+                            // An outgoing bubble has no sender to name, and a reply and a
+                            // forward of the same text look identical without recipients —
+                            // so the slot shows who received it instead.
+                            Text(
+                                tr("chat.toRecipients", mapOf("recipients" to recipients)),
+                                modifier = Modifier.weight(1f, fill = false),
+                                fontSize = 11.sp,
+                                color = textColor.copy(alpha = 0.6f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Icon(
+                            if (addressesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (addressesOpen) tr("chat.hideDetails") else tr("chat.showDetails"),
+                            modifier = Modifier.size(14.dp),
+                            tint = textColor.copy(alpha = 0.55f),
                         )
                     }
                 }
@@ -259,6 +287,15 @@ internal fun MessageBubble(
                         }
                     }
                 }
+            }
+            if (addressesOpen) {
+                MessageAddressDetails(
+                    message = message,
+                    onCopy = onCopyMessageText,
+                    onComposeTo = onComposeTo,
+                    textColor = textColor,
+                    modifier = Modifier.padding(bottom = 2.dp),
+                )
             }
             if (showSubject && message.subject.isNotBlank()) {
                 Text(

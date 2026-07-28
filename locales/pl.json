@@ -107,7 +107,7 @@
   "chat.conversationDetails": "Szczegóły konwersacji",
   "chat.copyCode": "Kopiuj kod",
   "chat.copyEmailAddress": "Kopiuj adres e-mail",
-  "chat.copyFullAddress": "Kopiuj pełny adres",
+  "chat.copyFullAddress": "Kopiuj nazwę i e-mail",
   "chat.copyMessageId": "Skopiuj identyfikator wiadomości",
   "chat.copyMessageText": "Skopiuj tekst wiadomości",
   "chat.copySubject": "Skopiuj temat",
