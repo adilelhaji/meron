@@ -95,6 +95,7 @@
   "chat.actions.forward": "Προώθηση",
   "chat.actions.openDraft": "Άνοιγμα προσχέδιο",
   "chat.actions.openLink": "Άνοιγμα συνδέσμου",
+  "chat.actions.saveAsEml": "Αποθήκευση ως .eml",
   "chat.actions.saveImage": "Αποθήκευση εικόνας...",
   "chat.attachment": "Προσάρτημα",
   "chat.backToChats": "Επιστροφή στις Συνομιλίες",

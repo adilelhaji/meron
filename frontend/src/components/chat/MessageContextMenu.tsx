@@ -1,7 +1,19 @@
-import { CheckSquare, Copy, ExternalLink, Forward, Link2, Mail, MailOpen, SquarePen, Star, Trash2 } from 'lucide-react'
+import {
+  CheckSquare,
+  Copy,
+  Download,
+  ExternalLink,
+  Forward,
+  Link2,
+  Mail,
+  MailOpen,
+  SquarePen,
+  Star,
+  Trash2,
+} from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { openMessageTab, editAsNewMessage, forwardMessage, openDraftCompose } from '../../states/compose'
-import { deleteMessage, isDraftFolder, markMessageReadState, starMessage } from '../../states/mail'
+import { deleteMessage, isDraftFolder, markMessageReadState, saveMessageAsEml, starMessage } from '../../states/mail'
 import { openExternal } from '../../lib/native'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
 import { MenuItem } from '../menu/MenuItem'
@@ -139,6 +151,17 @@ export function MessageContextMenu({
                 const message = state.message
                 onClose()
                 void editAsNewMessage(message)
+              }}
+            />
+          )}
+          {!isDraft && !isRSS && (
+            <MenuItem
+              icon={<Download size={13} className="text-accent" />}
+              label={t('chat.actions.saveAsEml')}
+              onClick={() => {
+                const message = state.message
+                onClose()
+                void saveMessageAsEml(message)
               }}
             />
           )}

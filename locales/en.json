@@ -91,6 +91,7 @@
   "chat.actions.forward": "Forward",
   "chat.actions.openDraft": "Open draft",
   "chat.actions.openLink": "Open link",
+  "chat.actions.saveAsEml": "Save as .eml",
   "chat.actions.saveImage": "Save image...",
   "chat.attachment": "Attachment",
   "chat.backToChats": "Back to Chats",

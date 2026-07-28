@@ -95,6 +95,7 @@
   "chat.actions.forward": "إعادة توجيه",
   "chat.actions.openDraft": "فتح المسودة",
   "chat.actions.openLink": "فتح الرابط",
+  "chat.actions.saveAsEml": "حفظ كملف ‎.eml",
   "chat.actions.saveImage": "حفظ الصورة...",
   "chat.attachment": "مرفق",
   "chat.backToChats": "الرجوع إلى الدردشات",

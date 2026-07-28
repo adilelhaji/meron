@@ -95,6 +95,7 @@
   "chat.actions.forward": "Vidarebefordra",
   "chat.actions.openDraft": "Öppna utkast",
   "chat.actions.openLink": "Öppna länk",
+  "chat.actions.saveAsEml": "Spara som .eml",
   "chat.actions.saveImage": "Spara bild...",
   "chat.attachment": "Fastsättning",
   "chat.backToChats": "Tillbaka till chattar",

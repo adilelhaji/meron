@@ -95,6 +95,7 @@
   "chat.actions.forward": "Reenviar",
   "chat.actions.openDraft": "Borrador abierto",
   "chat.actions.openLink": "Abrir enlace",
+  "chat.actions.saveAsEml": "Guardar como .eml",
   "chat.actions.saveImage": "Guardar imagen...",
   "chat.attachment": "Adjunto",
   "chat.backToChats": "Volver a los chats",

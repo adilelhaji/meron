@@ -95,6 +95,7 @@
   "chat.actions.forward": "Encaminhar",
   "chat.actions.openDraft": "Rascunho aberto",
   "chat.actions.openLink": "Abrir link",
+  "chat.actions.saveAsEml": "Salvar como .eml",
   "chat.actions.saveImage": "Salvar imagem...",
   "chat.attachment": "Anexo",
   "chat.backToChats": "Voltar para Conversas",

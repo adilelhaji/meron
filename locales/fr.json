@@ -95,6 +95,7 @@
   "chat.actions.forward": "Transférer",
   "chat.actions.openDraft": "Brouillon ouvert",
   "chat.actions.openLink": "Ouvrir le lien",
+  "chat.actions.saveAsEml": "Enregistrer en .eml",
   "chat.actions.saveImage": "Enregistrer l'image...",
   "chat.attachment": "Pièce jointe",
   "chat.backToChats": "Retour aux discussions",

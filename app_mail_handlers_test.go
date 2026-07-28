@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"io"
 	"reflect"
+	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 type sidecarCallRecord struct {
@@ -275,5 +277,60 @@ func TestMailSendMapsPayloadToSidecarSend(t *testing.T) {
 	attachments, ok := params["attachments"].([]any)
 	if !ok || len(attachments) != 1 {
 		t.Fatalf("attachments = %#v, want one attachment", params["attachments"])
+	}
+}
+
+func TestEmlFilenameSanitizesSubject(t *testing.T) {
+	cases := map[string]string{
+		"Quarterly report":     "Quarterly report.eml",
+		"re: ../../etc/passwd": "re ....etcpasswd.eml",
+		"a\tb\x00c":            "abc.eml",
+		"":                     "message.eml",
+		"   ...  ":             "message.eml",
+		`bad:name*?"<>|`:       "badname.eml",
+		"CON":                  "_CON.eml",
+		"com1.report":          "_com1.report.eml",
+		"LPT0":                 "LPT0.eml",
+	}
+	for subject, want := range cases {
+		if got := emlFilename(subject); got != want {
+			t.Errorf("emlFilename(%q) = %q, want %q", subject, got, want)
+		}
+	}
+	long := emlFilename(strings.Repeat("x", 400))
+	if len(long) != 124 {
+		t.Errorf("long filename length = %d, want 124", len(long))
+	}
+	multibyte := emlFilename(strings.Repeat("a", 119) + "é")
+	if !utf8.ValidString(multibyte) {
+		t.Errorf("multibyte filename %q is not valid UTF-8", multibyte)
+	}
+	if want := strings.Repeat("a", 119) + ".eml"; multibyte != want {
+		t.Errorf("multibyte filename = %q, want %q", multibyte, want)
+	}
+}
+
+func TestSaveMessageEmlRejectsFeedItems(t *testing.T) {
+	app, writer := newMailHandlerTestApp(t)
+	if _, err := app.saveMessageEml(map[string]any{"thread_id": "rssacc#rss#sub1#item1"}); err == nil {
+		t.Fatal("saveMessageEml on a feed item = nil error, want rejection")
+	}
+	if len(writer.calls) != 0 {
+		t.Fatalf("sidecar calls = %#v, want none", writer.calls)
+	}
+}
+
+func TestMessageEmlSourceUsesUIDAndCurrentFolder(t *testing.T) {
+	threadID := formatImapThreadID("acc", "INBOX", "k1")
+	params, err := messageEmlSource(map[string]any{
+		"thread_id":   threadID,
+		"message_ids": []any{threadID + "#42"},
+		"folder":      "Archive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if params["account"] != "acc" || params["folder"] != "Archive" || params["uid"] != uint32(42) {
+		t.Fatalf("source params = %#v", params)
 	}
 }

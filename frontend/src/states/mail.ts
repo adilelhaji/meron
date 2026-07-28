@@ -237,6 +237,25 @@ export async function downloadAttachment(att: { key: string | null; filename: st
   }
 }
 
+// Save one message as a .eml file (its original RFC822 bytes) via the native
+// save dialog. Unlike attachments, the raw bytes aren't in the media cache, so
+// the bridge refetches them over IMAP — this fails offline, and a message still
+// being sent has no server-side copy to fetch.
+export async function saveMessageAsEml(message: Message) {
+  if (!message?.id || isLocalSendId(message.id)) return
+  try {
+    const res = await invoke<{ saved: boolean; path?: string }>('mail.saveEml', {
+      thread_id: message.thread_id,
+      message_ids: [message.id],
+      folder: message.folder_id,
+      subject: message.subject,
+    })
+    if (res?.saved) showToast('Message saved')
+  } catch {
+    showToast("Couldn't save message")
+  }
+}
+
 // Copy a keyed image onto the system clipboard. The webview's native "Copy
 // Image" is inert in the Wails webview, so the bridge shells out to the same
 // clipboard helpers used for pasting.

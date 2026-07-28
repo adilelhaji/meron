@@ -15,6 +15,7 @@
 
 use anyhow::Context as _;
 use serde_json::{Value, json};
+use std::io::Write as _;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Stdout};
@@ -1435,6 +1436,45 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 )?;
             }
             Ok(json!({ "ok": true, "deleted": deleted, "permanent": true }))
+        }
+
+        // Fetch one message's original RFC822 bytes and write them directly to
+        // the path selected by the desktop save dialog. Keeping the bytes out
+        // of the JSON response avoids its bounded line size; BODY.PEEK[] keeps
+        // an unread message unread.
+        "messages.saveRaw" => {
+            let account = req_str(p, "account")?;
+            let folder =
+                canon_folder(&req_str(p, "folder").unwrap_or_else(|_| "INBOX".to_string()));
+            let uid = req_u32(p, "uid")?;
+            let path = req_str(p, "path")?;
+
+            let raw_messages = engine
+                .with_read_session(&account, |session| {
+                    let folder = folder.clone();
+                    Box::pin(async move {
+                        imap::fetch_raw_messages_for_copy(session, &folder, &[uid]).await
+                    })
+                })
+                .await?;
+            let message = raw_messages
+                .into_iter()
+                .next()
+                .with_context(|| format!("message {uid} not found in {folder}"))?;
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create(true).truncate(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let mut output = options
+                .open(&path)
+                .with_context(|| format!("open message export {path}"))?;
+            output
+                .write_all(&message.raw)
+                .with_context(|| format!("write message export {path}"))?;
+            Ok(json!({ "saved": true, "size": message.raw.len() }))
         }
 
         "messages.read" => {

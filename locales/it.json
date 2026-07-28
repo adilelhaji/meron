@@ -95,6 +95,7 @@
   "chat.actions.forward": "Inoltra",
   "chat.actions.openDraft": "Apri bozza",
   "chat.actions.openLink": "Apri collegamento",
+  "chat.actions.saveAsEml": "Salva come .eml",
   "chat.actions.saveImage": "Salva immagine...",
   "chat.attachment": "Allegato",
   "chat.backToChats": "Torna alle chat",

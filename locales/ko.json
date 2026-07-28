@@ -95,6 +95,7 @@
   "chat.actions.forward": "전달",
   "chat.actions.openDraft": "공개 초안",
   "chat.actions.openLink": "링크 열기",
+  "chat.actions.saveAsEml": ".eml로 저장",
   "chat.actions.saveImage": "이미지 저장...",
   "chat.attachment": "부착",
   "chat.backToChats": "대화 목록으로 돌아가기",

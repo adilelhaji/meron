@@ -95,6 +95,7 @@
   "chat.actions.forward": "Przekaż dalej",
   "chat.actions.openDraft": "Otwórz wersję roboczą",
   "chat.actions.openLink": "Otwórz link",
+  "chat.actions.saveAsEml": "Zapisz jako .eml",
   "chat.actions.saveImage": "Zapisz obraz...",
   "chat.attachment": "Załącznik",
   "chat.backToChats": "Powrót do czatów",

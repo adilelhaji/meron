@@ -95,6 +95,7 @@
   "chat.actions.forward": "Edasta",
   "chat.actions.openDraft": "Ava mustand",
   "chat.actions.openLink": "Ava link",
+  "chat.actions.saveAsEml": "Salvesta .eml-failina",
   "chat.actions.saveImage": "Salvesta pilt...",
   "chat.attachment": "Manus",
   "chat.backToChats": "Tagasi vestlustesse",

@@ -95,6 +95,7 @@
   "chat.actions.forward": "转发",
   "chat.actions.openDraft": "开放草稿",
   "chat.actions.openLink": "打开链接",
+  "chat.actions.saveAsEml": "另存为 .eml",
   "chat.actions.saveImage": "保存图片...",
   "chat.attachment": "依恋",
   "chat.backToChats": "返回聊天",
