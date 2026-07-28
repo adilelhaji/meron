@@ -1,0 +1,4 @@
+- Support selecting all threads in mail list and Kanban column
+- Support emptying Trash and Junk folders
+- Support send-as identity selection in quick reply
+- Always show address details toggle on message bubbles

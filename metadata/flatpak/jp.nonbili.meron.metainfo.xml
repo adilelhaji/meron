@@ -63,6 +63,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.0" date="2026-07-28">
+      <description>
+        <ul>
+          <li>Support selecting all threads in mail list and Kanban column</li>
+          <li>Support emptying Trash and Junk folders</li>
+          <li>Support send-as identity selection in quick reply</li>
+          <li>Always show address details toggle on message bubbles</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.15" date="2026-07-28">
       <description>
         <ul>
