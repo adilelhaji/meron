@@ -1,0 +1,4 @@
+- Support saving message as .eml
+- Show recipients on outgoing message bubbles
+- Fix keyring hang on startup
+- Fix wide HTML email diff table layout

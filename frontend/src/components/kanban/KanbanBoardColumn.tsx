@@ -326,7 +326,7 @@ function KanbanColumnContent({
       )}
       <div
         data-thread-list
-        className="flex-1 space-y-2 overflow-y-auto p-2"
+        className="flex-1 space-y-1 overflow-y-auto p-1"
         onScroll={(event) => {
           if (searchActive || !hasMore || loadingMore) return
           const el = event.currentTarget

@@ -63,6 +63,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.1.15" date="2026-07-28">
+      <description>
+        <ul>
+          <li>Support saving message as .eml</li>
+          <li>Show recipients on outgoing message bubbles</li>
+          <li>Fix keyring hang on startup</li>
+          <li>Fix wide HTML email diff table layout</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.1.14" date="2026-07-27">
       <description>
         <ul>
