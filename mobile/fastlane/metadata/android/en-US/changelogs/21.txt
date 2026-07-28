@@ -1,0 +1,5 @@
+- Preserve nested mail navigation state on Android
+- Forward full HTML body when forwarding email
+- Show recipients on outgoing message bubbles
+- Fix HTML mail header layout and preheader text leakage
+- Improve mail search performance and reliability
