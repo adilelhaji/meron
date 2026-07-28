@@ -382,7 +382,12 @@ internal fun HtmlMessageBody(
                   margin: 0;
                   padding: 0;
                   width: 100%;
-                  overflow-wrap: anywhere;
+                  /* `anywhere` also shrinks min-content to a single glyph, so a
+                     narrow table cell (a 32px spacer holding a name, say) would
+                     wrap its text one character per line. `break-word` still
+                     breaks long words that would overflow, but leaves intrinsic
+                     widths alone. */
+                  overflow-wrap: break-word;
                   word-break: normal;
                   font-size: 16px;
                   line-height: 1.45;
@@ -391,9 +396,20 @@ internal fun HtmlMessageBody(
                   font-size: 16px !important;
                   line-height: 1.45 !important;
                 }
+                /* Preheaders hide their inbox-preview text with an inline
+                   font-size:0; the override above would resurrect it as a
+                   column of stray characters. */
+                [style*="font-size:0"]:not([style*="font-size:0."]),
+                [style*="font-size: 0"]:not([style*="font-size: 0."]) {
+                  font-size: 0 !important;
+                }
+                /* max-width alone keeps fixed-pixel layouts (width="600") inside
+                   the bubble. Forcing width:auto on top of it would also beat
+                   the width="100%" attribute every email layout table relies on,
+                   shrinking rows to their content and stranding right-aligned
+                   cells and full-width dividers. */
                 table {
                   max-width: 100% !important;
-                  width: auto !important;
                 }
                 table.code .diff-line-num {
                   width: 35px !important;

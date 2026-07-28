@@ -404,7 +404,9 @@ private val READER_CHARSET_META = Regex("""(?is)<meta\s+charset="utf-8"\s*/?>"""
 private val READER_CSP_META =
     Regex("""(?is)<meta\s+http-equiv="Content-Security-Policy"\s+content="[^"]*"\s*/?>""")
 private val READER_IMAGE_STYLE =
-    Regex("""(?is)<style>\s*img,video\{max-width:100%;height:auto}\s*img\{cursor:zoom-in}\s*</style>""")
+    Regex(
+        """(?is)<style>\s*img,video\{max-width:100%;height:auto\}\s*img\{cursor:zoom-in\}\s*</style>""",
+    )
 private val HTML_HEAD = Regex("""(?is)<head\b[^>]*>(.*?)</head\s*>""")
 private val HTML_BODY = Regex("""(?is)<body\b[^>]*>(.*?)</body\s*>""")
 private val HTML_STYLE = Regex("""(?is)<style\b[^>]*>.*?</style\s*>""")
