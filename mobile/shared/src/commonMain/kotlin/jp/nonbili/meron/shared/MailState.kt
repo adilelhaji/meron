@@ -743,6 +743,31 @@ fun splitAddressList(value: String): List<String> {
     return entries
 }
 
+// Recipient summary for an outgoing bubble header ("to nonbili/meron, Comment").
+// Display name when the address carries one, otherwise the local part. To and Cc
+// are merged and de-duplicated: an outgoing reply and an outgoing forward can
+// carry the same subject and the same text, so who received it is what tells
+// them apart. Mirrors the desktop bubble header.
+fun formatRecipientSummary(vararg lists: String): String {
+    val seen = mutableSetOf<String>()
+    val names = mutableListOf<String>()
+    for (list in lists) {
+        for (entry in splitAddressList(list)) {
+            val address = bareAddress(entry)
+            val key = address.lowercase()
+            if (key.isBlank() || !seen.add(key)) continue
+            val displayName =
+                entry
+                    .substringBefore('<', missingDelimiterValue = "")
+                    .trim()
+                    .trim('"', '\'')
+                    .trim()
+            names += displayName.ifBlank { address.substringBefore('@') }
+        }
+    }
+    return names.joinToString(", ")
+}
+
 fun bareAddress(value: String): String {
     val trimmed = value.trim()
     val insideAngles =

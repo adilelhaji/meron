@@ -306,27 +306,78 @@ export function messageSearchText(message: Message): string {
   return [message.subject, message.from_name, message.from_addr, message.body].join('\n').toLowerCase()
 }
 
+/** Gmail-style recipient summary for a bubble header ("to nonbili/meron, Comment").
+ * Display name when the address carries one, otherwise the local part. To and Cc
+ * are merged and de-duplicated: an outgoing reply and an outgoing forward can
+ * carry the same subject and the same text, so who received it is what tells
+ * them apart. */
+export function formatRecipientSummary(...lists: (string | undefined | null)[]): string {
+  const seen = new Set<string>()
+  const names: string[] = []
+  for (const list of lists) {
+    for (const item of parseAddressList(list)) {
+      const key = item.email.trim().toLowerCase()
+      if (!key || seen.has(key)) continue
+      seen.add(key)
+      names.push(item.name === item.email ? item.email.split('@')[0] : item.name)
+    }
+  }
+  return names.join(', ')
+}
+
 export interface AddressItem {
   name: string
   email: string
   original: string
 }
 
+function splitAddressEntries(raw: string): string[] {
+  const entries: string[] = []
+  let quoted = false
+  let angleDepth = 0
+  let start = 0
+
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index]
+    if (char === '"' && raw[index - 1] !== '\\') {
+      quoted = !quoted
+    } else if (quoted) {
+      continue
+    } else if (char === '<') {
+      angleDepth += 1
+    } else if (char === '>' && angleDepth > 0) {
+      angleDepth -= 1
+    } else if (char === ',' && angleDepth === 0) {
+      const entry = raw.slice(start, index).trim()
+      if (entry) entries.push(entry)
+      start = index + 1
+    }
+  }
+
+  const entry = raw.slice(start).trim()
+  if (entry) entries.push(entry)
+  return entries
+}
+
 export function parseAddressList(raw: string | undefined | null): AddressItem[] {
   if (!raw) return []
-  const regex = /(?:"?([^"]*)"?\s*<([^>]+)>)|([^\s,]+@[^\s,]+)/g
   const results: AddressItem[] = []
-  let match
-  while ((match = regex.exec(raw)) !== null) {
-    const displayName = match[1]?.trim()
-    const bracketEmail = match[2]?.trim()
-    const bareEmail = match[3]?.trim()
+  const entries = splitAddressEntries(raw)
+  for (const entry of entries) {
+    const bracketMatch = entry.match(/^(.*?)\s*<([^>]+)>$/)
+    const bracketEmail = bracketMatch?.[2]?.trim()
+    const bareEmail = bracketEmail ? undefined : entry.match(/[^\s,]+@[^\s,]+/)?.[0]?.trim()
 
     if (bracketEmail) {
+      const rawName = bracketMatch?.[1]?.trim() ?? ''
+      const displayName =
+        (rawName.startsWith('"') && rawName.endsWith('"')) || (rawName.startsWith("'") && rawName.endsWith("'"))
+          ? rawName.slice(1, -1).trim()
+          : rawName
       results.push({
         name: displayName || bracketEmail,
         email: bracketEmail,
-        original: match[0].trim(),
+        original: entry,
       })
     } else if (bareEmail) {
       results.push({
@@ -336,22 +387,5 @@ export function parseAddressList(raw: string | undefined | null): AddressItem[] 
       })
     }
   }
-
-  if (results.length === 0 && raw.trim()) {
-    return raw.split(',').map((part) => {
-      part = part.trim()
-      const emailMatch = part.match(/<([^>]+)>/)
-      if (emailMatch) {
-        const email = emailMatch[1].trim()
-        const name = part
-          .replace(/<[^>]+>/, '')
-          .trim()
-          .replace(/^["']|["']$/g, '')
-          .trim()
-        return { name: name || email, email, original: part }
-      }
-      return { name: part, email: part, original: part }
-    })
-  }
-  return results
+  return results.length > 0 ? results : entries.map((entry) => ({ name: entry, email: entry, original: entry }))
 }

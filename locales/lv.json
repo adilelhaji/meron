@@ -151,6 +151,7 @@
   "chat.showImages": "{count, plural, one {Rādīt attēlu} other {Rādīt {count} attēlus}}",
   "chat.star": "Atzīmēt ar zvaigznīti",
   "chat.threadLoadFailed": "Neizdevās ielādēt šo sarunu.",
+  "chat.toRecipients": "saņēmējam {recipients}",
   "chat.unstar": "Noņemt zvaigznīti",
   "chat.viewAsHtml": "Skatīt kā HTML",
   "chat.viewAsPlainText": "Skatīt kā vienkāršu tekstu",

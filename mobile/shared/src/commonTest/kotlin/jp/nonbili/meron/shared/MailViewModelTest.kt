@@ -20,6 +20,19 @@ class MailViewModelTest {
     }
 
     @Test
+    fun recipientSummaryNamesWhoReceivedAnOutgoingMessage() {
+        // The reply: named recipients, To plus Cc, in order.
+        assertEquals(
+            "nonbili/meron, Comment",
+            formatRecipientSummary("\"nonbili/meron\" <reply+abc@reply.github.com>", "\"Comment\" <comment@noreply.github.com>"),
+        )
+        // The forward: an empty display name falls back to the address local part.
+        assertEquals("ping.eminel", formatRecipientSummary("\"\" <ping.eminel@gmail.com>", ""))
+        assertEquals("ada", formatRecipientSummary("ada@example.com, \"Ada\" <ada@example.com>"))
+        assertEquals("", formatRecipientSummary("", ""))
+    }
+
+    @Test
     fun parseMailtoUrlBuildsComposeDraft() {
         val draft =
             parseMailtoUrl(

@@ -49,6 +49,7 @@ import jp.nonbili.meron.shared.MessageAttachment
 import jp.nonbili.meron.shared.MessageBody
 import jp.nonbili.meron.shared.SendStatus
 import jp.nonbili.meron.shared.folderIsDrafts
+import jp.nonbili.meron.shared.formatRecipientSummary
 import jp.nonbili.meron.shared.standaloneAttachments
 
 @Composable
@@ -127,7 +128,22 @@ internal fun MessageBubble(
                         overflow = TextOverflow.Ellipsis,
                     )
                 } else {
-                    Spacer(Modifier.weight(1f))
+                    // An outgoing bubble has no sender to name, and a reply and a
+                    // forward of the same text look identical without recipients —
+                    // so the slot shows who received it instead.
+                    val recipients = remember(message.to, message.cc) { formatRecipientSummary(message.to, message.cc) }
+                    if (recipients.isBlank()) {
+                        Spacer(Modifier.weight(1f))
+                    } else {
+                        Text(
+                            tr("chat.toRecipients", mapOf("recipients" to recipients)),
+                            modifier = Modifier.weight(1f),
+                            fontSize = 11.sp,
+                            color = textColor.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
                 }
                 if (folderIsDrafts(message.folderId)) {
                     Surface(

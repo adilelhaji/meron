@@ -151,6 +151,7 @@
   "chat.showImages": "{count, plural, one {Näita pilti} other {Näita {count} pilti}}",
   "chat.star": "Märgi tärniga",
   "chat.threadLoadFailed": "Selle vestluse laadimine ebaõnnestus.",
+  "chat.toRecipients": "saajale {recipients}",
   "chat.unstar": "Eemalda tärn",
   "chat.viewAsHtml": "Vaata HTML-ina",
   "chat.viewAsPlainText": "Vaata lihttekstina",

@@ -151,6 +151,7 @@
   "chat.showImages": "{count, plural, one {Mostra immagine} other {Mostra {count} immagini}}",
   "chat.star": "Aggiungi stella",
   "chat.threadLoadFailed": "Impossibile caricare questa conversazione.",
+  "chat.toRecipients": "a {recipients}",
   "chat.unstar": "Rimuovi stella",
   "chat.viewAsHtml": "Visualizza come HTML",
   "chat.viewAsPlainText": "Visualizza come testo normale",

@@ -26,6 +26,7 @@ import {
   formatFileSize,
   formatFullTimestamp,
   formatMessageStamp,
+  formatRecipientSummary,
   getVisibleMedia,
   htmlReferencesMedia,
   mediaSrc,
@@ -96,7 +97,15 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
     !!toRaw &&
     toRecipients.length > 0 &&
     (accountEmails.size === 0 || toRecipients.some((a) => !accountEmails.has(a.email.toLowerCase())))
-  const hasMeta = !outgoing && !!(replyToDiffers || ccRaw || showTo)
+  // Outgoing bubbles have no sender name to show, and without recipients a reply
+  // and a forward of the same text are indistinguishable — so they take the
+  // sender slot, the way Gmail's "to …" line does.
+  const bccRaw = message.bcc?.trim()
+  const recipientSummary = outgoing ? formatRecipientSummary(toRaw, ccRaw) : ''
+  // The summary shows names, not addresses, so every outgoing bubble with
+  // recipients can expand — otherwise the chevron appears only on the ones that
+  // happen to carry a Cc, which reads as a difference between messages.
+  const hasMeta = outgoing ? !!(toRaw || ccRaw || bccRaw) : !!(replyToDiffers || ccRaw || showTo)
 
   const onOpenImage = (idx: number) => thread$.galleryIndex.set(idx)
   const openActionsMenu = (event: MouseEvent<HTMLButtonElement>) => {
@@ -146,10 +155,19 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
         {/* Header: sender + optional meta toggle on the left, timestamp on the right */}
         <div className="flex items-center justify-between gap-2 mb-1.5">
           <div className="relative flex items-center gap-1 min-w-0">
-            {!outgoing && (
+            {!outgoing ? (
               <span className="text-[12.5px] font-bold text-accent select-none truncate tracking-wide">
                 {message.from_name || message.from_addr}
               </span>
+            ) : (
+              recipientSummary && (
+                <span
+                  title={[toRaw, ccRaw].filter(Boolean).join(', ')}
+                  className="text-[11px] font-normal text-secondary/70 select-none truncate"
+                >
+                  {t('chat.toRecipients', { recipients: recipientSummary })}
+                </span>
+              )
             )}
             {hasMeta && (
               <button
@@ -165,9 +183,10 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setMetaOpen(false)} />
                 <div className="absolute left-0 top-full mt-1 z-50 w-[460px] max-w-[calc(100vw-48px)] max-h-[260px] overflow-y-auto space-y-2 rounded-lg border border-border bg-chats p-3 shadow-xl text-secondary select-text">
-                  {showTo && <AddressRow label={t('composer.fields.to')} rawList={toRaw!} />}
+                  {(showTo || (outgoing && toRaw)) && <AddressRow label={t('composer.fields.to')} rawList={toRaw!} />}
                   {replyToDiffers && <AddressRow label="Reply-To" rawList={replyToRaw!} />}
                   {ccRaw && <AddressRow label={t('composer.fields.cc')} rawList={ccRaw} />}
+                  {outgoing && bccRaw && <AddressRow label={t('composer.fields.bcc')} rawList={bccRaw} />}
                 </div>
               </>
             )}

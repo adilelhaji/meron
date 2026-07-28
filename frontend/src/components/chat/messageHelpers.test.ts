@@ -4,6 +4,7 @@ import {
   extractAddr,
   formatFileSize,
   formatMessageStamp,
+  formatRecipientSummary,
   getShortenedLinkText,
   getVisibleMedia,
   htmlReferencesMedia,
@@ -151,6 +152,15 @@ describe('messageHelpers text and link helpers', () => {
     expect(parseAddressList('Display Name <display@example.com>')).toEqual([
       { name: 'Display Name', email: 'display@example.com', original: 'Display Name <display@example.com>' },
     ])
+    expect(parseAddressList('Alice <alice@example.com>, Bob Jones <bob@example.com>')).toEqual([
+      { name: 'Alice', email: 'alice@example.com', original: 'Alice <alice@example.com>' },
+      { name: 'Bob Jones', email: 'bob@example.com', original: 'Bob Jones <bob@example.com>' },
+    ])
+    expect(parseAddressList('"Doe, Jane" <jane@example.com>, john@example.com')).toEqual([
+      { name: 'Doe, Jane', email: 'jane@example.com', original: '"Doe, Jane" <jane@example.com>' },
+      { name: 'john@example.com', email: 'john@example.com', original: 'john@example.com' },
+    ])
+    expect(parseAddressList("O'Brien <obrien@example.com>, Pat <pat@example.com>")).toHaveLength(2)
     expect(
       messageSearchText({ subject: 'Hello', from_name: 'Ada', from_addr: 'ada@example.com', body: 'World' } as any),
     ).toBe('hello\nada\nada@example.com\nworld')
@@ -163,5 +173,19 @@ describe('messageHelpers timestamp helpers', () => {
     expect(formatMessageStamp(sec(new Date(2026, 5, 10, 9, 5)), false)).toBe('09:05')
     expect(formatMessageStamp(sec(new Date(2026, 5, 9, 9, 0)), false)).toMatch(/Jun 9/)
     expect(formatMessageStamp(sec(new Date(2025, 11, 31, 9, 0)), false)).toMatch(/2025/)
+  })
+})
+
+describe('messageHelpers recipient summary', () => {
+  it('summarizes To and Cc the way an outgoing bubble header shows them', () => {
+    // The reply: named recipients, To plus Cc, in order.
+    expect(
+      formatRecipientSummary('"nonbili/meron" <reply+abc@reply.github.com>', '"Comment" <comment@noreply.github.com>'),
+    ).toBe('nonbili/meron, Comment')
+    // The forward: empty display name falls back to the address local part.
+    expect(formatRecipientSummary('"" <ping.eminel@gmail.com>', undefined)).toBe('ping.eminel')
+    expect(formatRecipientSummary('ada@example.com, "Ada" <ada@example.com>')).toBe('ada')
+    expect(formatRecipientSummary('Alice <alice@example.com>, Bob Jones <bob@example.com>')).toBe('Alice, Bob Jones')
+    expect(formatRecipientSummary('', null)).toBe('')
   })
 })
