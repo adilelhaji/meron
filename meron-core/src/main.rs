@@ -1167,8 +1167,10 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             }
             let folder = request.folder.clone();
             let limit = request.limit;
-            // Desktop is online-first: starred and search go to the server so
-            // flags and hits are current, the rest reads the local page.
+            // Desktop starred reads are online-first. Search first paints the
+            // local index with refresh=false, then repeats with refresh=true;
+            // snapshot-backed later pages are local even though they travel
+            // through the shared search engine.
             let (messages, next_cursor) = match request.source() {
                 thread_list::MailSource::Starred => {
                     let folders = starred_search_folders(engine, &account, &folder).await;
@@ -1191,16 +1193,29 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     // lookup surfaces both received and self-sent mail (and old
                     // messages filed under Sent), not just the current mailbox.
                     let folders = search_folders(&engine.db.lock().unwrap(), &account, &folder);
-                    let page = search_mail_messages(
-                        engine,
-                        &account,
-                        &folders,
-                        &request.query,
-                        limit,
-                        request.search_before_cursor.as_ref(),
-                    )
-                    .await?;
-                    (page.messages, page.next_cursor)
+                    if refresh || request.search_before_cursor.as_ref().is_some() {
+                        let page = search_mail_messages(
+                            engine,
+                            &account,
+                            &folders,
+                            &request.query,
+                            limit,
+                            request.search_before_cursor.as_ref(),
+                        )
+                        .await?;
+                        (page.messages, page.next_cursor)
+                    } else {
+                        let messages = store::search_messages_in_folders(
+                            &engine.db.lock().unwrap(),
+                            &account,
+                            &folders,
+                            &request.query,
+                            limit,
+                            None,
+                        )?;
+                        let next_cursor = store::search_next_cursor(&messages, limit, 0);
+                        (messages, next_cursor)
+                    }
                 }
             };
             if refresh && request.wants_background_sync() {

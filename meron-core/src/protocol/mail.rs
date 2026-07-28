@@ -478,6 +478,10 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
     let request = thread_list::ThreadListQuery::from_params(params, "folder_id");
     let folder_id = request.folder.clone();
     let limit = request.limit;
+    let refresh = params
+        .get("refresh")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     let is_rss = with_mobile_db(data_dir, |conn| {
         Ok(json!(is_rss_account(&conn, &account_id)?))
@@ -511,32 +515,49 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
             // fallback must cover the same mailboxes, or losing the network
             // would silently drop the Sent hits from the results.
             let folders = mobile_search_folders(data_dir, &account_id, &folder_id)?;
-            let (messages, next_cursor) = match search_live_mobile_mail_messages(
-                data_dir,
-                &account_id,
-                &folders,
-                &request.query,
-                limit,
-                request.search_before_cursor.as_ref(),
-            ) {
-                Ok(page) => (page.messages, page.next_cursor),
-                Err(err) => {
-                    crate::mlog!(
-                        crate::log::Level::Warn,
-                        "mail.search",
-                        "live search failed for account={account_id} folder={folder_id}: {err}"
-                    );
-                    let messages = search_cached_mobile_mail_messages(
-                        data_dir,
-                        &account_id,
-                        &folders,
-                        &request.query,
-                        limit,
-                        request.search_before_cursor.as_ref(),
-                    )?;
-                    let next_cursor = store::search_next_cursor(&messages, limit, 0);
-                    (messages, next_cursor)
+            // Mobile renders indexed local hits first, then repeats the first
+            // page with refresh=true off the UI thread. Snapshot-backed later
+            // pages still go through the engine, where they are local DB reads.
+            let live = refresh || request.search_before_cursor.as_ref().is_some();
+            let (messages, next_cursor) = if live {
+                match search_live_mobile_mail_messages(
+                    data_dir,
+                    &account_id,
+                    &folders,
+                    &request.query,
+                    limit,
+                    request.search_before_cursor.as_ref(),
+                ) {
+                    Ok(page) => (page.messages, page.next_cursor),
+                    Err(err) => {
+                        crate::mlog!(
+                            crate::log::Level::Warn,
+                            "mail.search",
+                            "live search failed for account={account_id} folder={folder_id}: {err}"
+                        );
+                        let messages = search_cached_mobile_mail_messages(
+                            data_dir,
+                            &account_id,
+                            &folders,
+                            &request.query,
+                            limit,
+                            request.search_before_cursor.as_ref(),
+                        )?;
+                        let next_cursor = store::search_next_cursor(&messages, limit, 0);
+                        (messages, next_cursor)
+                    }
                 }
+            } else {
+                let messages = search_cached_mobile_mail_messages(
+                    data_dir,
+                    &account_id,
+                    &folders,
+                    &request.query,
+                    limit,
+                    None,
+                )?;
+                let next_cursor = store::search_next_cursor(&messages, limit, 0);
+                (messages, next_cursor)
             };
             (messages, next_cursor)
         }

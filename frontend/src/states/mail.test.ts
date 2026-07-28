@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import type { Message } from '../types'
 import { accounts$ } from './accounts'
 import { kanban$ } from './kanban'
@@ -68,6 +68,10 @@ describe('thread list paging', () => {
     ui$.filterMode.set('all')
   })
 
+  afterEach(() => {
+    ui$.query.set('')
+  })
+
   it('drops a load-more response after a newer search replaces the list', async () => {
     let resolveOldPage!: (value: unknown) => void
     const oldPage = new Promise((resolve) => {
@@ -101,6 +105,47 @@ describe('thread list paging', () => {
 
     expect(mail$.threads.get().map((item) => item.subject)).toEqual(['New result'])
     expect(mail$.threadsCursor.get()).toBe('new-cursor')
+  })
+
+  it('paints cached search results before replacing them with live results', async () => {
+    let resolveLive!: (value: unknown) => void
+    const livePage = new Promise((resolve) => {
+      resolveLive = resolve
+    })
+    const refreshes: boolean[] = []
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (_command: string, payload: { refresh?: boolean }) => {
+            refreshes.push(payload.refresh ?? true)
+            if (payload.refresh) return livePage
+            return {
+              threads: [thread({ thread_id: 'acc:inbox:thread:cached', subject: 'Cached result' })],
+              next_cursor: 'cached-cursor',
+            }
+          },
+        },
+      },
+    }
+
+    ui$.query.set('deploy')
+    const loading = loadThreads()
+    await nextTick()
+
+    expect(refreshes).toEqual([false, true])
+    expect(mail$.threads.get().map((item) => item.subject)).toEqual(['Cached result'])
+    expect(mail$.threadsCursor.get()).toBe('cached-cursor')
+    expect(ui$.selectedThread.get()).toBe('acc:inbox:thread:cached')
+
+    resolveLive({
+      threads: [thread({ thread_id: 'acc:inbox:thread:live', subject: 'Live result' })],
+      next_cursor: 'live-cursor',
+    })
+    await loading
+
+    expect(mail$.threads.get().map((item) => item.subject)).toEqual(['Live result'])
+    expect(mail$.threadsCursor.get()).toBe('live-cursor')
+    expect(ui$.selectedThread.get()).toBe('acc:inbox:thread:live')
   })
 })
 

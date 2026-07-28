@@ -328,6 +328,7 @@ internal fun MeronMobileState.syncCoreThreads(
     syncFirst: Boolean = true,
     successStatus: String? = null,
     scrollToTopOnSuccess: Boolean = false,
+    refreshSearch: Boolean = false,
 ) {
     if (!coreLoaded) {
         status = coreUnavailableMessage
@@ -381,6 +382,7 @@ internal fun MeronMobileState.syncCoreThreads(
                         filter = filter,
                         syncFirst = syncFirst,
                         syncLimit = syncLimit,
+                        refreshSearch = refreshSearch,
                     )
                 } else {
                     loadAccountInbox(
@@ -391,6 +393,7 @@ internal fun MeronMobileState.syncCoreThreads(
                         filter = filter,
                         syncFirst = syncFirst,
                         syncLimit = syncLimit,
+                        refreshSearch = refreshSearch,
                     )
                 }
             }
@@ -445,6 +448,17 @@ internal fun MeronMobileState.syncCoreThreads(
                 "MailLoad",
                 "sync success account=$accountId folder=$folder threads=${parsedThreads.size} cursor=${mailboxCursor.isNotBlank()} accountCursors=${mailboxAccountCursors.size} initialThreadsLoaded=$initialThreadsLoaded syncing=$syncing",
             )
+            // Search is cache-first on mobile: paint indexed matches before
+            // starting the potentially expensive IMAP search. The second load
+            // leaves those matches visible and replaces them when it completes.
+            if (query.isNotBlank() && mailSearch == query && !refreshSearch) {
+                syncCoreThreads(
+                    accountOverride = accountId,
+                    folderOverride = folder,
+                    syncFirst = false,
+                    refreshSearch = true,
+                )
+            }
             if (firstLoad && syncFirst) {
                 deepenMailboxSync(accountId, folder, selectedAccounts)
             }

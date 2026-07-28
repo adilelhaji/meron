@@ -481,25 +481,58 @@ export async function ensureAccountFolders(
 // column loader's `columnLoadVersions` and mobile's `activeMailboxLoadToken`).
 let threadLoadVersion = 0
 
-export async function loadThreads(refresh = true) {
+type ThreadSearchStage = 'auto' | 'cache' | 'live'
+
+export async function loadThreads(refresh = true, searchStage: ThreadSearchStage = 'auto') {
+  const initialAccount = ui$.selectedAccount.get()
+  const initialFolder = ui$.selectedFolder.get()
+  const initialQuery = ui$.query.get()
+  const initialFilter = ui$.filterMode.get()
+  const activeAccount = accounts$.get().find((account) => account.id === initialAccount)
+  const canSearchLive =
+    initialAccount === 'unified' || (initialAccount !== 'starred' && !isRssAccount(activeAccount, initialAccount))
+
+  // Paint results from the local FTS index before starting the live IMAP
+  // request. RSS search is already local, and background refreshes deliberately
+  // remain cache-only.
+  if (refresh && searchStage === 'auto' && initialQuery.trim() && canSearchLive) {
+    await loadThreads(false, 'cache')
+    if (
+      ui$.selectedAccount.get() !== initialAccount ||
+      ui$.selectedFolder.get() !== initialFolder ||
+      ui$.query.get() !== initialQuery ||
+      ui$.filterMode.get() !== initialFilter
+    ) {
+      return
+    }
+    await loadThreads(true, 'live')
+    return
+  }
+
   const version = (threadLoadVersion += 1)
-  const superseded = () => threadLoadVersion !== version
   const selectedAcc = ui$.selectedAccount.get()
   const selectedFol = ui$.selectedFolder.get()
   const q = ui$.query.get()
   const filter = ui$.filterMode.get()
+  const superseded = () =>
+    threadLoadVersion !== version ||
+    ui$.selectedAccount.get() !== selectedAcc ||
+    ui$.selectedFolder.get() !== selectedFol ||
+    ui$.query.get() !== q ||
+    ui$.filterMode.get() !== filter
   const previousThreads = mail$.threads.get()
   const currentSelected = ui$.selectedThread.get()
   const currentSelectedItem = ui$.selectedStarredItem.get()
   const previousThreadsCursor = mail$.threadsCursor.get()
   const previousAccountCursors = mail$.threadAccountCursors.get()
+  const userInitiated = refresh || searchStage === 'cache'
 
   // A background refresh (a sync, not a user-initiated account/folder/query/filter
   // change) only re-fetches the first page of the thread list. If the user has
   // scrolled the list and loaded extra pages, replacing the whole array with just
   // the first page collapses it and resets the scroll position. In that case we
   // merge the fresh page into the list we already have instead.
-  const mergeBackground = !refresh && previousThreads.length > 0
+  const mergeBackground = !refresh && searchStage !== 'cache' && previousThreads.length > 0
 
   // The starred view is a flat cross-account list of individual starred items
   // (mail messages + feed items), queried and paginated by the core.
@@ -625,13 +658,14 @@ export async function loadThreads(refresh = true) {
     ui$.selectedThread.set(filtered[0]?.thread_id ?? '')
   } else if (
     // Only snap the selection on a user-initiated load (account/folder/query/
-    // filter change). A background refresh (refresh === false, e.g. a sync) only
-    // re-fetches the first page of the thread list, so an open thread the user
-    // scrolled down to and opened from a later page — or whose messages are still
-    // in flight — would look "missing" and get yanked back to the top thread a
-    // second or two later. Deliberate clear-then-reselect flows (delete/move)
-    // reset selectedThread to "" first, so they fall into the branch above.
-    refresh &&
+    // filter change, including the cache stage of a search). A background
+    // refresh only re-fetches the first page, so an open thread the user
+    // scrolled down to and opened from a later page — or whose messages are
+    // still in flight — would look "missing" and get yanked back to the top
+    // thread a second or two later. Deliberate clear-then-reselect flows
+    // (delete/move) reset selectedThread to "" first, so they use the branch
+    // above.
+    userInitiated &&
     !allThreads.some((thread) => thread.thread_id === currentSelected) &&
     !mail$.messages.get().some((message) => message.thread_id === currentSelected)
   ) {
