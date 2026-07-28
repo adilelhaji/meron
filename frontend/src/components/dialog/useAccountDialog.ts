@@ -5,6 +5,7 @@ import { boot } from '../../boot'
 import { ui$, type SetupMode } from '../../states/ui'
 import { accounts$ } from '../../states/accounts'
 import { closeKanbanBoard } from '../../states/kanban'
+import { nextRssAccountDisplayName } from '../../states/feeds'
 import { errorMessage } from '../../lib/errors'
 
 type AddAccountResult = { account?: { id?: string } }
@@ -16,7 +17,8 @@ export function useAccountDialog() {
   const mode = useValue(ui$.setupMode)
   const system = useValue(ui$.system)
   const reconnectAccountId = useValue(ui$.reconnectAccountId)
-  const reconnectAccount = useValue(accounts$).find((account) => account.id === reconnectAccountId) ?? null
+  const accounts = useValue(accounts$)
+  const reconnectAccount = accounts.find((account) => account.id === reconnectAccountId) ?? null
   const gmailConfigured = !!system?.gmail_oauth_configured
   const outlookConfigured = !!system?.outlook_oauth_configured
 
@@ -47,6 +49,7 @@ export function useAccountDialog() {
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [waitingForGoogle, setWaitingForGoogle] = useState(false)
   const autoBeginOAuthKeyRef = useRef('')
+  const rssAutoNameRef = useRef('')
   const [exchangedTokens, setExchangedTokens] = useState<null | {
     access_token: string
     refresh_token: string
@@ -96,6 +99,25 @@ export function useAccountDialog() {
     setDiscoverNote('')
     setAdvancedOpen(reconnectAccount.auth_type === 'password')
   }, [reconnectAccount])
+
+  // Prefill a default name for RSS accounts so creating one is a single click;
+  // the feed URL stays optional (feeds can be added from the account afterwards).
+  useEffect(() => {
+    if (reconnectAccount) return
+    if (mode === 'rss') {
+      setForm((f) => {
+        if (f.display_name) return f
+        const display_name = nextRssAccountDisplayName(accounts)
+        rssAutoNameRef.current = display_name
+        return { ...f, display_name }
+      })
+      return
+    }
+    // Leaving the RSS tab: drop the name we filled in, so it doesn't carry over
+    // into the mail forms. A name the user typed themselves stays put.
+    setForm((f) => (f.display_name && f.display_name === rssAutoNameRef.current ? { ...f, display_name: '' } : f))
+    rssAutoNameRef.current = ''
+  }, [mode, reconnectAccount, accounts])
 
   const setMode = (newMode: SetupMode) => {
     ui$.reconnectAccountId.set('')

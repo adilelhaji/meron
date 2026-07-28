@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import type { Message } from '../types'
+import type { Account, Message } from '../types'
 import { accounts$ } from './accounts'
-import { removeFeed } from './feeds'
+import { nextRssAccountDisplayName, removeFeed } from './feeds'
 import { mail$ } from './mail'
 import { ui$ } from './ui'
 
@@ -81,5 +81,35 @@ describe('removeFeed', () => {
     expect(mail$.threads.get()).toEqual([])
     expect(ui$.selectedThread.get()).toBe('')
     expect(ui$.editFeed.get()).toBeNull()
+  })
+})
+
+describe('nextRssAccountDisplayName', () => {
+  const rssAccount = (overrides: Partial<Account>): Account =>
+    ({
+      id: 'rss-1',
+      email: 'rss-1.local',
+      display_name: '',
+      provider: 'rss',
+      auth_type: 'rss',
+      imap_host: '',
+      imap_port: 0,
+      smtp_host: '',
+      smtp_port: 0,
+      tls: false,
+      signature: '',
+      ...overrides,
+    }) as Account
+
+  it('defaults to RSS when no feed account exists', () => {
+    expect(nextRssAccountDisplayName([])).toBe('RSS')
+    expect(nextRssAccountDisplayName([rssAccount({ id: 'acc1', provider: 'gmail', auth_type: 'gmail_oauth' })])).toBe(
+      'RSS',
+    )
+  })
+
+  it('skips names already taken by feed accounts', () => {
+    const accounts = [rssAccount({ display_name: 'RSS' }), rssAccount({ id: 'rss-2', display_name: 'rss1' })]
+    expect(nextRssAccountDisplayName(accounts)).toBe('RSS2')
   })
 })
