@@ -56,6 +56,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -152,6 +154,7 @@ internal fun ThreadScreen(
     onRetryLoadMessages: () -> Unit,
     onMessagesScrolledPast: (List<String>) -> Unit,
     onViewedToBottom: () -> Unit,
+    snackbarHost: SnackbarHostState,
 ) {
     val isRss = thread?.let { threadIdIsRss(it.id) } ?: false
     val deleteLabel = thread?.let { threadDeleteActionLabel(it.folder, it.folderRole) } ?: "Move to Trash"
@@ -458,6 +461,7 @@ internal fun ThreadScreen(
                     },
                 )
             },
+            snackbarHost = { SnackbarHost(snackbarHost) },
         ) { innerPadding ->
             if (moveDialogOpen && thread != null) {
                 MoveThreadDialog(

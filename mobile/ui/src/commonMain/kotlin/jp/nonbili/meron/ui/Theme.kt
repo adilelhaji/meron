@@ -337,6 +337,7 @@ fun MeronTheme(
 ) {
     val systemDark = isSystemInDarkTheme()
     val spec = mobileThemeSpec(appearanceMode, systemDark)
+    SyncSystemBarAppearance(spec.dark)
     androidx.compose.runtime.CompositionLocalProvider(
         LocalChatColors provides chatColors(spec),
     ) {

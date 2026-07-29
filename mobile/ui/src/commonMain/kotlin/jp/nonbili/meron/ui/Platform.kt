@@ -1,6 +1,7 @@
 package jp.nonbili.meron.ui
 
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.PlatformTextStyle
 
 /** Wall-clock time in milliseconds since the Unix epoch. */
@@ -25,3 +26,12 @@ expect val nativeTextKeyboardOptions: KeyboardOptions
  * Other platforms use their native text metrics unchanged.
  */
 expect val avatarPlatformTextStyle: PlatformTextStyle?
+
+/**
+ * Matches the system status/navigation bar icon tint to the app's own theme.
+ * The system night mode is not a reliable signal, because the appearance mode
+ * is picked in-app: a light theme under system dark mode would otherwise get
+ * white icons drawn on a light background.
+ */
+@Composable
+expect fun SyncSystemBarAppearance(dark: Boolean)

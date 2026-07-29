@@ -9,3 +9,5 @@
 # Ruby / fastlane (bundler installs gems locally)
 /vendor/
 /.bundle/
+local.properties
+

@@ -896,6 +896,7 @@ private fun MeronMobileScreenContent(
                     onRetryLoadMessages = { retryOpenThreadLoad() },
                     onMessagesScrolledPast = ::markMessagesReadOnScroll,
                     onViewedToBottom = ::markThreadReadOnScroll,
+                    snackbarHost = snackbarHost,
                 )
             }
 
