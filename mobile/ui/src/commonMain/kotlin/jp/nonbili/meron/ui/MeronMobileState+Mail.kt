@@ -429,10 +429,14 @@ internal fun MeronMobileState.syncCoreThreads(
             visibleMailboxKey = resultKey
             mailboxCursor = result.nextCursor
             mailboxAccountCursors = result.accountCursors
-            if (selectedCoreThread?.id !in parsedThreads.map { it.id }) {
-                selectedCoreThread = null
-                messages = emptyList()
-            }
+            // The open conversation is deliberately left alone here. A refresh
+            // returns one page of one mailbox, so the open thread being absent
+            // means nothing (it may sit past the page limit, or belong to
+            // another account/folder when opened from kanban, starred or a
+            // notification). Clearing it on that basis raced every thread open
+            // — background syncs run continuously — and left the thread screen
+            // with no summary and no messages, spinning forever. Selections
+            // that really go away are cleared by the move/archive paths.
             activeMailboxLoadKey = null
             activeMailboxLoadStartedAtMillis = 0L
             blockingMailboxLoadWarned = false
@@ -749,6 +753,8 @@ internal fun MeronMobileState.readCoreThread(
         return
     }
     val backendThreadId = thread.backendThreadId()
+    val readToken = activeThreadReadToken + 1
+    activeThreadReadToken = readToken
     val returnScreen = if (screen == Screen.Kanban || screen == Screen.Starred) screen else Screen.Mail
     val readsDraftThread =
         !threadIdIsRss(backendThreadId) &&
@@ -790,6 +796,11 @@ internal fun MeronMobileState.readCoreThread(
                 }
             }
         }.onSuccess {
+            // Drop any superseded read, including an older request for this
+            // same conversation after the user backed out and reopened it.
+            if (activeThreadReadToken != readToken || selectedCoreThread?.backendThreadId() != backendThreadId) {
+                return@onSuccess
+            }
             val page = parseThreadReadPage(it)
             messages = mergeLocalSendMessages(messages, page.messages)
             messageCursor = page.nextCursor
@@ -807,6 +818,7 @@ internal fun MeronMobileState.readCoreThread(
                 }
             }
         }.onFailure {
+            if (activeThreadReadToken != readToken) return@onFailure
             status = "Could not open message: ${it.message}"
         }
     }
@@ -1789,11 +1801,14 @@ internal fun MeronMobileState.moveThreadToFolder(
     val kanbanBefore = kanbanColumns
     val selectedBefore = selectedCoreThread
     val messagesBefore = messages
-    removeThreadEverywhere(thread.id)
-    if (selectedCoreThread?.id == thread.id) {
-        selectedCoreThread = null
-        messages = emptyList()
-    }
+    // Remove the row optimistically, but keep an open conversation selected
+    // until the move succeeds. Clearing it here makes the thread-route fallback
+    // pop immediately, then the success callback pops the origin route too.
+    coreThreads = coreThreads.filterNot { it.id == thread.id }
+    kanbanColumns =
+        kanbanColumns.mapValues { (_, state) ->
+            state.copy(threads = state.threads.filterNot { it.id == thread.id })
+        }
     status = "Moving..."
     scope.launch {
         runCatching {
@@ -1805,6 +1820,10 @@ internal fun MeronMobileState.moveThreadToFolder(
                 },
             )
         }.onSuccess {
+            if (selectedCoreThread?.id == thread.id) {
+                selectedCoreThread = null
+                messages = emptyList()
+            }
             status = "Move complete"
             onMoved()
         }.onFailure {

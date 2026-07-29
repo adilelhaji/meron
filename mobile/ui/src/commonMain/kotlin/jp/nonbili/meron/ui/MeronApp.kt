@@ -752,6 +752,12 @@ private fun MeronMobileScreenContent(
 
         NavHost(navController = navController, startDestination = startRoute) {
             composable(AppRoutes.Thread) {
+                // Without a summary there is nothing to show and nothing to
+                // load, so leave rather than sit on an endless spinner (the
+                // thread was moved away, or the route was restored without it).
+                LaunchedEffect(selectedCoreThread == null) {
+                    if (selectedCoreThread == null) popAppBack()
+                }
                 ThreadScreen(
                     thread = selectedCoreThread,
                     messages = visibleThreadMessages(),

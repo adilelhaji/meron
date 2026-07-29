@@ -120,6 +120,7 @@ internal class MeronMobileState(
     var loadingMoreThreads by mutableStateOf(false)
     var starredItems by mutableStateOf(emptyList<StarredItemSummary>())
     var selectedCoreThread by mutableStateOf<ThreadSummary?>(null)
+    var activeThreadReadToken by mutableStateOf(0L)
     var conversationHtmlOverrides by mutableStateOf(emptyMap<String, Boolean>())
     var previousTopScreen by mutableStateOf(Screen.Mail)
     var composeReturnScreen by mutableStateOf(Screen.Mail)
