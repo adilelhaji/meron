@@ -1,0 +1,4 @@
+- Add select all and empty trash actions in thread lists
+- Show full address details, copy options, and message actions
+- Fix layout and scaling issues for wide HTML emails in reader
+- Fix system status bar icon tinting and display action snackbars
