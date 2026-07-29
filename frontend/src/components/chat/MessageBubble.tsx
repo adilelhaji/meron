@@ -137,7 +137,7 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
         </div>
 
         {/* Header: sender + optional meta toggle on the left, timestamp on the right */}
-        <div className="flex items-center justify-between gap-2 mb-1.5">
+        <div className="relative flex items-center justify-between gap-2 mb-1.5">
           <div className="relative flex items-center gap-1 min-w-0">
             {!outgoing ? (
               <span className="text-[12.5px] font-bold text-accent select-none truncate tracking-wide">
@@ -161,18 +161,6 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
             >
               <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
             </button>
-            {metaOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setMetaOpen(false)} />
-                <div className="absolute left-0 top-full mt-1 z-50 w-[460px] max-w-[calc(100vw-48px)] max-h-[260px] overflow-y-auto space-y-2 rounded-lg border border-border bg-chats p-3 shadow-xl text-secondary select-text">
-                  <AddressRow label={t('composer.fields.from')} rawList={fromRaw} />
-                  {toRaw && <AddressRow label={t('composer.fields.to')} rawList={toRaw} />}
-                  {ccRaw && <AddressRow label={t('composer.fields.cc')} rawList={ccRaw} />}
-                  {bccRaw && <AddressRow label={t('composer.fields.bcc')} rawList={bccRaw} />}
-                  {replyToDiffers && <AddressRow label="Reply-To" rawList={replyToRaw!} />}
-                </div>
-              </>
-            )}
           </div>
           <div className="flex items-center gap-1 text-[10.5px] text-secondary/80 select-none shrink-0">
             {isDraft && (
@@ -200,6 +188,26 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
                 <Check size={12} className="text-accent opacity-90" />
               ))}
           </div>
+          {/* Anchored to the bubble edge, not the chevron: an outgoing bubble
+              sits at the right of the pane, so opening rightwards pushed the
+              panel past the viewport and gave the message list a horizontal
+              scrollbar. */}
+          {metaOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setMetaOpen(false)} />
+              <div
+                className={`absolute top-full mt-1 z-50 w-[460px] max-w-[calc(100vw-48px)] max-h-[260px] overflow-y-auto space-y-2 rounded-lg border border-border bg-chats p-3 shadow-xl text-secondary select-text ${
+                  outgoing ? 'right-0' : 'left-0'
+                }`}
+              >
+                <AddressRow label={t('composer.fields.from')} rawList={fromRaw} />
+                {toRaw && <AddressRow label={t('composer.fields.to')} rawList={toRaw} />}
+                {ccRaw && <AddressRow label={t('composer.fields.cc')} rawList={ccRaw} />}
+                {bccRaw && <AddressRow label={t('composer.fields.bcc')} rawList={bccRaw} />}
+                {replyToDiffers && <AddressRow label="Reply-To" rawList={replyToRaw!} />}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Image attachments */}

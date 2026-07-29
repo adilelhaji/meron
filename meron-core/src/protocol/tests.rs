@@ -1157,6 +1157,7 @@ fn mobile_protocol_lists_threads_from_store() {
     );
     assert_eq!(value["id"], 64);
     assert_eq!(value["result"]["folder_unread"], 1);
+    assert_eq!(value["result"]["folder_synced"], false);
     let first = &value["result"]["threads"][0];
     assert_eq!(first["account_id"], "me@example.com");
     assert_eq!(first["folder_id"], "INBOX");
@@ -1183,6 +1184,15 @@ fn mobile_protocol_lists_threads_from_store() {
     let starred_threads = starred["result"]["threads"].as_array().unwrap();
     assert_eq!(starred_threads.len(), 1);
     assert_eq!(starred_threads[0]["subject"], "Newest");
+
+    let conn = store::open_at(data_dir.join("meron.db")).unwrap();
+    store::set_folder_state(&conn, "me@example.com", "INBOX", 1, 8).unwrap();
+    drop(conn);
+    let synced = invoke_mobile_protocol_json(
+        r#"{"id":67,"method":"mail.threadList","params":{"account_id":"me@example.com","folder_id":"inbox","filter":"all"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    assert_eq!(synced["result"]["folder_synced"], true);
 
     let _ = std::fs::remove_dir_all(data_dir);
 }

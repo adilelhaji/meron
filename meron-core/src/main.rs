@@ -1193,6 +1193,11 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             }
             let folder = request.folder.clone();
             let limit = request.limit;
+            // Capture this before spawning the background refresh. The returned
+            // page was read from the pre-refresh cache, so its empty-state
+            // metadata must describe that same snapshot.
+            let folder_synced_before =
+                store::get_folder_state(&engine.db.lock().unwrap(), &account, &folder)?.is_some();
             // Desktop starred reads are online-first. Search first paints the
             // local index with refresh=false, then repeats with refresh=true;
             // snapshot-backed later pages are local even though they travel
@@ -1253,14 +1258,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     limit,
                 );
             }
-            thread_list::mail_page(
+            let mut page = thread_list::mail_page(
                 &engine.db.lock().unwrap(),
                 &account,
                 &folder,
                 messages,
                 next_cursor,
                 p.get("group").and_then(Value::as_bool).unwrap_or(false),
-            )
+            )?;
+            page.as_object_mut().unwrap().insert(
+                "folder_synced".to_string(),
+                Value::Bool(folder_synced_before),
+            );
+            Ok(page)
         }
 
         // Every starred item across all accounts, local cache only (the

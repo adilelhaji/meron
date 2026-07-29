@@ -99,6 +99,7 @@ func TestThreadsJSONSkipsKeylessCardsAndPassesCursor(t *testing.T) {
 		},
 		"next_cursor":   "cursor-token",
 		"folder_unread": float64(3),
+		"folder_synced": true,
 	}
 
 	out := threadsJSON("acc", "INBOX", raw)
@@ -111,6 +112,9 @@ func TestThreadsJSONSkipsKeylessCardsAndPassesCursor(t *testing.T) {
 	}
 	if got := out.(map[string]any)["folder_unread"]; got != uint32(3) {
 		t.Errorf("folder_unread = %v, want 3", got)
+	}
+	if got := out.(map[string]any)["folder_synced"]; got != true {
+		t.Errorf("folder_synced = %v, want true", got)
 	}
 }
 

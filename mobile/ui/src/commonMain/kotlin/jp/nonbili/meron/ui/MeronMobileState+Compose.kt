@@ -1371,6 +1371,72 @@ internal fun MeronMobileState.removeKanbanColumn(column: KanbanColumnSpec) {
     kanbanColumns = kanbanColumns - key
 }
 
+/**
+ * Point an existing column at another folder of the same account, keeping its slot
+ * on the board. Does nothing when the folder is unchanged or already has its own
+ * column here — the board must not end up with duplicates.
+ */
+internal fun MeronMobileState.switchKanbanColumnFolder(
+    column: KanbanColumnSpec,
+    folderId: String,
+) {
+    if (folderId.isBlank() || kanbanFolderIdsEqual(folderId, column.folderId)) return
+    val board = kanbanBoards.firstOrNull { it.id == activeKanbanBoardId } ?: return
+    val fromKey = kanbanColumnKey(column)
+    val target = KanbanColumnSpec(column.accountId, folderId)
+    val toKey = kanbanColumnKey(target)
+    if (board.columns.none { kanbanColumnKey(it) == fromKey }) return
+    if (board.columns.any { it.accountId == target.accountId && kanbanFolderIdsEqual(it.folderId, target.folderId) }) return
+    persistKanbanBoards(
+        kanbanBoards.map { existing ->
+            if (existing.id != board.id) {
+                existing
+            } else {
+                existing.copy(columns = existing.columns.map { if (kanbanColumnKey(it) == fromKey) target else it })
+            }
+        },
+    )
+    if (kanbanSearchScope == fromKey) persistKanbanSearchScope(toKey)
+    // Keep the old folder's cached page only while another board still shows it.
+    if (kanbanBoards.none { it.columns.any { existing -> kanbanColumnKey(existing) == fromKey } }) {
+        kanbanColumns = kanbanColumns - fromKey
+    }
+    loadKanbanColumn(target, refresh = true)
+}
+
+/**
+ * Fetch an account's folder list for the column folder picker when only the
+ * bootstrap inbox is cached, so the picker isn't limited to what a sync happened
+ * to surface.
+ */
+internal fun MeronMobileState.ensureKanbanColumnFolders(accountId: String) {
+    if (!coreLoaded || accountId == UNIFIED_ACCOUNT_ID) return
+    val account = coreAccounts.firstOrNull { it.id == accountId } ?: return
+    if (accountSummaryIsRss(account)) return
+    if (foldersByAccount[accountId].orEmpty().size > 1) return
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                val client = MobileMailCommandClient(core)
+                withManagedGoogleAuth(client, account.id) {
+                    client.sync(
+                        SyncMailParams(
+                            accountId = account.id,
+                            folderId = INBOX_FOLDER,
+                            limit = 1,
+                            folders = true,
+                            deferTail = true,
+                        ),
+                    )
+                }
+                loadAccountFolders(client, account)
+            }
+        }.onSuccess { folders ->
+            if (folders.isNotEmpty()) foldersByAccount = foldersByAccount + (accountId to folders)
+        }
+    }
+}
+
 internal fun MeronMobileState.moveKanbanColumn(
     column: KanbanColumnSpec,
     delta: Int,

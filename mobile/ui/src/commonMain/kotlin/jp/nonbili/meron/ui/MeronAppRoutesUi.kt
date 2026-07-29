@@ -553,6 +553,8 @@ internal fun KanbanRouteContent(
                         persistKanbanSearchScope(kanbanColumnKey(column))
                         if (kanbanSearch.isNotBlank()) loadKanbanBoard(refresh = true)
                     },
+                    onRequestColumnFolders = { column -> ensureKanbanColumnFolders(column.accountId) },
+                    onSwitchColumnFolder = ::switchKanbanColumnFolder,
                     onAddColumn = { showKanbanColumnDialog = true },
                     showSenderImages = showSenderImages,
                     kanbanColumnWidth = kanbanColumnWidth.dp,

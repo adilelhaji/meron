@@ -457,6 +457,8 @@ internal fun KanbanScreen(
     onRemoveColumn: (KanbanColumnSpec) -> Unit,
     onMoveColumn: (KanbanColumnSpec, Int) -> Unit,
     onSearchColumn: (KanbanColumnSpec) -> Unit,
+    onRequestColumnFolders: (KanbanColumnSpec) -> Unit,
+    onSwitchColumnFolder: (KanbanColumnSpec, String) -> Unit,
     onAddColumn: () -> Unit,
     showSenderImages: Boolean,
     kanbanColumnWidth: Dp,
@@ -536,6 +538,13 @@ internal fun KanbanScreen(
                             onMoveRight = { onMoveColumn(column, 1) },
                             onMinimize = { minimizedColumns = minimizedColumns + key },
                             onSearch = { onSearchColumn(column) },
+                            otherColumnFolderIds =
+                                boardColumns
+                                    .filter { it.accountId == column.accountId && it.folderId != column.folderId }
+                                    .map { it.folderId }
+                                    .toSet(),
+                            onRequestFolders = { onRequestColumnFolders(column) },
+                            onSwitchFolder = { folderId -> onSwitchColumnFolder(column, folderId) },
                             showSenderImages = showSenderImages,
                             kanbanColumnWidth = kanbanColumnWidth,
                         )
@@ -629,6 +638,9 @@ internal fun KanbanColumn(
     onMoveRight: () -> Unit,
     onMinimize: () -> Unit,
     onSearch: () -> Unit,
+    otherColumnFolderIds: Set<String>,
+    onRequestFolders: () -> Unit,
+    onSwitchFolder: (String) -> Unit,
     showSenderImages: Boolean,
     kanbanColumnWidth: Dp,
 ) {
@@ -658,6 +670,7 @@ internal fun KanbanColumn(
                 accounts = accounts,
                 foldersByAccount = foldersByAccount,
                 unread = kanbanColumnUnreadCount(column, state.unreadCount, state.threads),
+                otherColumnFolderIds = otherColumnFolderIds,
                 onRefresh = onRefresh,
                 onMarkAllRead = onMarkAllRead,
                 onEmptyFolder = onEmptyFolder,
@@ -666,6 +679,8 @@ internal fun KanbanColumn(
                 onMoveRight = onMoveRight,
                 onMinimize = onMinimize,
                 onSearch = onSearch,
+                onRequestFolders = onRequestFolders,
+                onSwitchFolder = onSwitchFolder,
             )
             if (state.loading) {
                 Box(Modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
@@ -768,6 +783,8 @@ internal fun KanbanColumnHeader(
     accounts: List<AccountSummary>,
     foldersByAccount: Map<String, List<FolderSummary>>,
     unread: Int,
+    /** Folders of this account already open as their own column on the board. */
+    otherColumnFolderIds: Set<String>,
     onRefresh: () -> Unit,
     onMarkAllRead: () -> Unit,
     onEmptyFolder: (FolderSummary) -> Unit,
@@ -776,8 +793,20 @@ internal fun KanbanColumnHeader(
     onMoveRight: () -> Unit,
     onMinimize: () -> Unit,
     onSearch: () -> Unit,
+    onRequestFolders: () -> Unit,
+    onSwitchFolder: (String) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var folderMenuOpen by remember { mutableStateOf(false) }
+    val account = accounts.firstOrNull { it.id == column.accountId }
+    // Only a per-account mail column can be repointed: unified columns span
+    // accounts and an RSS account has no folders to choose between.
+    val switchableFolders =
+        if (column.accountId == UNIFIED_ACCOUNT_ID || account == null || accountSummaryIsRss(account)) {
+            emptyList()
+        } else {
+            foldersByAccount[column.accountId].orEmpty()
+        }
     // Emptying is offered only for a per-account Trash or Junk column; a unified
     // column spans accounts and has no single folder to empty.
     val emptiableFolder =
@@ -802,14 +831,84 @@ internal fun KanbanColumnHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(
-                columnTitle(column, accounts, foldersByAccount),
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 12.sp,
-                modifier = Modifier.weight(1f, fill = false),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            val canSwitchFolder = column.accountId != UNIFIED_ACCOUNT_ID && account != null && !accountSummaryIsRss(account)
+            Box(Modifier.weight(1f, fill = false)) {
+                Row(
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable(enabled = canSwitchFolder) {
+                            onRequestFolders()
+                            folderMenuOpen = true
+                        }.padding(horizontal = 2.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        columnTitle(column, accounts, foldersByAccount),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.sp,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (canSwitchFolder) {
+                        Icon(
+                            Icons.Filled.KeyboardArrowDown,
+                            contentDescription = tr("kanban.actions.switchFolder"),
+                            modifier = Modifier.size(15.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+                DropdownMenu(expanded = folderMenuOpen, onDismissRequest = { folderMenuOpen = false }) {
+                    if (switchableFolders.isEmpty()) {
+                        DropdownMenuItem(text = { Text(tr("folders.loading")) }, onClick = {}, enabled = false)
+                    }
+                    // Nested folders are indented under their parent, the same
+                    // hierarchy the add-column dialog shows.
+                    val folderRows = remember(switchableFolders) { flattenFolderTree(buildFolderTree(switchableFolders)) }
+                    folderRows.forEach { row ->
+                        val folder = row.node.folder
+                        val current = folder != null && kanbanFolderIdsEqual(folder.name, column.folderId)
+                        val taken =
+                            folder != null &&
+                                !current &&
+                                otherColumnFolderIds.any { kanbanFolderIdsEqual(folder.name, it) }
+                        DropdownMenuItem(
+                            modifier = Modifier.padding(start = (row.depth * 14).dp),
+                            text = {
+                                Text(
+                                    row.node.name.replaceFirstChar { it.uppercase() },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    when {
+                                        current -> Icons.Filled.Check
+                                        row.node.name.equals(INBOX_FOLDER, ignoreCase = true) -> Icons.Filled.Inbox
+                                        else -> Icons.Outlined.FolderOpen
+                                    },
+                                    contentDescription = null,
+                                    tint =
+                                        if (current) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                )
+                            },
+                            // Structural nodes (no folder of their own) are labels only.
+                            enabled = folder != null && !taken && !current,
+                            onClick = {
+                                folderMenuOpen = false
+                                folder?.let { onSwitchFolder(it.name) }
+                            },
+                        )
+                    }
+                }
+            }
             if (unread > 0) {
                 KanbanUnreadBadge(unread)
             }

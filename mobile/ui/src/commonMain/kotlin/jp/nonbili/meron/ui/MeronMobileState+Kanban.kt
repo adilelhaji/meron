@@ -185,6 +185,7 @@ import jp.nonbili.meron.shared.ThreadActionParams
 import jp.nonbili.meron.shared.ThreadReadParams
 import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.accountSendIdentities
+import jp.nonbili.meron.shared.accountSummaryIsRss
 import jp.nonbili.meron.shared.attachmentToDraftAttachment
 import jp.nonbili.meron.shared.buildOAuthAuthorizationUrl
 import jp.nonbili.meron.shared.defaultOAuthRedirectUri
@@ -258,6 +259,19 @@ internal fun MeronMobileState.kanbanColumnSearchQuery(column: KanbanColumnSpec):
 }
 
 internal fun isUnifiedStarredColumn(column: KanbanColumnSpec): Boolean = column.accountId == UNIFIED_ACCOUNT_ID && column.folderId.equals(STARRED_FOLDER, ignoreCase = true)
+
+internal fun shouldSyncUnfetchedKanbanColumn(
+    column: KanbanColumnSpec,
+    refresh: Boolean,
+    query: String,
+    result: MailboxLoadResult,
+    accounts: List<AccountSummary>,
+): Boolean {
+    if (refresh || query.isNotBlank() || result.threads.isNotEmpty() || result.folderSynced != false) return false
+    if (column.accountId == UNIFIED_ACCOUNT_ID) return false
+    val account = accounts.firstOrNull { it.id == column.accountId } ?: return false
+    return !account.paused && !account.needsReconnect && !accountSummaryIsRss(account)
+}
 
 internal fun StarredItemSummary.toKanbanThreadSummary(): ThreadSummary =
     ThreadSummary(
@@ -371,12 +385,18 @@ internal fun MeronMobileState.loadKanbanColumn(
         return
     }
     val key = kanbanColumnKey(column)
+    val query = kanbanColumnSearchQuery(column)
     updateKanbanColumn(key) { it.copy(loading = true, error = null) }
     scope.launch {
         runCatching {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
-                fetchKanbanColumn(client, column, refresh)
+                val cached = fetchKanbanColumn(client, column, refresh)
+                if (shouldSyncUnfetchedKanbanColumn(column, refresh, query, cached, coreAccounts)) {
+                    fetchKanbanColumn(client, column, refresh = true)
+                } else {
+                    cached
+                }
             }
         }.onSuccess { result ->
             val columnQuery = kanbanColumnSearchQuery(column)

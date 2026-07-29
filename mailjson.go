@@ -106,6 +106,9 @@ func threadsJSON(accountID, folder string, raw any) any {
 }
 
 func copyPageMetadata(object, out map[string]any) {
+	if folderSynced, ok := object["folder_synced"].(bool); ok {
+		out["folder_synced"] = folderSynced
+	}
 	if folderUnreads, ok := object["folder_unreads"].(map[string]any); ok {
 		out["folder_unreads"] = folderUnreads
 	}

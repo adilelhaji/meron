@@ -1126,6 +1126,7 @@ internal suspend fun MeronMobileState.loadAccountInbox(
         threads = page.threads,
         unreadCount = page.folderUnread,
         nextCursor = page.nextCursor,
+        folderSynced = page.folderSynced,
     )
 }
 
@@ -1188,6 +1189,7 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
         threads = page.threads,
         unreadCount = page.folderUnread,
         nextCursor = page.nextCursor,
+        folderSynced = page.folderSynced,
     )
 }
 

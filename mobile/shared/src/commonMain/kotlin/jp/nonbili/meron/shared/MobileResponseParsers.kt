@@ -175,6 +175,7 @@ data class ThreadListPage(
     val threads: List<ThreadSummary>,
     val nextCursor: String,
     val folderUnread: Int? = null,
+    val folderSynced: Boolean? = null,
 )
 
 fun parseThreadListPage(responseJson: String): ThreadListPage {
@@ -184,6 +185,7 @@ fun parseThreadListPage(responseJson: String): ThreadListPage {
                 threads = emptyList(),
                 nextCursor = "",
                 folderUnread = responseJson.findJsonLongProperty("folder_unread")?.toInt(),
+                folderSynced = responseJson.findJsonBooleanProperty("folder_synced"),
             )
     val threads =
         threadsJson.jsonArrayElements().mapNotNull { item ->
@@ -214,6 +216,7 @@ fun parseThreadListPage(responseJson: String): ThreadListPage {
         threads = threads.distinctBy { it.id },
         nextCursor = responseJson.findJsonStringProperty("next_cursor").orEmpty(),
         folderUnread = responseJson.findJsonLongProperty("folder_unread")?.toInt(),
+        folderSynced = responseJson.findJsonBooleanProperty("folder_synced"),
     )
 }
 

@@ -1,5 +1,5 @@
 import { invoke } from './bridge'
-import { unifiedAccounts } from '../states/accounts'
+import { accounts$, unifiedAccounts } from '../states/accounts'
 import { getAllKanbanColumns, kanbanColumnKey, kanban$, type KanbanColumn } from '../states/kanban'
 import { mail$, updateCachedFolderUnread } from '../states/mail'
 import { showToast } from '../states/ui'
@@ -13,6 +13,10 @@ export const SEARCH_DEBOUNCE_MS = 300
 
 const columnLoadVersions = new Map<string, number>()
 const KANBAN_SYNC_TIMEOUT_MS = 130_000
+// A first look at a folder that was never synced answers from an empty cache, so
+// the column waits this long for the background sync the read kicked off rather
+// than claiming the folder is empty.
+const KANBAN_FIRST_SYNC_TIMEOUT_MS = 20_000
 
 type MailSyncEvent = {
   account?: string
@@ -20,7 +24,7 @@ type MailSyncEvent = {
   message?: string
 }
 
-function waitForKanbanSync(accountIds: string[], folderId: string) {
+function waitForKanbanSync(accountIds: string[], folderId: string, timeoutMs = KANBAN_SYNC_TIMEOUT_MS) {
   const eventsOn = (window as any).runtime?.EventsOn
   if (typeof eventsOn !== 'function') {
     return {
@@ -68,7 +72,7 @@ function waitForKanbanSync(accountIds: string[], folderId: string) {
   subscriptions.push(eventsOn('mail.synced', completeAccount))
   subscriptions.push(eventsOn('mail.newMessages', completeAccount))
   subscriptions.push(eventsOn('mail.syncError', failAccount))
-  timeout = window.setTimeout(() => finish(new Error('Sync timed out')), KANBAN_SYNC_TIMEOUT_MS)
+  timeout = window.setTimeout(() => finish(new Error('Sync timed out')), timeoutMs)
 
   return {
     promise,
@@ -192,10 +196,23 @@ export function kanbanColumnUnreadCount(
   return folderUnread ?? loadedUnreadCount(loadedThreads)
 }
 
+// Whether an empty first page for this column should wait for the background
+// sync the read spawned. Only a single-account IMAP folder gets one: unified and
+// starred columns aggregate folders, RSS syncs feeds, and a paused account never
+// reports back.
+function awaitsFirstSync(column: KanbanColumn): boolean {
+  if (column.accountId === 'unified' || isUnifiedStarredColumn(column)) return false
+  const account = accounts$.get().find((item) => item.id === column.accountId)
+  if (!account || account.paused) return false
+  return !isRSSAccount(column.accountId, accounts$.get())
+}
+
 type ColumnPage = {
   threads: Message[]
   folderUnread?: number
   folderUnreadByAccount?: Record<string, number>
+  /** False when the core has no completed header sync recorded for this folder. */
+  folderSynced?: boolean
   // Opaque next-page cursor for either a single-account or unified column.
   nextSingle: string
   // Legacy per-account cursors retained in state while persisted boards migrate.
@@ -227,6 +244,7 @@ async function fetchColumnThreads(
       threads: result.items ?? [],
       folderUnread: undefined,
       folderUnreadByAccount: undefined,
+      folderSynced: undefined,
       nextSingle: result.next_cursor ?? '',
       nextUnified: {},
     }
@@ -250,12 +268,18 @@ async function fetchColumnThreads(
       threads: result.threads || [],
       folderUnread: result.folder_unread,
       folderUnreadByAccount: result.folder_unreads,
+      folderSynced: undefined,
       nextSingle: result.next_cursor ?? '',
       nextUnified: {},
     }
   }
 
-  const result = await invoke<{ threads: Message[]; next_cursor?: string; folder_unread?: number }>('mail.threadList', {
+  const result = await invoke<{
+    threads: Message[]
+    next_cursor?: string
+    folder_unread?: number
+    folder_synced?: boolean
+  }>('mail.threadList', {
     account_id: column.accountId,
     folder_id: column.folderId,
     query: trimmedQuery,
@@ -269,6 +293,7 @@ async function fetchColumnThreads(
     folderUnread: result.folder_unread,
     folderUnreadByAccount:
       typeof result.folder_unread === 'number' ? { [column.accountId]: result.folder_unread } : undefined,
+    folderSynced: result.folder_synced,
     nextSingle: result.next_cursor ?? '',
     nextUnified: {},
   }
@@ -300,11 +325,8 @@ export async function loadKanbanColumn(column: KanbanColumn, refresh = false, qu
   columnLoadVersions.set(key, version)
   kanban$.loading[key].set(true)
   try {
-    const { threads, folderUnread, folderUnreadByAccount, nextSingle, nextUnified } = await fetchColumnThreads(
-      column,
-      refresh,
-      trimmedQuery,
-    )
+    const { threads, folderUnread, folderUnreadByAccount, folderSynced, nextSingle, nextUnified } =
+      await fetchColumnThreads(column, refresh, trimmedQuery)
     if (columnLoadVersions.get(key) !== version) return
     for (const [accountId, unread] of Object.entries(folderUnreadByAccount ?? {})) {
       updateCachedFolderUnread(accountId, column.accountId === 'unified' ? 'inbox' : column.folderId, unread)
@@ -313,6 +335,28 @@ export async function loadKanbanColumn(column: KanbanColumn, refresh = false, qu
     if (folderUnread !== undefined) kanban$.unreadCounts[key].set(folderUnread)
     kanban$.cursors[key].set(trimmedQuery ? '' : nextSingle)
     kanban$.accountCursors[key].set(trimmedQuery ? {} : nextUnified)
+
+    // A folder nobody has opened yet has nothing cached, so this read served an
+    // empty page and only kicked off the background sync. Stay in the loading
+    // state until that sync lands instead of flashing "no threads", then take
+    // the freshly stored page.
+    if (folderSynced === false && threads.length === 0 && refresh && !trimmedQuery && awaitsFirstSync(column)) {
+      const completion = waitForKanbanSync([column.accountId], column.folderId, KANBAN_FIRST_SYNC_TIMEOUT_MS)
+      try {
+        await completion.promise
+      } catch {
+        return
+      } finally {
+        completion.cancel()
+      }
+      if (columnLoadVersions.get(key) !== version) return
+      const synced = await fetchColumnThreads(column, false, trimmedQuery)
+      if (columnLoadVersions.get(key) !== version) return
+      kanban$.threads[key].set(keepReadThreads(column, key, synced.threads))
+      if (synced.folderUnread !== undefined) kanban$.unreadCounts[key].set(synced.folderUnread)
+      kanban$.cursors[key].set(synced.nextSingle)
+      kanban$.accountCursors[key].set(synced.nextUnified)
+    }
   } finally {
     if (columnLoadVersions.get(key) === version) {
       kanban$.loading[key].set(false)

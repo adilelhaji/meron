@@ -257,6 +257,60 @@ export function removeKanbanColumn(boardId: string, column: KanbanColumn) {
   kanban$.accountCursors.set(nextAccountCursors)
 }
 
+// Point an existing column at another folder of the same account, keeping its
+// slot on the board. Returns false when the switch can't happen (no such board
+// column, or the target folder already has a column here).
+export function switchKanbanColumnFolder(boardId: string, column: KanbanColumn, folderId: string): boolean {
+  if (!boardId || !folderId || folderId === column.folderId) return false
+  const target: KanbanColumn = { accountId: column.accountId, folderId }
+  const fromEntry = kanbanColumnKey(column)
+  const toEntry = kanbanColumnKey(target)
+  const columns = getKanbanColumns(boardId)
+  const index = columns.findIndex((item) => kanbanColumnKey(item) === fromEntry)
+  if (index === -1) return false
+  if (columns.some((item) => kanbanColumnKey(item) === toEntry)) return false
+
+  updateBoard(boardId, (board) => {
+    const next = [...board.columns]
+    const at = next.findIndex((item) => kanbanColumnKey(item) === fromEntry)
+    if (at === -1) return board
+    next[at] = target
+    return { ...board, columns: next }
+  })
+
+  // Carry the column's per-board and per-key state over to the new key so the
+  // switch feels like the same column, then drop the old entries.
+  const fromBoardKey = kanbanBoardColumnKey(boardId, column)
+  const toBoardKey = kanbanBoardColumnKey(boardId, target)
+  const minimized = settings$.kanbanMinimizedColumns[fromBoardKey].get()
+  if (minimized !== undefined) {
+    settings$.kanbanMinimizedColumns[toBoardKey].set(minimized)
+    settings$.kanbanMinimizedColumns[fromBoardKey].delete()
+  }
+  if (kanban$.paneColumnKey.get() === fromBoardKey) kanban$.paneColumnKey.set(toBoardKey)
+  if (kanban$.searchScope.get() === fromEntry) kanban$.searchScope.set(toEntry)
+
+  const filter = kanban$.filters[fromEntry].get()
+  if (filter !== undefined) kanban$.filters[toEntry].set(filter)
+
+  // Only discard the old folder's cached page when no other board still shows it.
+  if (!getAllKanbanColumns().some((item) => kanbanColumnKey(item) === fromEntry)) {
+    const nextThreads = { ...kanban$.threads.get() }
+    delete nextThreads[fromEntry]
+    kanban$.threads.set(nextThreads)
+    const nextCursors = { ...kanban$.cursors.get() }
+    delete nextCursors[fromEntry]
+    kanban$.cursors.set(nextCursors)
+    const nextAccountCursors = { ...kanban$.accountCursors.get() }
+    delete nextAccountCursors[fromEntry]
+    kanban$.accountCursors.set(nextAccountCursors)
+    const nextFilters = { ...kanban$.filters.get() }
+    delete nextFilters[fromEntry]
+    kanban$.filters.set(nextFilters)
+  }
+  return true
+}
+
 // Mark a column as read. Mail columns are marked folder-wide, so unread messages
 // outside the loaded page are cleared too; RSS/starred aggregates fall back to
 // per loaded item/thread operations because they have no folder-wide unread flag.

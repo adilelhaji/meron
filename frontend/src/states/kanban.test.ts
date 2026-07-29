@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import type { Message } from '../types'
 import { accounts$ } from './accounts'
-import { kanban$, markColumnAllRead } from './kanban'
+import { kanban$, markColumnAllRead, switchKanbanColumnFolder } from './kanban'
 import { mail$ } from './mail'
+import { settings$ } from './settings'
 
 const message = (overrides: Partial<Message> = {}): Message => ({
   id: 'acc1:INBOX:t1#1',
@@ -106,5 +107,72 @@ describe('markColumnAllRead', () => {
     expect(calls.filter((call) => call.command === 'mail.folderList').map((call) => call.payload)).toEqual([
       { account_id: 'acc1', refresh: false },
     ])
+  })
+})
+
+describe('switchKanbanColumnFolder', () => {
+  beforeEach(() => {
+    settings$.kanbanBoards.set([
+      {
+        id: 'b1',
+        name: 'Board',
+        columns: [
+          { accountId: 'acc1', folderId: 'INBOX' },
+          { accountId: 'acc1', folderId: 'Archive' },
+        ],
+      },
+    ])
+    settings$.kanbanMinimizedColumns.set({})
+    kanban$.threads.set({})
+    kanban$.cursors.set({})
+    kanban$.accountCursors.set({})
+    kanban$.filters.set({})
+    kanban$.paneColumnKey.set('')
+    kanban$.searchScope.set('all')
+  })
+
+  it('repoints the column in place and carries its state to the new key', () => {
+    kanban$.threads['acc1\nINBOX'].set([message()])
+    kanban$.cursors['acc1\nINBOX'].set('cursor')
+    kanban$.filters['acc1\nINBOX'].set('unread')
+    settings$.kanbanMinimizedColumns['b1\nacc1\nINBOX'].set(true)
+    kanban$.paneColumnKey.set('b1\nacc1\nINBOX')
+    kanban$.searchScope.set('acc1\nINBOX')
+
+    const switched = switchKanbanColumnFolder('b1', { accountId: 'acc1', folderId: 'INBOX' }, 'Sent')
+
+    expect(switched).toBe(true)
+    expect(settings$.kanbanBoards.get()[0].columns).toEqual([
+      { accountId: 'acc1', folderId: 'Sent' },
+      { accountId: 'acc1', folderId: 'Archive' },
+    ])
+    expect(kanban$.filters['acc1\nSent'].get()).toBe('unread')
+    expect(settings$.kanbanMinimizedColumns['b1\nacc1\nSent'].get()).toBe(true)
+    expect(settings$.kanbanMinimizedColumns['b1\nacc1\nINBOX'].get()).toBeUndefined()
+    expect(kanban$.paneColumnKey.get()).toBe('b1\nacc1\nSent')
+    expect(kanban$.searchScope.get()).toBe('acc1\nSent')
+    expect(kanban$.threads['acc1\nINBOX'].get()).toBeUndefined()
+    expect(kanban$.cursors['acc1\nINBOX'].get()).toBeUndefined()
+  })
+
+  it('refuses a folder that already has its own column', () => {
+    const switched = switchKanbanColumnFolder('b1', { accountId: 'acc1', folderId: 'INBOX' }, 'Archive')
+
+    expect(switched).toBe(false)
+    expect(settings$.kanbanBoards.get()[0].columns).toEqual([
+      { accountId: 'acc1', folderId: 'INBOX' },
+      { accountId: 'acc1', folderId: 'Archive' },
+    ])
+  })
+
+  it('keeps the old folder cache when another board still shows it', () => {
+    settings$.kanbanBoards.set([
+      { id: 'b1', name: 'Board', columns: [{ accountId: 'acc1', folderId: 'INBOX' }] },
+      { id: 'b2', name: 'Other', columns: [{ accountId: 'acc1', folderId: 'INBOX' }] },
+    ])
+    kanban$.threads['acc1\nINBOX'].set([message()])
+
+    expect(switchKanbanColumnFolder('b1', { accountId: 'acc1', folderId: 'INBOX' }, 'Sent')).toBe(true)
+    expect(kanban$.threads['acc1\nINBOX'].get()).toHaveLength(1)
   })
 })

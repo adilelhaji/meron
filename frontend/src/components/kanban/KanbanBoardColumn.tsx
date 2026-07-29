@@ -22,6 +22,7 @@ import {
   kanban$,
   markColumnAllRead,
   removeKanbanColumn,
+  switchKanbanColumnFolder,
   type KanbanColumn,
 } from '../../states/kanban'
 import { settings$ } from '../../states/settings'
@@ -47,6 +48,7 @@ import { ThreadContextMenu, type ThreadContextMenuController } from '../threads/
 import { Avatar } from '../avatar/Avatar'
 import { IconButton } from '../button/IconButton'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
+import { ColumnFolderSwitcher } from './ColumnFolderSwitcher'
 import { KanbanThreadCard } from './KanbanThreadCard'
 import { KanbanColumnMinimized } from './KanbanColumnMinimized'
 import { BulkActionBar } from '../threads/BulkActionBar'
@@ -97,7 +99,9 @@ function KanbanColumnContent({
   const bulkSelection = useValue(ui$.bulkSelection)
   const width = useValue(settings$.kanbanColumnWidth)
   const minimizedColumns = useValue(settings$.kanbanMinimizedColumns)
-  const overWallpaper = !!useValue(settings$.kanbanBoards).find((board) => board.id === boardId)?.wallpaper
+  const board = useValue(settings$.kanbanBoards).find((item) => item.id === boardId)
+  const overWallpaper = !!board?.wallpaper
+  const boardColumns = board?.columns ?? []
   const readThreads = useValue(mail$.readThreads)
   const labelFolders = useMemo(() => mergeLabelFolders(folders, foldersByAccount), [folders, foldersByAccount])
   const rawThreads = allThreads[key] ?? []
@@ -250,8 +254,25 @@ function KanbanColumnContent({
             )}
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <h3 className={clsx('truncate text-xs font-bold', isPaused ? 'text-secondary' : 'text-primary')}>
-              {folderLabel(column, labelFolders, accounts)}
+            <h3 className={clsx('flex min-w-0 text-xs font-bold', isPaused ? 'text-secondary' : 'text-primary')}>
+              {column.accountId === 'unified' || isRss ? (
+                <span className="truncate">{folderLabel(column, labelFolders, accounts)}</span>
+              ) : (
+                <ColumnFolderSwitcher
+                  accountId={column.accountId}
+                  folderId={column.folderId}
+                  label={folderLabel(column, labelFolders, accounts)}
+                  // Folders already open as their own column on this board can't
+                  // be switched to — the board would end up with duplicates.
+                  takenFolderIds={boardColumns
+                    .filter((item) => item.accountId === column.accountId && item.folderId !== column.folderId)
+                    .map((item) => item.folderId)}
+                  onSelect={(nextFolderId) => {
+                    if (!switchKanbanColumnFolder(boardId, column, nextFolderId)) return
+                    void loadKanbanColumn({ accountId: column.accountId, folderId: nextFolderId }, true)
+                  }}
+                />
+              )}
             </h3>
             {((searchActive && loading) || syncing) && (
               <Loader2 size={13} className="shrink-0 animate-spin text-accent" />

@@ -1,11 +1,45 @@
 package jp.nonbili.meron.ui
 
+import jp.nonbili.meron.shared.AccountSummary
 import jp.nonbili.meron.shared.FolderSummary
 import jp.nonbili.meron.shared.ThreadSummary
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class UnreadCountHelpersTest {
+    @Test
+    fun syncsAnEmptyNeverFetchedMailColumnOnCacheOnlyLoad() {
+        val column = KanbanColumnSpec(accountId = "acc1", folderId = "Archive")
+        val result = MailboxLoadResult(emptyList(), "Archive", emptyList(), folderSynced = false)
+
+        assertTrue(
+            shouldSyncUnfetchedKanbanColumn(
+                column = column,
+                refresh = false,
+                query = "",
+                result = result,
+                accounts = listOf(AccountSummary(id = "acc1", email = "acc1@example.com")),
+            ),
+        )
+        assertFalse(
+            shouldSyncUnfetchedKanbanColumn(
+                column = column,
+                refresh = false,
+                query = "",
+                result = result.copy(folderSynced = true),
+                accounts = listOf(AccountSummary(id = "acc1", email = "acc1@example.com")),
+            ),
+        )
+    }
+
+    @Test
+    fun comparesInboxFolderIdsCaseInsensitively() {
+        assertTrue(kanbanFolderIdsEqual("inbox", "INBOX"))
+        assertFalse(kanbanFolderIdsEqual("archive", "Archive"))
+    }
+
     @Test
     fun folderUnreadTreatsInboxCaseInsensitively() {
         val folders =

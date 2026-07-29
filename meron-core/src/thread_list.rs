@@ -208,13 +208,20 @@ pub fn mail_page(
     // same person/avatar in every folder (outbound copies show the recipient).
     store::apply_card_identity(conn, account, folder, &mut messages);
     let folder_unread = store::get_folder_unread(conn, account, folder)?;
+    // A folder row can exist before its first header sync. Keep that distinct
+    // from a completed sync that found no messages.
+    let folder_synced = store::get_folder_state(conn, account, folder)?.is_some();
     let mut out = if group {
         let draft_thread_keys = store::draft_thread_keys(conn, account)?;
         let threads =
             mail_model::thread_cards_json(conn, account, folder, messages, &draft_thread_keys)?;
-        json!({ "threads": threads, "folder_unread": folder_unread })
+        json!({ "threads": threads, "folder_unread": folder_unread, "folder_synced": folder_synced })
     } else {
-        json!({ "messages": serde_json::to_value(messages)?, "folder_unread": folder_unread })
+        json!({
+            "messages": serde_json::to_value(messages)?,
+            "folder_unread": folder_unread,
+            "folder_synced": folder_synced,
+        })
     };
     if let Some(cursor) = next_cursor {
         out.as_object_mut()

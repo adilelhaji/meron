@@ -174,6 +174,17 @@ internal fun folderUnread(
         }?.unread ?: 0
 }
 
+/** IMAP requires INBOX to be case-insensitive; other mailbox names retain their casing. */
+internal fun kanbanFolderIdsEqual(
+    first: String,
+    second: String,
+): Boolean =
+    if (first.equals(INBOX_FOLDER, ignoreCase = true) && second.equals(INBOX_FOLDER, ignoreCase = true)) {
+        true
+    } else {
+        first == second
+    }
+
 internal fun loadedUnreadCount(threads: List<ThreadSummary>): Int = threads.sumOf { if (it.unread) it.unreadCount.coerceAtLeast(1) else 0 }
 
 internal fun kanbanColumnUnreadCount(

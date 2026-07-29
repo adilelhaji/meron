@@ -141,12 +141,13 @@ class MobileResponseParsersTest {
     fun parsesThreadListNextCursor() {
         val page =
             parseThreadListPage(
-                """{"id":2,"result":{"threads":[{"id":"acc#INBOX#t","account_id":"acc","folder_id":"INBOX","date":1700000000}],"next_cursor":"1700000000:1","folder_unread":7}}""",
+                """{"id":2,"result":{"threads":[{"id":"acc#INBOX#t","account_id":"acc","folder_id":"INBOX","date":1700000000}],"next_cursor":"1700000000:1","folder_unread":7,"folder_synced":true}}""",
             )
 
         assertEquals(1, page.threads.size)
         assertEquals("1700000000:1", page.nextCursor)
         assertEquals(7, page.folderUnread)
+        assertTrue(page.folderSynced == true)
     }
 
     @Test

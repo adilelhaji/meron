@@ -140,6 +140,7 @@ internal data class MailboxLoadResult(
     val unreadCount: Int? = null,
     val nextCursor: String = "",
     val accountCursors: Map<String, String> = emptyMap(),
+    val folderSynced: Boolean? = null,
 )
 
 internal data class MailboxCacheKey(

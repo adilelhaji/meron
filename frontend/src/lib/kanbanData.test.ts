@@ -249,6 +249,46 @@ describe('kanban column loading filters', () => {
     expect(mail$.foldersByAccount.acc1.get()?.[0]?.unread).toBe(3)
   })
 
+  it('waits for a persisted never-synced folder before treating it as empty', async () => {
+    const handlers = new Map<string, (detail: unknown) => void>()
+    let reads = 0
+    accounts$.set([account('acc1')])
+    ;(window as any).runtime = {
+      EventsOn: (name: string, handler: (detail: unknown) => void) => {
+        handlers.set(name, handler)
+        return () => handlers.delete(name)
+      },
+    }
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async () => {
+            reads += 1
+            return reads === 1
+              ? { threads: [], folder_synced: false }
+              : { threads: [message({ thread_id: 'synced' })], folder_synced: true }
+          },
+        },
+      },
+    }
+
+    const load = loadKanbanColumn({ accountId: 'acc1', folderId: 'Archive' }, true)
+    for (let attempt = 0; attempt < 10 && !handlers.has('mail.synced'); attempt += 1) {
+      await Promise.resolve()
+    }
+
+    expect(kanban$.loading['acc1\nArchive'].get()).toBe(true)
+    expect(reads).toBe(1)
+    expect(handlers.has('mail.synced')).toBe(true)
+
+    handlers.get('mail.synced')?.({ account: 'acc1', folder: 'Archive' })
+    await load
+
+    expect(reads).toBe(2)
+    expect(kanban$.threads['acc1\nArchive'].get()[0]?.thread_id).toBe('synced')
+    expect(kanban$.loading['acc1\nArchive'].get()).toBe(false)
+  })
+
   it('keeps using the active filter when loading more of a column', async () => {
     const calls: { command: string; payload: unknown }[] = []
     ;(window as any).go = {
