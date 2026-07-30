@@ -7,7 +7,7 @@ import { Loader2, Minus, Pause } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { clsx } from '../../lib/utils'
 import { accounts$ } from '../../states/accounts'
-import { emptiableFolder, emptyFolder, isDraftFolder, mail$ } from '../../states/mail'
+import { deletableFolder, deleteFolder, emptiableFolder, emptyFolder, isDraftFolder, mail$ } from '../../states/mail'
 import {
   clearBulkSelection,
   isWailsDesktopRuntime,
@@ -141,6 +141,19 @@ function KanbanColumnContent({
       : emptiableFolder(
           labelFolders.find((folder) => folder.account_id === column.accountId && folder.id === column.folderId),
         )
+  // An ordinary folder of a single account can be deleted on the server; the
+  // column goes with it, so unified/starred/RSS columns never offer this.
+  const deletableTarget =
+    starredColumn || isRss || column.accountId === 'unified'
+      ? null
+      : deletableFolder(
+          labelFolders.find((folder) => folder.account_id === column.accountId && folder.id === column.folderId),
+          labelFolders.filter((folder) => folder.account_id === column.accountId),
+        )
+  const deleteColumnFolder = () => {
+    if (!deletableTarget) return
+    void deleteFolder(column.accountId, column.folderId, deletableTarget.name)
+  }
   const emptyColumnFolder = async () => {
     if (!emptiableTarget) return
     if (!(await emptyFolder(column.accountId, column.folderId, emptiableTarget))) return
@@ -312,6 +325,7 @@ function KanbanColumnContent({
               emptyFolderLabel={
                 emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
               }
+              onDeleteFolder={deletableTarget ? deleteColumnFolder : undefined}
               onSync={async () => {
                 setSyncing(true)
                 try {
@@ -357,6 +371,7 @@ function KanbanColumnContent({
             emptyFolderLabel={
               emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
             }
+            onDeleteFolder={deletableTarget ? deleteColumnFolder : undefined}
             onSync={async () => {
               setSyncing(true)
               try {

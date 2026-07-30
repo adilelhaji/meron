@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import type { Message } from '../types'
 import { accounts$ } from './accounts'
-import { kanban$, markColumnAllRead, switchKanbanColumnFolder } from './kanban'
+import { kanban$, markColumnAllRead, removeKanbanColumnsForFolder, switchKanbanColumnFolder } from './kanban'
 import { mail$ } from './mail'
 import { settings$ } from './settings'
 
@@ -174,5 +174,37 @@ describe('switchKanbanColumnFolder', () => {
 
     expect(switchKanbanColumnFolder('b1', { accountId: 'acc1', folderId: 'INBOX' }, 'Sent')).toBe(true)
     expect(kanban$.threads['acc1\nINBOX'].get()).toHaveLength(1)
+  })
+})
+
+describe('removeKanbanColumnsForFolder', () => {
+  it("drops the folder's columns on every board and forgets its cache", () => {
+    settings$.kanbanBoards.set([
+      {
+        id: 'b1',
+        name: 'Board',
+        columns: [
+          { accountId: 'acc1', folderId: 'INBOX' },
+          { accountId: 'acc1', folderId: 'Work' },
+        ],
+      },
+      { id: 'b2', name: 'Other', columns: [{ accountId: 'acc1', folderId: 'Work' }] },
+    ])
+    kanban$.threads.set({})
+    kanban$.threads['acc1\nWork'].set([message({ folder_id: 'Work' })])
+
+    removeKanbanColumnsForFolder('acc1', 'Work')
+
+    expect(settings$.kanbanBoards.get()[0].columns).toEqual([{ accountId: 'acc1', folderId: 'INBOX' }])
+    expect(settings$.kanbanBoards.get()[1].columns).toEqual([])
+    expect(kanban$.threads['acc1\nWork'].get()).toBeUndefined()
+  })
+
+  it('leaves a same-named folder of another account alone', () => {
+    settings$.kanbanBoards.set([{ id: 'b1', name: 'Board', columns: [{ accountId: 'acc2', folderId: 'Work' }] }])
+
+    removeKanbanColumnsForFolder('acc1', 'Work')
+
+    expect(settings$.kanbanBoards.get()[0].columns).toEqual([{ accountId: 'acc2', folderId: 'Work' }])
   })
 })

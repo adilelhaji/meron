@@ -257,6 +257,18 @@ export function removeKanbanColumn(boardId: string, column: KanbanColumn) {
   kanban$.accountCursors.set(nextAccountCursors)
 }
 
+// Drop every column showing a folder, on all boards. Used once the folder is
+// gone from the server: a column left behind would only fail to load.
+export function removeKanbanColumnsForFolder(accountId: string, folderId: string) {
+  if (!accountId || !folderId) return
+  const entry = kanbanColumnKey({ accountId, folderId })
+  for (const board of settings$.kanbanBoards.get()) {
+    if (board.columns.some((item) => kanbanColumnKey(item) === entry)) {
+      removeKanbanColumn(board.id, { accountId, folderId })
+    }
+  }
+}
+
 // Point an existing column at another folder of the same account, keeping its
 // slot on the board. Returns false when the switch can't happen (no such board
 // column, or the target folder already has a column here).

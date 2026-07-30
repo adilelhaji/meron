@@ -4,7 +4,7 @@ import { invoke } from '../lib/bridge'
 import { t } from '../lib/i18n'
 import { clearBulkSelection, confirmAction, ui$, showToast, showUndoToast, type BulkSelectionItem } from './ui'
 import { accounts$, unifiedAccounts } from './accounts'
-import { kanban$ } from './kanban'
+import { kanban$, removeKanbanColumnsForFolder } from './kanban'
 import { filterThreads, isRssAccount } from '../lib/threadActions'
 import { mergeStarredItems } from '../lib/starredItems'
 import { isLocalSendId, discardPendingSend } from './pendingSends'
@@ -252,6 +252,67 @@ export async function emptyFolder(
       error instanceof Error ? error.message : t('threads.emptyFolder.failed', { folder: target.name }),
       'error',
     )
+    return false
+  }
+}
+
+// Only an ordinary folder can be deleted on the server: special-use mailboxes
+// carry the app's own routing (Inbox/Sent/Drafts/Trash/Junk/Archive), and a
+// folder with children can't be deleted over IMAP at all. Takes the account's
+// folder list so the nesting check stays inside the caller's reactive list, and
+// returns the display name for the menu label, or null when not deletable.
+export function deletableFolder(folder: Folder | undefined | null, folders: Folder[]): { name: string } | null {
+  if (!folder || !folder.id || folder.account_id === 'unified') return null
+  if (folder.role && folder.role !== 'folder') return null
+  const prefix = `${folder.id}${folder.delimiter || '/'}`
+  if (folders.some((item) => item.id !== folder.id && item.id.startsWith(prefix))) return null
+  return { name: folder.name || folder.id }
+}
+
+// Delete a folder on the server, along with its cached messages and any board
+// column that showed it. Confirms first — the folder's mail goes with it and the
+// server keeps no copy. Core re-checks that the folder is deletable. Returns
+// true when the folder is gone, so the caller can move its view elsewhere.
+export async function deleteFolder(accountId: string, folderId: string, name?: string): Promise<boolean> {
+  if (!accountId || !folderId || accountId === 'unified') return false
+  const label = name || folderId
+
+  if (
+    !(await confirmAction({
+      title: t('folders.delete.confirmTitle', { folder: label }),
+      message: t('folders.delete.confirmMessage', { folder: label }),
+      confirmLabel: t('folders.delete.confirmButton'),
+      tone: 'danger',
+    }))
+  ) {
+    return false
+  }
+
+  try {
+    const res = await invoke<{ folders?: Folder[] }>('mail.folderDelete', {
+      account_id: accountId,
+      folder_id: folderId,
+    })
+    const folders = res?.folders
+    if (folders) {
+      mail$.foldersByAccount[accountId].set(folders)
+      if (ui$.selectedAccount.get() === accountId) mail$.folders.set(folders)
+    } else {
+      void loadFolders(accountId, false)
+    }
+    // Capture this before removing the Kanban column, which also drops the
+    // column's thread cache and would make the selected conversation unfindable.
+    const openThread = findLocalThread(ui$.selectedThread.get())
+    removeKanbanColumnsForFolder(accountId, folderId)
+    // The open conversation and the mailbox view may have been inside the folder.
+    if (openThread?.account_id === accountId && openThread?.folder_id === folderId) ui$.selectedThread.set('')
+    if (ui$.selectedAccount.get() === accountId && ui$.selectedFolder.get() === folderId) {
+      ui$.selectedFolder.set('inbox')
+    }
+    showToast(t('folders.delete.done', { folder: label }))
+    return true
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : t('folders.delete.failed', { folder: label }), 'error')
     return false
   }
 }

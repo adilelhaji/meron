@@ -129,6 +129,20 @@ func TestIntegrationMailFlow(t *testing.T) {
 		if !foldersContain(result, "ITestFolder") {
 			t.Fatalf("folders.create for bob did not return ITestFolder: %v", result)
 		}
+
+		// Deleting on the server: an ordinary folder goes with its cached mail,
+		// while a special-use folder is refused before any IMAP work.
+		result = callMap(t, sidecar, "folders.create", map[string]any{"account": "alice", "name": "ITestDeleteMe"})
+		if !foldersContain(result, "ITestDeleteMe") {
+			t.Fatalf("folders.create did not return ITestDeleteMe: %v", result)
+		}
+		result = callMap(t, sidecar, "folders.delete", map[string]any{"account": "alice", "folder": "ITestDeleteMe"})
+		if foldersContain(result, "ITestDeleteMe") {
+			t.Fatalf("folders.delete left ITestDeleteMe in the folder list: %v", result)
+		}
+		if _, err := sidecar.Call("folders.delete", map[string]any{"account": "alice", "folder": "INBOX"}); err == nil {
+			t.Fatal("folders.delete accepted INBOX, want refusal")
+		}
 	})
 
 	nonce := fmt.Sprintf("%d", time.Now().UnixNano())

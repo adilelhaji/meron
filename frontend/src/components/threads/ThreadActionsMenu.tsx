@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { MoreVertical, Inbox, Mail, Star, CheckCheck, EyeOff, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { MoreVertical, Inbox, Mail, Star, CheckCheck, EyeOff, FolderX, RefreshCw, Search, Trash2 } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import type { FilterMode } from '../../states/ui'
 import { useDismissOnOutside } from '../menu/useDismissOnOutside'
@@ -15,6 +15,8 @@ export type ThreadActionsMenuItemsProps = {
   /** Only wired for a per-account Trash or Junk folder; the item is hidden otherwise. */
   onEmptyFolder?: () => void
   emptyFolderLabel?: string
+  /** Only wired for an ordinary folder of a single mail account; hidden otherwise. */
+  onDeleteFolder?: () => void
   onSync?: () => void
   syncing?: boolean
   syncLabel?: string
@@ -33,6 +35,7 @@ export function ThreadActionsMenuItems({
   onMarkAllRead,
   onEmptyFolder,
   emptyFolderLabel,
+  onDeleteFolder,
   onSync,
   syncing = false,
   syncLabel,
@@ -104,7 +107,7 @@ export function ThreadActionsMenuItems({
           }}
         />
       )}
-      {(onSync || onRemove) && (
+      {(onSync || onRemove || onDeleteFolder) && (
         <>
           <div className="my-1 border-t border-border" />
           {onSync && (
@@ -140,6 +143,17 @@ export function ThreadActionsMenuItems({
               }}
             />
           )}
+          {onDeleteFolder && (
+            <MenuItem
+              className="flex-nowrap text-rose-600 dark:text-rose-400"
+              icon={<FolderX size={13} className="shrink-0" />}
+              label={<span className="whitespace-nowrap shrink-0">{t('folders.delete.action')}</span>}
+              onClick={() => {
+                onDeleteFolder()
+                closeMenu()
+              }}
+            />
+          )}
         </>
       )}
     </>
@@ -156,6 +170,7 @@ export function ThreadActionsMenu({
   onMarkAllRead,
   onEmptyFolder,
   emptyFolderLabel,
+  onDeleteFolder,
   onSync,
   syncing = false,
   syncLabel,
@@ -173,6 +188,7 @@ export function ThreadActionsMenu({
   onMarkAllRead: () => void
   onEmptyFolder?: () => void
   emptyFolderLabel?: string
+  onDeleteFolder?: () => void
   onSync?: () => void
   syncing?: boolean
   syncLabel?: string
@@ -222,6 +238,7 @@ export function ThreadActionsMenu({
             onMarkAllRead={onMarkAllRead}
             onEmptyFolder={onEmptyFolder}
             emptyFolderLabel={emptyFolderLabel}
+            onDeleteFolder={onDeleteFolder}
             onSync={onSync}
             syncing={syncing}
             syncLabel={syncLabel}

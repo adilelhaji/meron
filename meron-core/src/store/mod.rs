@@ -83,6 +83,62 @@ pub fn ensure_folder(conn: &Connection, account: &str, name: &str) -> Result<()>
     Ok(())
 }
 
+pub fn folder_exists(conn: &Connection, account: &str, name: &str) -> Result<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM folders WHERE account = ?1 AND name = ?2)",
+        params![account, name],
+        |row| row.get(0),
+    )?)
+}
+
+/// Forget a folder that no longer exists on the server: its row, its cached
+/// messages, its sync state and any cached search hits pointing into it. Pairs
+/// with `imap::delete_folder`. Returns the number of cached messages dropped.
+pub fn delete_folder(conn: &Connection, account: &str, name: &str) -> Result<usize> {
+    let tx = conn.unchecked_transaction()?;
+    let deleted = tx.execute(
+        "DELETE FROM messages WHERE account = ?1 AND folder = ?2",
+        params![account, name],
+    )?;
+    tx.execute(
+        "DELETE FROM mail_search_hits WHERE account = ?1 AND folder = ?2",
+        params![account, name],
+    )?;
+    tx.execute(
+        "DELETE FROM folder_state WHERE account = ?1 AND folder = ?2",
+        params![account, name],
+    )?;
+    tx.execute(
+        "DELETE FROM folders WHERE account = ?1 AND name = ?2",
+        params![account, name],
+    )?;
+    tx.commit()?;
+    Ok(deleted)
+}
+
+/// Names of the folders nested under `name`, using each row's own delimiter.
+/// IMAP DELETE fails on a mailbox with inferiors, so callers check this first to
+/// explain why instead of surfacing a bare server error.
+pub fn child_folders(conn: &Connection, account: &str, name: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT name, delimiter FROM folders WHERE account = ?1 AND name <> ?2 ORDER BY name",
+    )?;
+    let rows = stmt.query_map(params![account, name], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+    })?;
+    let mut out = Vec::new();
+    for row in rows {
+        let (child, delimiter) = row?;
+        let delimiter = delimiter
+            .filter(|d| !d.is_empty())
+            .unwrap_or_else(|| "/".to_string());
+        if child.starts_with(&format!("{name}{delimiter}")) {
+            out.push(child);
+        }
+    }
+    Ok(out)
+}
+
 pub fn get_folders(conn: &Connection, account: &str) -> Result<Vec<Folder>> {
     let mut stmt = conn.prepare(
         "SELECT f.name, f.delimiter, f.special_use,

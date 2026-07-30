@@ -93,6 +93,50 @@ func (a *App) folderCreate(payload map[string]any) (any, error) {
 	return foldersJSON(req.AccountID, res), nil
 }
 
+// folderDelete removes a folder on the server, along with the cached messages
+// under it. The sidecar re-checks that the folder is an ordinary one with no
+// children, so a bad payload cannot delete Sent or Archive.
+func (a *App) folderDelete(payload map[string]any) (any, error) {
+	var req FolderDeleteRequest
+	_ = decode(payload, &req)
+	if req.AccountID == "" {
+		req.AccountID, _ = payload["account_id"].(string)
+	}
+	if req.FolderID == "" {
+		req.FolderID, _ = payload["folder_id"].(string)
+	}
+	if req.AccountID == "" {
+		return nil, errors.New("account_id is required")
+	}
+	if strings.TrimSpace(req.FolderID) == "" {
+		return nil, errors.New("folder_id is required")
+	}
+	if isRSSAccountID(req.AccountID) {
+		return nil, errors.New("RSS accounts do not support folders")
+	}
+	if req.AccountID == "unified" {
+		return nil, errors.New("Pick a single account to delete a folder")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	res, err := a.sidecar.Call("folders.delete", map[string]any{"account": req.AccountID, "folder": req.FolderID})
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{"ok": true, "folder": req.FolderID}
+	if m, isMap := res.(map[string]any); isMap {
+		if deleted, found := m["deleted"]; found {
+			out["deleted"] = deleted
+		}
+		// Same reshaping as folderList: the sidecar returns raw folder rows.
+		if shaped, isShaped := foldersJSON(req.AccountID, res).(map[string]any); isShaped {
+			out["folders"] = shaped["folders"]
+		}
+	}
+	return out, nil
+}
+
 func (a *App) threadList(payload map[string]any) (any, error) {
 	var req ThreadListRequest
 	_ = decode(payload, &req)

@@ -1129,6 +1129,44 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "folders": serde_json::to_value(vec![folder])? }))
         }
 
+        // Delete a folder on the server and forget everything cached under it.
+        // Unrecoverable, so the special-use / has-children gate is re-checked
+        // here rather than trusted from the caller.
+        "folders.delete" => {
+            let account = req_str(p, "account")?;
+            if is_rss(engine, &account)? {
+                return Err(anyhow::anyhow!("RSS accounts do not support folders"));
+            }
+            let folder = canon_folder(&req_str(p, "folder").or_else(|_| req_str(p, "name"))?);
+            {
+                let db = engine.db.lock().unwrap();
+                mail_model::check_folder_deletable(&db, &account, &folder)
+                    .map_err(anyhow::Error::msg)?;
+            }
+
+            // Mutating, so it never auto-retries.
+            engine
+                .with_write_session(&account, |session| {
+                    let folder = folder.clone();
+                    Box::pin(async move { imap::delete_folder(session, &folder).await })
+                })
+                .await?;
+
+            let (deleted, folders) = {
+                let db = engine.db.lock().unwrap();
+                (
+                    store::delete_folder(&db, &account, &folder)?,
+                    store::get_folders(&db, &account)?,
+                )
+            };
+            Ok(json!({
+                "ok": true,
+                "folder": folder,
+                "deleted": deleted,
+                "folders": serde_json::to_value(folders)?,
+            }))
+        }
+
         "messages.unifiedRecent" => {
             let cursors = p
                 .get("before_cursor")

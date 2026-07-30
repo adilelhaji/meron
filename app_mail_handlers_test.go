@@ -140,6 +140,48 @@ func TestThreadReadPassesBranchKeyThrough(t *testing.T) {
 	}
 }
 
+func TestFolderDeleteReshapesFoldersAndRefusesBadTargets(t *testing.T) {
+	app, writer := newMailHandlerTestApp(t, sidecarResponsePlan{Result: map[string]any{
+		"ok":      true,
+		"folder":  "Work",
+		"deleted": float64(3),
+		"folders": []any{map[string]any{"name": "INBOX", "delimiter": "/"}},
+	}})
+
+	out, err := app.folderDelete(map[string]any{"account_id": "acc", "folder_id": "Work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(writer.calls) != 1 {
+		t.Fatalf("sidecar calls = %d, want 1", len(writer.calls))
+	}
+	assertCall(t, writer.calls[0], "folders.delete", map[string]any{"account": "acc", "folder": "Work"})
+
+	result, _ := out.(map[string]any)
+	if result["deleted"] != float64(3) {
+		t.Fatalf("deleted = %#v, want the sidecar's count", result["deleted"])
+	}
+	// The remaining folders come back in bridge shape, with ids and roles filled in.
+	folders, _ := result["folders"].([]Folder)
+	if len(folders) != 1 || folders[0].ID != "INBOX" || folders[0].Role != "inbox" {
+		t.Fatalf("folders = %#v, want the reshaped INBOX row", result["folders"])
+	}
+
+	app, writer = newMailHandlerTestApp(t)
+	if _, err := app.folderDelete(map[string]any{"account_id": "acc"}); err == nil {
+		t.Fatal("folderDelete without folder_id succeeded, want an error")
+	}
+	if _, err := app.folderDelete(map[string]any{"account_id": "unified", "folder_id": "Work"}); err == nil {
+		t.Fatal("folderDelete on the unified view succeeded, want an error")
+	}
+	if _, err := app.folderDelete(map[string]any{"account_id": "rss-feeds", "folder_id": "Work"}); err == nil {
+		t.Fatal("folderDelete on an RSS account succeeded, want an error")
+	}
+	if len(writer.calls) != 0 {
+		t.Fatalf("sidecar calls = %d, want the bad payloads refused locally", len(writer.calls))
+	}
+}
+
 func TestMailMovePassesBranchKeyThrough(t *testing.T) {
 	threadID := formatImapThreadID("acc", "INBOX", "k1#Todo")
 	app, writer := newMailHandlerTestApp(t,

@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.FolderDelete
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -454,6 +455,7 @@ internal fun KanbanScreen(
     onLoadMoreColumn: (KanbanColumnSpec) -> Unit,
     onMarkColumnAllRead: (KanbanColumnSpec) -> Unit,
     onEmptyColumnFolder: (KanbanColumnSpec, FolderSummary) -> Unit,
+    onDeleteColumnFolder: (KanbanColumnSpec, FolderSummary) -> Unit,
     onRemoveColumn: (KanbanColumnSpec) -> Unit,
     onMoveColumn: (KanbanColumnSpec, Int) -> Unit,
     onSearchColumn: (KanbanColumnSpec) -> Unit,
@@ -533,6 +535,7 @@ internal fun KanbanScreen(
                             onLoadMore = { onLoadMoreColumn(column) },
                             onMarkAllRead = { onMarkColumnAllRead(column) },
                             onEmptyFolder = { folder -> onEmptyColumnFolder(column, folder) },
+                            onDeleteFolder = { folder -> onDeleteColumnFolder(column, folder) },
                             onRemove = { onRemoveColumn(column) },
                             onMoveLeft = { onMoveColumn(column, -1) },
                             onMoveRight = { onMoveColumn(column, 1) },
@@ -633,6 +636,7 @@ internal fun KanbanColumn(
     onLoadMore: () -> Unit,
     onMarkAllRead: () -> Unit,
     onEmptyFolder: (FolderSummary) -> Unit,
+    onDeleteFolder: (FolderSummary) -> Unit,
     onRemove: () -> Unit,
     onMoveLeft: () -> Unit,
     onMoveRight: () -> Unit,
@@ -674,6 +678,7 @@ internal fun KanbanColumn(
                 onRefresh = onRefresh,
                 onMarkAllRead = onMarkAllRead,
                 onEmptyFolder = onEmptyFolder,
+                onDeleteFolder = onDeleteFolder,
                 onRemove = onRemove,
                 onMoveLeft = onMoveLeft,
                 onMoveRight = onMoveRight,
@@ -788,6 +793,7 @@ internal fun KanbanColumnHeader(
     onRefresh: () -> Unit,
     onMarkAllRead: () -> Unit,
     onEmptyFolder: (FolderSummary) -> Unit,
+    onDeleteFolder: (FolderSummary) -> Unit,
     onRemove: () -> Unit,
     onMoveLeft: () -> Unit,
     onMoveRight: () -> Unit,
@@ -817,6 +823,10 @@ internal fun KanbanColumnHeader(
                 folder.name == column.folderId && (folder.role == "trash" || folder.role == "junk")
             }
         }
+    // Deleting the folder itself is offered only for an ordinary per-account
+    // folder with nothing nested under it — see `deletableFolder`.
+    val deletableColumnFolder =
+        deletableFolder(foldersByAccount[column.accountId].orEmpty(), column.accountId, column.folderId)
     Row(
         Modifier
             .fillMaxWidth()
@@ -976,6 +986,20 @@ internal fun KanbanColumnHeader(
                     menuOpen = false
                     onRemove()
                 })
+                deletableColumnFolder?.let { folder ->
+                    DropdownMenuItem(text = {
+                        Text(tr("folders.delete.action"), color = MaterialTheme.colorScheme.error)
+                    }, leadingIcon = {
+                        Icon(
+                            Icons.Filled.FolderDelete,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }, onClick = {
+                        menuOpen = false
+                        onDeleteFolder(folder)
+                    })
+                }
             }
         }
     }

@@ -451,6 +451,21 @@ pub async fn create_folder(session: &mut Session, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Delete a folder on the server, messages and all. Callers must refuse
+/// special-use folders first: IMAP happily deletes Sent or Archive, and nothing
+/// on the server brings them back.
+pub async fn delete_folder(session: &mut Session, name: &str) -> Result<()> {
+    // Pooled sessions retain their selected mailbox. Some servers refuse to
+    // delete that mailbox, so safely move the session to INBOX first. EXAMINE
+    // implicitly deselects without expunging messages marked \Deleted.
+    session
+        .examine("INBOX")
+        .await
+        .context("EXAMINE INBOX before DELETE")?;
+    session.delete(name).await.context("DELETE")?;
+    Ok(())
+}
+
 /// Fetch the most recent `limit` messages in `folder` as envelope summaries,
 /// newest first. This is the capability Delta Chat core refuses to give us:
 /// reading mail that already existed before setup.

@@ -70,6 +70,67 @@ fn folder_unread_counts_messages_without_requiring_a_folder_row() {
 }
 
 #[test]
+fn delete_folder_drops_the_row_its_messages_and_its_sync_state() {
+    let conn = test_conn();
+    upsert_folders(
+        &conn,
+        "acct",
+        &[
+            Folder {
+                name: "INBOX".to_string(),
+                delimiter: Some("/".to_string()),
+                ..Default::default()
+            },
+            Folder {
+                name: "Work".to_string(),
+                delimiter: Some("/".to_string()),
+                ..Default::default()
+            },
+            Folder {
+                name: "Work/Reports".to_string(),
+                delimiter: Some("/".to_string()),
+                ..Default::default()
+            },
+        ],
+    )
+    .unwrap();
+    insert_message(&conn, 1, "Kept", "Ada", "ada@example.com", None);
+    conn.execute(
+        "INSERT INTO messages(account, folder, msg_id, uid, subject, date, seen)
+         VALUES('acct', 'Work/Reports', '7', 7, 'Q3', 1779580800, 0)",
+        [],
+    )
+    .unwrap();
+    set_folder_state(&conn, "acct", "Work/Reports", 1, 8).unwrap();
+
+    // Nesting is read off each row's own delimiter, so the parent knows it has
+    // children while the leaf has none.
+    assert_eq!(
+        child_folders(&conn, "acct", "Work").unwrap(),
+        vec!["Work/Reports".to_string()]
+    );
+    assert!(
+        child_folders(&conn, "acct", "Work/Reports")
+            .unwrap()
+            .is_empty()
+    );
+
+    assert_eq!(delete_folder(&conn, "acct", "Work/Reports").unwrap(), 1);
+    let names: Vec<String> = get_folders(&conn, "acct")
+        .unwrap()
+        .into_iter()
+        .map(|folder| folder.name)
+        .collect();
+    assert_eq!(names, vec!["INBOX".to_string(), "Work".to_string()]);
+    assert_eq!(
+        get_folder_state(&conn, "acct", "Work/Reports").unwrap(),
+        None
+    );
+    // Untouched folders keep their mail.
+    assert_eq!(get_folder_unread(&conn, "acct", "INBOX").unwrap(), 1);
+}
+
+#[test]
 fn folder_role_assignment_uses_special_use_then_name_fallback() {
     let cases = [
         ("Mail/Entwürfe", Some("drafts"), "drafts"),

@@ -470,6 +470,50 @@ pub(crate) fn create_mobile_folder(data_dir: &str, params: &Value) -> Result<Val
     })
 }
 
+// Delete a folder on the server and drop everything cached under it. The
+// special-use / has-children gate is re-checked here rather than trusted from
+// the caller: the delete takes the folder's mail with it.
+pub(crate) fn delete_mobile_folder(data_dir: &str, params: &Value) -> Result<Value, String> {
+    let account_id = req_account_id(params)?;
+    let folder = params
+        .get("folder_id")
+        .or_else(|| params.get("folder"))
+        .or_else(|| params.get("name"))
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+        .map(canon_folder)
+        .ok_or_else(|| "folder_id is required".to_string())?;
+    if account_id == "unified" {
+        return Err("Pick a single account to delete a folder".to_string());
+    }
+
+    let engine = crate::ffi::engine_for(data_dir)?;
+    with_mobile_db(data_dir, |conn| {
+        if is_rss_account(&conn, &account_id)? {
+            return Err("RSS accounts do not support folders".to_string());
+        }
+        crate::mail_model::check_folder_deletable(&conn, &account_id, &folder)?;
+        let creds = load_mobile_account_creds(&conn, &account_id)?;
+        if account_needs_reconnect(&creds) {
+            return Err(format!("account needs reconnect: {account_id}"));
+        }
+        {
+            let folder = folder.clone();
+            crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
+                let folder = folder.clone();
+                Box::pin(async move { imap::delete_folder(session, &folder).await })
+            }))?;
+        }
+        let deleted =
+            store::delete_folder(&conn, &account_id, &folder).map_err(|err| err.to_string())?;
+        let mut response = list_mobile_folders(data_dir, params)?;
+        response["ok"] = json!(true);
+        response["folder"] = json!(folder);
+        response["deleted"] = json!(deleted);
+        Ok(response)
+    })
+}
+
 pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Value, String> {
     let account_id = req_str(params, "account_id")?;
     if account_id == "unified" {

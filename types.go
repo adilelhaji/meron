@@ -127,6 +127,11 @@ type FolderCreateRequest struct {
 	Name      string `json:"name"`
 }
 
+type FolderDeleteRequest struct {
+	AccountID string `json:"account_id"`
+	FolderID  string `json:"folder_id"`
+}
+
 type ThreadListRequest struct {
 	AccountID    string `json:"account_id"`
 	FolderID     string `json:"folder_id"`

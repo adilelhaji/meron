@@ -161,6 +161,7 @@ import jp.nonbili.meron.shared.EmptyFolderParams
 import jp.nonbili.meron.shared.ExchangeOAuthCodeParams
 import jp.nonbili.meron.shared.ExportOpmlParams
 import jp.nonbili.meron.shared.FolderCreateParams
+import jp.nonbili.meron.shared.FolderDeleteParams
 import jp.nonbili.meron.shared.FolderListParams
 import jp.nonbili.meron.shared.FolderSummary
 import jp.nonbili.meron.shared.ImportOpmlParams
@@ -1674,6 +1675,54 @@ internal fun MeronMobileState.emptyMailFolder(
             coreThreads = threadsBefore
             kanbanColumns = kanbanBefore
             status = "Empty folder failed: ${it.message}"
+        }
+    }
+}
+
+// Delete a folder on the server, with its mail and any board column showing it.
+// The core re-checks that the folder is an ordinary one with no children, so a
+// stale menu can never delete Sent or Archive. Callers confirm first: the server
+// keeps no copy of what the folder held.
+internal fun MeronMobileState.deleteMailFolder(
+    accountId: String,
+    folderId: String,
+    column: KanbanColumnSpec? = null,
+) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    val account = coreAccounts.firstOrNull { it.id == accountId }
+    if (accountId == UNIFIED_ACCOUNT_ID || account == null || accountSummaryIsRss(account)) return
+
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                val client = MobileMailCommandClient(core)
+                requireCoreOk(
+                    withManagedGoogleAuth(client, accountId) {
+                        client.deleteFolder(FolderDeleteParams(accountId = accountId, folderId = folderId))
+                    },
+                )
+                loadAccountFolders(client, account)
+            }
+        }.onSuccess { folders ->
+            foldersByAccount = foldersByAccount + (accountId to folders)
+            coreFolders = coreFolders.filterNot { it.accountId == accountId && it.name == folderId }
+            val inFolder = { thread: ThreadSummary -> thread.accountId == accountId && thread.folder == folderId }
+            coreThreads = coreThreads.filterNot(inFolder)
+            selectedMailThreadIds = emptySet()
+            mailSelectionMenuOpen = false
+            removeKanbanColumnsForFolder(accountId, folderId)
+            // The mailbox view may have been sitting in the folder that just went away.
+            if (selectedCoreAccountId == accountId && selectedCoreFolder == folderId) {
+                selectCoreMailbox(accountId, INBOX_FOLDER)
+                syncCoreThreads(accountOverride = accountId, folderOverride = INBOX_FOLDER, syncFirst = false)
+            }
+            status = "Folder deleted"
+        }.onFailure {
+            Log.w("Mail", "delete folder failed", it)
+            status = "Delete folder failed: ${it.message}"
         }
     }
 }

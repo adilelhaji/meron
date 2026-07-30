@@ -1372,6 +1372,23 @@ internal fun MeronMobileState.removeKanbanColumn(column: KanbanColumnSpec) {
 }
 
 /**
+ * Drop every column showing a folder, on all boards. Used once the folder is gone
+ * from the server: a column left behind would only fail to load.
+ */
+internal fun MeronMobileState.removeKanbanColumnsForFolder(
+    accountId: String,
+    folderId: String,
+) {
+    val key = kanbanColumnKey(KanbanColumnSpec(accountId, folderId))
+    persistKanbanBoards(
+        kanbanBoards.map { board ->
+            board.copy(columns = board.columns.filterNot { kanbanColumnKey(it) == key })
+        },
+    )
+    kanbanColumns = kanbanColumns - key
+}
+
+/**
  * Point an existing column at another folder of the same account, keeping its slot
  * on the board. Does nothing when the folder is unchanged or already has its own
  * column here — the board must not end up with duplicates.

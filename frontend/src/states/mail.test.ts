@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
-import type { Message } from '../types'
+import type { Folder, Message } from '../types'
 import { accounts$ } from './accounts'
 import { kanban$ } from './kanban'
 import {
   archiveThread,
+  deletableFolder,
+  deleteFolder,
   bulkArchiveSelected,
   bulkDeleteSelected,
   bulkMarkSelectedUnread,
@@ -18,6 +20,7 @@ import {
   markMessagesRead,
   moveThreadToFolder,
 } from './mail'
+import { settings$ } from './settings'
 import { runToastUndo, settleConfirm, toggleBulkSelection, ui$, type BulkSelectionItem } from './ui'
 
 const thread = (overrides: Partial<Message> = {}): Message => ({
@@ -981,5 +984,139 @@ describe('bulk thread actions', () => {
 
     expect(Object.keys(ui$.bulkSelection.get())).toEqual(['test:m2'])
     expect(ui$.bulkSelection['test:m2'].get()?.groupKey).toBe('kanban:work')
+  })
+})
+
+describe('deletableFolder', () => {
+  const folder = (id: string, overrides: Partial<Folder> = {}): Folder => ({
+    id,
+    account_id: 'acc',
+    name: id,
+    role: 'folder',
+    unread: 0,
+    ...overrides,
+  })
+
+  it('accepts an ordinary leaf folder', () => {
+    const folders = [folder('inbox', { role: 'inbox' }), folder('Work'), folder('Receipts')]
+
+    expect(deletableFolder(folder('Receipts'), folders)).toEqual({ name: 'Receipts' })
+  })
+
+  it('refuses special-use folders, parents and the unified view', () => {
+    const folders = [
+      folder('inbox', { role: 'inbox' }),
+      folder('Work', { delimiter: '/' }),
+      folder('Work/Reports', { delimiter: '/' }),
+    ]
+
+    expect(deletableFolder(folder('inbox', { role: 'inbox' }), folders)).toBeNull()
+    expect(deletableFolder(folder('Work', { delimiter: '/' }), folders)).toBeNull()
+    expect(deletableFolder(folder('Work/Reports', { delimiter: '/' }), folders)).toEqual({ name: 'Work/Reports' })
+    expect(deletableFolder(folder('Work', { account_id: 'unified' }), folders)).toBeNull()
+    expect(deletableFolder(undefined, folders)).toBeNull()
+  })
+})
+
+describe('deleteFolder', () => {
+  const calls: { command: string; payload: unknown }[] = []
+  let responses: Record<string, unknown> = {}
+
+  beforeEach(() => {
+    calls.length = 0
+    responses = {
+      'mail.folderDelete': {
+        ok: true,
+        deleted: 2,
+        folders: [{ id: 'inbox', account_id: 'acc', name: 'Inbox', role: 'inbox', unread: 0 }],
+      },
+    }
+    mail$.threads.set([])
+    mail$.folders.set([
+      { id: 'inbox', account_id: 'acc', name: 'Inbox', role: 'inbox', unread: 0 },
+      { id: 'Work', account_id: 'acc', name: 'Work', role: 'folder', unread: 0 },
+    ])
+    mail$.foldersByAccount.set({ acc: mail$.folders.get() })
+    kanban$.threads.set({})
+    settings$.kanbanBoards.set([
+      {
+        id: 'b1',
+        name: 'Board',
+        columns: [
+          { accountId: 'acc', folderId: 'inbox' },
+          { accountId: 'acc', folderId: 'Work' },
+        ],
+      },
+    ])
+    ui$.selectedAccount.set('acc')
+    ui$.selectedFolder.set('Work')
+    ui$.selectedThread.set('')
+    ui$.toast.set('')
+    ui$.toastTone.set('success')
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (command: string, payload: unknown) => {
+            calls.push({ command, payload })
+            return responses[command] ?? {}
+          },
+        },
+      },
+    }
+  })
+
+  it('deletes on confirm, then drops the column and leaves the folder', async () => {
+    const pending = deleteFolder('acc', 'Work', 'Work')
+    settleConfirm(true)
+
+    expect(await pending).toBe(true)
+    expect(calls.filter((call) => call.command === 'mail.folderDelete')).toEqual([
+      { command: 'mail.folderDelete', payload: { account_id: 'acc', folder_id: 'Work' } },
+    ])
+    expect(mail$.foldersByAccount.get().acc.map((item) => item.id)).toEqual(['inbox'])
+    expect(settings$.kanbanBoards.get()[0].columns).toEqual([{ accountId: 'acc', folderId: 'inbox' }])
+    expect(ui$.selectedFolder.get()).toBe('inbox')
+    expect(ui$.toast.get()).toBe('Work deleted')
+  })
+
+  it('clears a selected thread that exists only in the deleted Kanban column', async () => {
+    const selected = thread({
+      id: 'acc#Work#t.work',
+      thread_id: 'acc#Work#t.work',
+      account_id: 'acc',
+      folder_id: 'Work',
+    })
+    kanban$.threads['acc\nWork'].set([selected])
+    ui$.selectedThread.set(selected.thread_id)
+
+    const pending = deleteFolder('acc', 'Work', 'Work')
+    settleConfirm(true)
+
+    expect(await pending).toBe(true)
+    expect(ui$.selectedThread.get()).toBe('')
+    expect(kanban$.threads['acc\nWork'].get()).toBeUndefined()
+  })
+
+  it('does nothing when the confirm is declined', async () => {
+    const pending = deleteFolder('acc', 'Work', 'Work')
+    settleConfirm(false)
+
+    expect(await pending).toBe(false)
+    expect(calls.filter((call) => call.command === 'mail.folderDelete')).toHaveLength(0)
+    expect(settings$.kanbanBoards.get()[0].columns).toHaveLength(2)
+  })
+
+  it('keeps the folder and reports the error when the backend refuses', async () => {
+    ;(window as any).go.main.App.Invoke = async () => {
+      throw new Error('Work is a special folder and cannot be deleted')
+    }
+
+    const pending = deleteFolder('acc', 'Work', 'Work')
+    settleConfirm(true)
+
+    expect(await pending).toBe(false)
+    expect(settings$.kanbanBoards.get()[0].columns).toHaveLength(2)
+    expect(ui$.toastTone.get()).toBe('error')
+    expect(ui$.toast.get()).toBe('Work is a special folder and cannot be deleted')
   })
 })

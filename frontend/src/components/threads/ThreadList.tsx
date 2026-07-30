@@ -32,6 +32,8 @@ import {
   folderUnread,
   emptiableFolder,
   emptyFolder,
+  deletableFolder,
+  deleteFolder,
   loadThreads,
 } from '../../states/mail'
 import { isRssAccount } from '../../lib/threadActions'
@@ -113,6 +115,15 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
     isStarredView || isRSSAccount || selectedAccount === 'unified'
       ? null
       : emptiableFolder(folders.find((folder) => folder.id === selectedFolder))
+  // Non-null only in an ordinary folder of a single account, the only kind the
+  // server lets us delete.
+  const deletableTarget =
+    isStarredView || isRSSAccount || selectedAccount === 'unified'
+      ? null
+      : deletableFolder(
+          folders.find((folder) => folder.id === selectedFolder),
+          folders,
+        )
   const hasUnread = isRSSAccount
     ? filteredThreads.some((thread) => thread.unread)
     : folderUnread(folders, selectedFolder) > 0 || filteredThreads.some((thread) => thread.unread)
@@ -257,6 +268,11 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                 }
                 emptyFolderLabel={
                   emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
+                }
+                onDeleteFolder={
+                  deletableTarget
+                    ? () => void deleteFolder(selectedAccount, selectedFolder, deletableTarget.name)
+                    : undefined
                 }
                 onSync={syncMail}
                 syncing={busy}

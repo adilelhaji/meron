@@ -492,6 +492,10 @@ class MobileCommandsTest {
         assertEquals(MobileCommand.FolderCreate, core.lastCommand)
         assertEquals("""{"account_id":"acc1","name":"Work"}""", core.lastPayloadJson)
 
+        runSuspend { client.deleteFolder(FolderDeleteParams(accountId = "acc1", folderId = "Work")) }
+        assertEquals(MobileCommand.FolderDelete, core.lastCommand)
+        assertEquals("""{"account_id":"acc1","folder_id":"Work"}""", core.lastPayloadJson)
+
         runSuspend { client.listThreads(ThreadListParams(accountId = "acc1")) }
         assertEquals(MobileCommand.ThreadList, core.lastCommand)
         assertEquals("""{"account_id":"acc1","folder_id":"inbox","query":"","filter":"all","refresh":false}""", core.lastPayloadJson)
@@ -588,6 +592,14 @@ class MobileCommandsTest {
         assertEquals(
             """{"id":6,"method":"mail.folderCreate","params":{"account_id":"acc1","name":"Work"}}""",
             folderCreateRequest(id = 6, params = FolderCreateParams(accountId = "acc1", name = "Work")).toJson(),
+        )
+    }
+
+    @Test
+    fun folderDeletePreservesFrontendWireFieldNames() {
+        assertEquals(
+            """{"id":7,"method":"mail.folderDelete","params":{"account_id":"acc1","folder_id":"Work"}}""",
+            folderDeleteRequest(id = 7, params = FolderDeleteParams(accountId = "acc1", folderId = "Work")).toJson(),
         )
     }
 

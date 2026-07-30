@@ -13,6 +13,35 @@ pub fn canon_folder(folder: &str) -> String {
     }
 }
 
+/// Gate for deleting a folder on the server. Both clients call this so the rule
+/// lives in one place: special-use mailboxes are off limits (the app routes mail
+/// through Inbox/Sent/Drafts/Trash/Junk/Archive, and the server keeps no copy
+/// once they are gone), and a folder with children is refused because IMAP
+/// DELETE fails on a mailbox with inferiors.
+pub fn check_folder_deletable(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+) -> Result<(), String> {
+    if !store::folder_exists(conn, account, folder).map_err(|err| err.to_string())? {
+        return Err(format!("{folder} is not in the synchronized folder list"));
+    }
+    let role = store::folder_role(conn, account, folder).map_err(|err| err.to_string())?;
+    if role != "folder" {
+        return Err(format!(
+            "{folder} is a special folder and cannot be deleted"
+        ));
+    }
+    let children = store::child_folders(conn, account, folder).map_err(|err| err.to_string())?;
+    if !children.is_empty() {
+        return Err(format!(
+            "{folder} has {} nested folder(s); delete those first",
+            children.len()
+        ));
+    }
+    Ok(())
+}
+
 pub fn format_thread_id(account_id: &str, folder: &str, thread_key: &str) -> String {
     if let Some(uid) = thread_key.strip_prefix("uid:") {
         return format!("{account_id}#{}#{uid}", canon_folder(folder));
@@ -251,6 +280,42 @@ mod tests {
         assert!(draft.ends_with("@example.com"));
         assert!(outgoing.ends_with("@example.com"));
         assert_ne!(draft, outgoing);
+    }
+
+    #[test]
+    fn folder_delete_gate_requires_a_synced_ordinary_folder() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::run_migrations(&conn).unwrap();
+        store::upsert_folders(
+            &conn,
+            "me@example.com",
+            &[
+                crate::imap::Folder {
+                    name: "Projects".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Localized Sent".to_string(),
+                    delimiter: Some("/".to_string()),
+                    special_use: Some("sent".to_string()),
+                    ..Default::default()
+                },
+            ],
+        )
+        .unwrap();
+
+        assert!(check_folder_deletable(&conn, "me@example.com", "Projects").is_ok());
+        assert!(
+            check_folder_deletable(&conn, "me@example.com", "Localized Sent")
+                .unwrap_err()
+                .contains("special folder")
+        );
+        assert!(
+            check_folder_deletable(&conn, "me@example.com", "Uncached")
+                .unwrap_err()
+                .contains("synchronized folder list")
+        );
     }
 
     #[test]

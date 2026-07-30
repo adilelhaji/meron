@@ -33,6 +33,7 @@ object MobileCommand {
     const val FeedImportOpml = "rss.importOpml"
     const val FolderList = "mail.folderList"
     const val FolderCreate = "mail.folderCreate"
+    const val FolderDelete = "mail.folderDelete"
     const val ContactSuggest = "mail.suggestContacts"
     const val ThreadList = "mail.threadList"
     const val StarredItems = "mail.starredItems"
@@ -378,6 +379,21 @@ data class FolderCreateParams(
         jsonObject(
             "account_id" to accountId.jsonString(),
             "name" to name.jsonString(),
+        )
+}
+
+/**
+ * Deletes a folder on the server with everything in it; the core rejects
+ * special-use folders and folders that still have nested folders.
+ */
+data class FolderDeleteParams(
+    val accountId: String,
+    val folderId: String,
+) {
+    fun toJson(): String =
+        jsonObject(
+            "account_id" to accountId.jsonString(),
+            "folder_id" to folderId.jsonString(),
         )
 }
 
@@ -854,6 +870,8 @@ class MobileMailCommandClient(
 
     suspend fun createFolder(params: FolderCreateParams): String = core.invoke(MobileCommand.FolderCreate, params.toJson())
 
+    suspend fun deleteFolder(params: FolderDeleteParams): String = core.invoke(MobileCommand.FolderDelete, params.toJson())
+
     suspend fun suggestContacts(params: ContactSuggestParams): String = core.invoke(MobileCommand.ContactSuggest, params.toJson())
 
     suspend fun listThreads(params: ThreadListParams): String = core.invoke(MobileCommand.ThreadList, params.toJson())
@@ -1041,6 +1059,11 @@ fun folderCreateRequest(
     id: Long = 1,
     params: FolderCreateParams,
 ): CoreRequest = CoreRequest(id, MobileCommand.FolderCreate, params.toJson())
+
+fun folderDeleteRequest(
+    id: Long = 1,
+    params: FolderDeleteParams,
+): CoreRequest = CoreRequest(id, MobileCommand.FolderDelete, params.toJson())
 
 fun contactSuggestRequest(
     id: Long = 1,

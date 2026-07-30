@@ -26,6 +26,25 @@ internal fun folderTreeDelimiter(folders: List<FolderSummary>): String =
         else -> "/"
     }
 
+/**
+ * The folder a "delete folder" action may target: an ordinary folder of a single
+ * account with nothing nested under it. Special-use folders carry the app's own
+ * routing (Inbox/Sent/Drafts/Trash/Junk/Archive), and IMAP refuses to delete a
+ * mailbox that still has children. The core re-checks both rules.
+ */
+internal fun deletableFolder(
+    folders: List<FolderSummary>,
+    accountId: String,
+    folderId: String,
+): FolderSummary? {
+    if (accountId == UNIFIED_ACCOUNT_ID) return null
+    val folder = folders.firstOrNull { it.accountId == accountId && it.name == folderId } ?: return null
+    if (folder.role != "folder") return null
+    val prefix = folder.name + folderTreeDelimiter(folders)
+    if (folders.any { it.name != folder.name && it.name.startsWith(prefix) }) return null
+    return folder
+}
+
 private class MutableFolderTreeNode(
     val name: String,
     var folder: FolderSummary? = null,

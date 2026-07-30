@@ -60,6 +60,7 @@ func TestSidecarCallTimeouts(t *testing.T) {
 		"messages.thread":     30 * time.Second,
 		"messages.markRead":   30 * time.Second,
 		"folders.list":        15 * time.Second,
+		"folders.delete":      30 * time.Second,
 		"rss.importOpml":      15 * time.Second,
 		"unknown.sidecarCall": 5 * time.Second,
 	}

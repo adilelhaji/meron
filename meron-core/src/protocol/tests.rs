@@ -1040,6 +1040,81 @@ fn mobile_protocol_folder_create_requires_usable_account_secret() {
 }
 
 #[test]
+fn mobile_protocol_folder_delete_refuses_special_use_and_parents() {
+    let data_dir = unique_data_dir("folder-delete-gate");
+    seed_mobile_account(&data_dir, "me@example.com");
+    let conn = store::open_at(data_dir.join("meron.db")).unwrap();
+    store::upsert_folders(
+        &conn,
+        "me@example.com",
+        &[
+            Folder {
+                name: "INBOX".to_string(),
+                delimiter: Some("/".to_string()),
+                special_use: Some("inbox".to_string()),
+                ..Default::default()
+            },
+            Folder {
+                name: "Work".to_string(),
+                delimiter: Some("/".to_string()),
+                ..Default::default()
+            },
+            Folder {
+                name: "Work/Reports".to_string(),
+                delimiter: Some("/".to_string()),
+                ..Default::default()
+            },
+            Folder {
+                name: "Receipts".to_string(),
+                delimiter: Some("/".to_string()),
+                ..Default::default()
+            },
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    // Special-use folders are refused before any account/network work.
+    let inbox = invoke_mobile_protocol_json(
+        r#"{"id":80,"method":"mail.folderDelete","params":{"account_id":"me@example.com","folder_id":"INBOX"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    assert_eq!(inbox["id"], 80);
+    assert!(
+        inbox["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("special folder")
+    );
+
+    // So is a folder that still has nested folders — IMAP DELETE would fail.
+    let parent = invoke_mobile_protocol_json(
+        r#"{"id":81,"method":"mail.folderDelete","params":{"account_id":"me@example.com","folder_id":"Work"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    assert!(
+        parent["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nested folder")
+    );
+
+    // An ordinary leaf folder passes the gate and gets as far as the creds check.
+    let leaf = invoke_mobile_protocol_json(
+        r#"{"id":82,"method":"mail.folderDelete","params":{"account_id":"me@example.com","folder_id":"Receipts"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    assert!(
+        leaf["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("account needs reconnect")
+    );
+
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+#[test]
 fn mobile_protocol_move_requires_usable_account_secret() {
     let data_dir = unique_data_dir("move-needs-secret");
     seed_mobile_account(&data_dir, "me@example.com");

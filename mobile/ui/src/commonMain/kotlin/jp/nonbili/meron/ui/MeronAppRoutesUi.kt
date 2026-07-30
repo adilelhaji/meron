@@ -17,6 +17,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FolderDelete
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
@@ -547,6 +548,15 @@ internal fun KanbanRouteContent(
                                 column = column,
                             )
                     },
+                    onDeleteColumnFolder = { column, folder ->
+                        pendingDeleteFolder =
+                            DeleteFolderTarget(
+                                accountId = folder.accountId,
+                                folderId = folder.name,
+                                folderName = folder.name,
+                                column = column,
+                            )
+                    },
                     onRemoveColumn = ::removeKanbanColumn,
                     onMoveColumn = ::moveKanbanColumn,
                     onSearchColumn = { column ->
@@ -821,6 +831,14 @@ internal fun MailRouteContent(
                                                 (folder.role == "trash" || folder.role == "junk")
                                         }
                                     }
+                                // Deleting the folder itself is offered only for an
+                                // ordinary folder with nothing nested under it.
+                                val deletableMailboxFolder =
+                                    if (selectedAccountIsRss) {
+                                        null
+                                    } else {
+                                        deletableFolder(coreFolders, selectedCoreAccountId, selectedCoreFolder)
+                                    }
                                 Box {
                                     IconButton(onClick = { mailboxMenuOpen = true }) {
                                         Icon(
@@ -891,6 +909,32 @@ internal fun MailRouteContent(
                                                             folderId = folder.name,
                                                             folderName = folder.name,
                                                             role = folder.role,
+                                                        )
+                                                },
+                                            )
+                                        }
+                                        deletableMailboxFolder?.let { folder ->
+                                            DropdownMenuItem(
+                                                text = {
+                                                    Text(
+                                                        tr("folders.delete.action"),
+                                                        color = MaterialTheme.colorScheme.error,
+                                                    )
+                                                },
+                                                leadingIcon = {
+                                                    Icon(
+                                                        Icons.Filled.FolderDelete,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.error,
+                                                    )
+                                                },
+                                                onClick = {
+                                                    mailboxMenuOpen = false
+                                                    pendingDeleteFolder =
+                                                        DeleteFolderTarget(
+                                                            accountId = folder.accountId,
+                                                            folderId = folder.name,
+                                                            folderName = folder.name,
                                                         )
                                                 },
                                             )

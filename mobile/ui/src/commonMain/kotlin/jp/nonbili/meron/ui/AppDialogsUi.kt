@@ -94,6 +94,36 @@ internal fun EmptyFolderDialog(
 }
 
 /**
+ * Confirms deleting a folder on the server. The folder's mail goes with it and the
+ * server keeps no copy, so the action always goes through this dialog.
+ */
+@Composable
+internal fun DeleteFolderDialog(
+    folderName: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(tr("folders.delete.confirmTitle", mapOf("folder" to folderName))) },
+        text = { Text(tr("folders.delete.confirmMessage", mapOf("folder" to folderName))) },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    tr("folders.delete.confirmButton"),
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(tr("buttons.cancel"))
+            }
+        },
+    )
+}
+
+/**
  * Offered on the launch after a crash. Nothing has been sent at this point —
  * "send" opens the platform share sheet with the redacted diagnostic log, so
  * the user sees the contents and picks the recipient.
