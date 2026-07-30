@@ -9,10 +9,12 @@ import (
 	"bufio"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +98,68 @@ func num(message map[string]any, key string) uint32 {
 func boolValue(message map[string]any, key string) bool {
 	value, _ := message[key].(bool)
 	return value
+}
+
+func TestIMAPResponseParsing(t *testing.T) {
+	t.Run("tagged status is case insensitive", func(t *testing.T) {
+		if !imapTaggedOK("t4 ok completed", "t4") {
+			t.Fatal("lowercase tagged OK was rejected")
+		}
+		if imapTaggedOK("t4 NO failed", "t4") {
+			t.Fatal("tagged NO was accepted")
+		}
+		if imapTaggedOK("t40 OK completed", "t4") {
+			t.Fatal("different tag was accepted")
+		}
+	})
+
+	t.Run("uidvalidity tolerates response text and casing", func(t *testing.T) {
+		got, ok := parseIMAPUIDValidity([]string{
+			"* FLAGS (\\Seen)",
+			"* ok [uidvalidity 4294967295] UIDs valid",
+		})
+		if !ok || got != ^uint32(0) {
+			t.Fatalf("UIDVALIDITY = %d, %v; want %d, true", got, ok, ^uint32(0))
+		}
+		for _, lines := range [][]string{
+			{"* OK mailbox selected"},
+			{"* OK [UIDVALIDITY 0] invalid"},
+			{"* OK [UIDVALIDITY nope] invalid"},
+		} {
+			if got, ok := parseIMAPUIDValidity(lines); ok || got != 0 {
+				t.Fatalf("invalid UIDVALIDITY parsed as %d, %v from %v", got, ok, lines)
+			}
+		}
+	})
+
+	t.Run("flags tolerate reordered fetch fields", func(t *testing.T) {
+		lines := []string{
+			"* 3 FETCH (FLAGS (\\Seen custom) RFC822.SIZE 42 uid 77)",
+			"* 4 FETCH (UID 78 FLAGS (\\Flagged))",
+		}
+		if got := parseIMAPFlags(lines, 77); got != `\Seen custom` {
+			t.Fatalf("flags for UID 77 = %q", got)
+		}
+		if got := parseIMAPFlags(lines, 78); got != `\Flagged` {
+			t.Fatalf("flags for UID 78 = %q", got)
+		}
+		if got := parseIMAPFlags(lines, 79); got != "" {
+			t.Fatalf("flags for absent UID = %q", got)
+		}
+	})
+
+	t.Run("search handles empty and malformed fields", func(t *testing.T) {
+		got := parseIMAPSearch([]string{
+			"* SEARCH 2 nope 3x 0 17",
+			"* VANISHED 99",
+		})
+		if fmt.Sprint(got) != "[2 17]" {
+			t.Fatalf("SEARCH UIDs = %v, want [2 17]", got)
+		}
+		if got := parseIMAPSearch([]string{"* SEARCH"}); len(got) != 0 {
+			t.Fatalf("empty SEARCH = %v", got)
+		}
+	})
 }
 
 func TestIntegrationMailFlow(t *testing.T) {
@@ -827,6 +891,82 @@ func TestIntegrationMailFlow(t *testing.T) {
 		})
 	})
 
+	t.Run("external flag changes reconcile locally", func(t *testing.T) {
+		server := startMaddy(t)
+		sidecar, _ := startSidecar(t)
+		connectAccount(t, sidecar, server, "alice", "alice@maddy.test")
+		connectAccount(t, sidecar, server, "bob", "bob@maddy.test")
+		nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
+		// The reverse direction of the server-truth checks above: another client
+		// can read or star a message, and the next sync must replace the cached
+		// flags and unread count with what IMAP reports.
+		flagSubject := "Meron integration external flags " + nonce
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "alice",
+			"to":         "bob@maddy.test",
+			"subject":    flagSubject,
+			"body":       "change my flags from another client",
+			"message_id": fmt.Sprintf("itest-external-flags-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send external-flags fixture: %v", err)
+		}
+		message := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == flagSubject
+		})
+		uid := num(message, "uid")
+		if uid == 0 {
+			t.Fatalf("external-flags fixture has no uid: %v", message)
+		}
+		if boolValue(message, "seen") || boolValue(message, "starred") {
+			t.Fatalf("external-flags fixture did not start unread and unstarred: %v", message)
+		}
+		page := callMap(t, sidecar, "messages.recent", map[string]any{
+			"account": "bob",
+			"folder":  "INBOX",
+			"refresh": false,
+			"limit":   50,
+		})
+		unreadBefore, _ := page["folder_unread"].(float64)
+		if unreadBefore != 1 {
+			t.Fatalf("folder_unread before external flag change = %v, want 1: %v", unreadBefore, page)
+		}
+
+		imapSetFlags(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", uid, true, true)
+		updated := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == flagSubject && boolValue(m, "seen") && boolValue(m, "starred")
+		})
+		if num(updated, "uid") != uid {
+			t.Fatalf("externally flagged message uid = %d, want %d", num(updated, "uid"), uid)
+		}
+		page = callMap(t, sidecar, "messages.recent", map[string]any{
+			"account": "bob",
+			"folder":  "INBOX",
+			"refresh": false,
+			"limit":   50,
+		})
+		if unread, _ := page["folder_unread"].(float64); unread != 0 {
+			t.Fatalf("folder_unread after external \\Seen = %v, want 0: %v", unread, page)
+		}
+
+		imapSetFlags(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", uid, false, false)
+		updated = pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == flagSubject && !boolValue(m, "seen") && !boolValue(m, "starred")
+		})
+		if num(updated, "uid") != uid {
+			t.Fatalf("externally unflagged message uid = %d, want %d", num(updated, "uid"), uid)
+		}
+		page = callMap(t, sidecar, "messages.recent", map[string]any{
+			"account": "bob",
+			"folder":  "INBOX",
+			"refresh": false,
+			"limit":   50,
+		})
+		if unread, _ := page["folder_unread"].(float64); unread != 1 {
+			t.Fatalf("folder_unread after removing external \\Seen = %v, want 1: %v", unread, page)
+		}
+	})
+
 	t.Run("uidvalidity change clears the cached folder", func(t *testing.T) {
 		// A recreated mailbox hands out a new UIDVALIDITY and starts UIDs over
 		// from 1, so cached rows describe messages that no longer exist under
@@ -927,12 +1067,23 @@ func TestIntegrationMailFlow(t *testing.T) {
 			t.Fatalf("IDLE push did not land %q in the store: %v", pushedSubject, cached)
 		}
 
+		stopped := func() int {
+			return events.count(func(event sidecarEvent) bool {
+				return event.name == "watch.stopped" && str(event.detail, "account") == "bob" &&
+					strings.EqualFold(str(event.detail, "folder"), folder)
+			})
+		}
+		stoppedBaseline := stopped()
 		if result := callMap(t, sidecar, "watch.stop", map[string]any{"account": "bob", "folder": folder}); !boolValue(result, "stopped") {
 			t.Fatalf("watch.stop did not stop the watcher: %v", result)
 		}
-		// watch.stop cancels the parked IDLE via the pause signal; give the
-		// watcher a moment to unwind before checking that nothing else arrives.
-		time.Sleep(2 * time.Second)
+		deadline = time.Now().Add(10 * time.Second)
+		for stopped() == stoppedBaseline {
+			if time.Now().After(deadline) {
+				t.Fatalf("watch.stop never completed for %s", folder)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
 		baseline = synced()
 		quietSubject := "Meron integration idle quiet " + nonce
 		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, folder, rawMessage([]string{
@@ -942,7 +1093,6 @@ func TestIntegrationMailFlow(t *testing.T) {
 			fmt.Sprintf("Message-ID: <itest-idle-quiet-%s@maddy.test>", nonce),
 			"Date: " + time.Now().Format(time.RFC1123Z),
 		}, "appended after the watch stopped"))
-		time.Sleep(5 * time.Second)
 		if synced() != baseline {
 			t.Fatalf("a stopped watch kept syncing %s", folder)
 		}
@@ -955,6 +1105,31 @@ func TestIntegrationMailFlow(t *testing.T) {
 		if messagesContainSubject(cached, quietSubject) {
 			t.Fatalf("a stopped watch still cached %q: %v", quietSubject, cached)
 		}
+
+		// Starting the watch again catches up the message that arrived while it
+		// was stopped, proving the negative assertion above was not merely an
+		// append that had not reached the server yet.
+		callMap(t, sidecar, "watch.start", map[string]any{"account": "bob", "folder": folder})
+		deadline = time.Now().Add(30 * time.Second)
+		for synced() == baseline {
+			if time.Now().After(deadline) {
+				t.Fatalf("restarted watch never caught up %q", quietSubject)
+			}
+			time.Sleep(100 * time.Millisecond)
+		}
+		cached = callMap(t, sidecar, "messages.recent", map[string]any{
+			"account": "bob",
+			"folder":  folder,
+			"refresh": false,
+			"limit":   50,
+		})
+		if !messagesContainSubject(cached, quietSubject) {
+			t.Fatalf("restarted watch did not cache %q: %v", quietSubject, cached)
+		}
+		// Best-effort teardown only. The stop behavior was asserted above; once
+		// the restarted watcher has caught up, waiting for a second lifecycle
+		// event adds no coverage and can race the watcher entering IDLE.
+		callMap(t, sidecar, "watch.stop", map[string]any{"account": "bob", "folder": folder})
 	})
 
 	t.Run("unified inbox merges and writes across accounts", func(t *testing.T) {
@@ -1033,6 +1208,205 @@ func TestIntegrationMailFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("unified mark-all-read reports a partial failure", func(t *testing.T) {
+		server := startMaddy(t)
+		sidecar, _ := startSidecar(t)
+		connectAccount(t, sidecar, server, "alice", "alice@maddy.test")
+		connectAccount(t, sidecar, server, "bob", "bob@maddy.test")
+		nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
+		// Give both healthy accounts a known unread row, and give a third account
+		// a cached row before replacing its credentials with a bad password.
+		// The fan-out must continue past that failure and identify it precisely.
+		aliceSubject := "Meron integration unified partial alice " + nonce
+		bobSubject := "Meron integration unified partial bob " + nonce
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "bob",
+			"to":         "alice@maddy.test",
+			"subject":    aliceSubject,
+			"body":       "healthy alice unread",
+			"message_id": fmt.Sprintf("itest-unified-partial-alice-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send alice partial-failure fixture: %v", err)
+		}
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "alice",
+			"to":         "bob@maddy.test",
+			"subject":    bobSubject,
+			"body":       "healthy bob unread",
+			"message_id": fmt.Sprintf("itest-unified-partial-bob-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send bob partial-failure fixture: %v", err)
+		}
+		aliceMessage := pollInbox(t, sidecar, "alice", func(m map[string]any) bool {
+			return str(m, "subject") == aliceSubject
+		})
+		bobMessage := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == bobSubject
+		})
+
+		broken := "itest-unified-broken"
+		connectAccount(t, sidecar, server, broken, "bob@maddy.test")
+		t.Cleanup(func() {
+			if _, err := sidecar.Call("account.remove", map[string]any{"account": broken}); err != nil {
+				t.Logf("remove partial-failure account: %v", err)
+			}
+		})
+		pollInbox(t, sidecar, broken, func(m map[string]any) bool {
+			return str(m, "subject") == bobSubject
+		})
+		callMap(t, sidecar, "account.connect", map[string]any{
+			"account":   broken,
+			"email":     "bob@maddy.test",
+			"host":      "127.0.0.1",
+			"port":      server.imapPort,
+			"tls":       false,
+			"smtp_host": "127.0.0.1",
+			"smtp_port": server.smtpPort,
+			"smtp_tls":  false,
+			"user":      "bob@maddy.test",
+			"password":  "definitely-not-" + testPassword,
+			"validate":  false,
+		})
+		// Drop any authenticated connection retained from the initial sync.
+		callMap(t, sidecar, "account.setPaused", map[string]any{"account": broken, "enabled": true})
+
+		result := callMap(t, sidecar, "messages.markAllReadUnified", map[string]any{"folder": "INBOX"})
+		if boolValue(result, "ok") {
+			t.Fatalf("markAllReadUnified reported success despite a broken account: %v", result)
+		}
+		failures, _ := result["failures"].([]any)
+		if len(failures) != 1 {
+			t.Fatalf("markAllReadUnified failures len = %d, want 1: %v", len(failures), result)
+		}
+		failure, ok := failures[0].(map[string]any)
+		if !ok || str(failure, "account_id") != broken {
+			t.Fatalf("markAllReadUnified failure = %v, want account %s", failures[0], broken)
+		}
+		folderUnreads, _ := result["folder_unreads"].(map[string]any)
+		for _, account := range []string{"alice", "bob"} {
+			if _, ok := folderUnreads[account]; !ok {
+				t.Fatalf("healthy account %s missing from markAllReadUnified result: %v", account, result)
+			}
+		}
+		for _, fixture := range []struct {
+			user string
+			uid  uint32
+		}{
+			{"alice@maddy.test", num(aliceMessage, "uid")},
+			{"bob@maddy.test", num(bobMessage, "uid")},
+		} {
+			if flags := imapFlags(t, server.imapPort, fixture.user, testPassword, "INBOX", fixture.uid); !strings.Contains(flags, `\Seen`) {
+				t.Fatalf("healthy account %s uid %d was not marked read on the server: %q", fixture.user, fixture.uid, flags)
+			}
+		}
+	})
+
+	t.Run("unified cursors advance each account independently", func(t *testing.T) {
+		server := startMaddy(t)
+		sidecar, _ := startSidecar(t)
+		connectAccount(t, sidecar, server, "alice", "alice@maddy.test")
+		connectAccount(t, sidecar, server, "bob", "bob@maddy.test")
+		nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
+		aliceSubject := "Meron integration unified cursor alice " + nonce
+		bobSubject := "Meron integration unified cursor bob " + nonce
+		fixtures := []struct {
+			account, to, subject, id string
+		}{{"bob", "alice@maddy.test", aliceSubject, "alice"}}
+		for i := 0; i < 5; i++ {
+			fixtures = append(fixtures, struct {
+				account, to, subject, id string
+			}{
+				"alice",
+				"bob@maddy.test",
+				fmt.Sprintf("%s %d", bobSubject, i),
+				fmt.Sprintf("bob-%d", i),
+			})
+		}
+		for _, fixture := range fixtures {
+			if _, err := sidecar.Call("send", map[string]any{
+				"account":    fixture.account,
+				"to":         fixture.to,
+				"subject":    fixture.subject,
+				"body":       "unified cursor fixture",
+				"message_id": fmt.Sprintf("itest-unified-cursor-%s-%s@maddy.test", fixture.id, nonce),
+			}); err != nil {
+				t.Fatalf("send unified cursor fixture for %s: %v", fixture.id, err)
+			}
+		}
+		pollInbox(t, sidecar, "alice", func(m map[string]any) bool {
+			return str(m, "subject") == aliceSubject
+		})
+		pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == bobSubject+" 4"
+		})
+
+		seenIDs := map[string]bool{}
+		seenSubjects := map[string]bool{}
+		cursor := ""
+		sawBobOnlyContinuation := false
+		for pageNumber := 0; ; pageNumber++ {
+			if pageNumber > 50 {
+				t.Fatal("unified cursor did not terminate within 50 pages")
+			}
+			params := map[string]any{
+				"limit":   3,
+				"refresh": false,
+			}
+			if cursor != "" {
+				params["before_cursor"] = cursor
+			}
+			page := callMap(t, sidecar, "messages.unifiedRecent", params)
+			if failures, _ := page["failures"].([]any); len(failures) != 0 {
+				t.Fatalf("unified cursor page reported failures: %v", page)
+			}
+			threads, _ := page["threads"].([]any)
+			accountsOnPage := map[string]bool{}
+			lastDate := int64(-1)
+			for _, item := range threads {
+				card, ok := item.(map[string]any)
+				if !ok {
+					t.Fatalf("unified cursor card has type %T", item)
+				}
+				id := str(card, "id")
+				if id == "" {
+					t.Fatalf("unified cursor card has no id: %v", card)
+				}
+				if seenIDs[id] {
+					t.Fatalf("unified cursor repeated card %q: %v", id, card)
+				}
+				seenIDs[id] = true
+				accountsOnPage[str(card, "account_id")] = true
+				seenSubjects[str(card, "subject")] = true
+				date, _ := card["date"].(float64)
+				if lastDate >= 0 && int64(date) > lastDate {
+					t.Fatalf("unified cursor page is not sorted newest first: %v", threads)
+				}
+				lastDate = int64(date)
+			}
+			if pageNumber > 0 && accountsOnPage["bob"] && !accountsOnPage["alice"] {
+				sawBobOnlyContinuation = true
+			}
+			next, _ := page["next_cursor"].(string)
+			if next == "" {
+				break
+			}
+			if next == cursor {
+				t.Fatalf("unified cursor did not advance: %q", next)
+			}
+			cursor = next
+		}
+		for _, subject := range []string{aliceSubject, bobSubject + " 4"} {
+			if !seenSubjects[subject] {
+				t.Fatalf("unified cursor traversal missed %q", subject)
+			}
+		}
+		if !sawBobOnlyContinuation {
+			t.Fatal("unified cursor never continued bob after alice was exhausted")
+		}
+	})
+
 	t.Run("encoded subject and quoted-printable body decode", func(t *testing.T) {
 		// Real mail arrives encoded — an RFC 2047 subject and a quoted-printable
 		// body — and meron's own send path never emits either, so only a raw
@@ -1105,6 +1479,106 @@ func TestIntegrationMailFlow(t *testing.T) {
 		}
 		if html := str(message, "body_html"); !strings.Contains(html, "html part "+nonce) {
 			t.Fatalf("body_html = %q, want the text/html part", html)
+		}
+	})
+
+	t.Run("nested multipart keeps inline and downloadable attachments", func(t *testing.T) {
+		server := startMaddy(t)
+		sidecar, _ := startSidecar(t)
+		connectAccount(t, sidecar, server, "bob", "bob@maddy.test")
+		nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
+		nestedSubject := "Meron integration nested MIME " + nonce
+		outer := "itest-outer-" + nonce
+		related := "itest-related-" + nonce
+		alternative := "itest-nested-alt-" + nonce
+		contentID := "itest-logo-" + nonce
+		attachmentBytes := []byte("nested attachment " + nonce)
+		body := strings.Join([]string{
+			"--" + outer,
+			`Content-Type: multipart/related; boundary="` + related + `"`,
+			"",
+			"--" + related,
+			`Content-Type: multipart/alternative; boundary="` + alternative + `"`,
+			"",
+			"--" + alternative,
+			"Content-Type: text/plain; charset=utf-8",
+			"",
+			"nested plain " + nonce,
+			"--" + alternative,
+			"Content-Type: text/html; charset=utf-8",
+			"",
+			`<p>nested html <img src="cid:` + contentID + `"></p>`,
+			"--" + alternative + "--",
+			"--" + related,
+			"Content-Type: image/png",
+			"Content-Transfer-Encoding: base64",
+			"Content-ID: <" + contentID + ">",
+			`Content-Disposition: inline; filename="logo.png"`,
+			"",
+			"AQIDBA==",
+			"--" + related + "--",
+			"--" + outer,
+			"Content-Type: application/octet-stream",
+			"Content-Transfer-Encoding: base64",
+			`Content-Disposition: attachment; filename="=?UTF-8?B?Y2Fmw6kudHh0?="`,
+			"",
+			base64.StdEncoding.EncodeToString(attachmentBytes),
+			"--" + outer + "--",
+		}, "\n")
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + nestedSubject,
+			fmt.Sprintf("Message-ID: <itest-nested-mime-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+			"MIME-Version: 1.0",
+			`Content-Type: multipart/mixed; boundary="` + outer + `"`,
+		}, body))
+
+		row := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == nestedSubject
+		})
+		thread := callMap(t, sidecar, "messages.thread", map[string]any{
+			"account":    "bob",
+			"folder":     "INBOX",
+			"thread_key": str(row, "thread_key"),
+		})
+		message := firstThreadMessage(t, thread)
+		if text := str(message, "body"); !strings.Contains(text, "nested plain "+nonce) {
+			t.Fatalf("nested MIME body = %q, want text/plain part", text)
+		}
+		html := str(message, "body_html")
+		if !strings.Contains(html, "nested html") || strings.Contains(html, "cid:"+contentID) || !strings.Contains(html, "/media/") {
+			t.Fatalf("nested MIME HTML did not rewrite inline CID: %q", html)
+		}
+		attachments := attachmentRows(t, message)
+		if len(attachments) != 2 {
+			t.Fatalf("nested MIME attachments len = %d, want 2: %v", len(attachments), message)
+		}
+		byName := map[string]map[string]any{}
+		for _, attachment := range attachments {
+			byName[str(attachment, "filename")] = attachment
+		}
+		for _, expected := range []struct {
+			name string
+			data []byte
+		}{
+			{"logo.png", []byte{1, 2, 3, 4}},
+			{"café.txt", attachmentBytes},
+		} {
+			attachment, ok := byName[expected.name]
+			if !ok {
+				t.Fatalf("nested MIME attachment %q missing: %v", expected.name, attachments)
+			}
+			key := str(attachment, "key")
+			got, err := os.ReadFile(filepath.Join(mediaDir(), key))
+			if err != nil {
+				t.Fatalf("read nested MIME attachment %q: %v", expected.name, err)
+			}
+			if string(got) != string(expected.data) {
+				t.Fatalf("nested MIME attachment %q bytes = %q, want %q", expected.name, got, expected.data)
+			}
 		}
 	})
 
@@ -1333,10 +1807,64 @@ func TestIntegrationMailFlow(t *testing.T) {
 	})
 
 	t.Run("sync recovers after a server restart", func(t *testing.T) {
+		server := startMaddy(t)
+		sidecar, events := startSidecar(t)
+		connectAccount(t, sidecar, server, "alice", "alice@maddy.test")
+		connectAccount(t, sidecar, server, "bob", "bob@maddy.test")
+		nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
 		// A server that goes away must not need a client restart: reads retry a
-		// stale pooled connection, so a refresh once the server is back succeeds
-		// on its own.
+		// stale pooled connection, and an active IDLE watcher must reconnect and
+		// catch up without a client restart or an explicit refresh.
+		folder := "ITestIdleRestart"
+		if result := callMap(t, sidecar, "folders.create", map[string]any{"account": "bob", "name": folder}); !foldersContain(result, folder) {
+			t.Fatalf("folders.create did not return %s: %v", folder, result)
+		}
+		synced := func() int {
+			return events.count(func(event sidecarEvent) bool {
+				return event.name == "mail.synced" && str(event.detail, "account") == "bob" &&
+					strings.EqualFold(str(event.detail, "folder"), folder)
+			})
+		}
+		callMap(t, sidecar, "watch.start", map[string]any{"account": "bob", "folder": folder})
+		deadline := time.Now().Add(30 * time.Second)
+		for synced() == 0 {
+			if time.Now().After(deadline) {
+				t.Fatalf("IDLE watch for %s never completed its initial catch-up", folder)
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		t.Cleanup(func() {
+			_, _ = sidecar.Call("watch.stop", map[string]any{"account": "bob", "folder": folder})
+		})
+		baseline := synced()
+
 		restartMaddy(t, server)
+
+		idleRestartSubject := "Meron integration idle restart " + nonce
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, folder, rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + idleRestartSubject,
+			fmt.Sprintf("Message-ID: <itest-idle-restart-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "caught up after the IDLE connection was severed"))
+		deadline = time.Now().Add(60 * time.Second)
+		for synced() == baseline {
+			if time.Now().After(deadline) {
+				t.Fatalf("IDLE watch for %s never recovered after restart", folder)
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		cached := callMap(t, sidecar, "messages.recent", map[string]any{
+			"account": "bob",
+			"folder":  folder,
+			"refresh": false,
+			"limit":   50,
+		})
+		if !messagesContainSubject(cached, idleRestartSubject) {
+			t.Fatalf("reconnected IDLE watch did not cache %q: %v", idleRestartSubject, cached)
+		}
 
 		restartSubject := "Meron integration restart " + nonce
 		// Appended rather than sent: SMTP submission is a write path, and writes
@@ -1351,7 +1879,7 @@ func TestIntegrationMailFlow(t *testing.T) {
 
 		// The refresh itself can fail while the reconnect is in flight, so retry
 		// the call, not just the assertion.
-		deadline := time.Now().Add(90 * time.Second)
+		deadline = time.Now().Add(90 * time.Second)
 		for {
 			result, err := sidecar.Call("messages.recent", map[string]any{
 				"account": "bob",
@@ -1475,8 +2003,22 @@ func dialIMAP(t *testing.T, port int, user, password string) *imapClient {
 }
 
 func (c *imapClient) close() {
-	fmt.Fprintf(c.conn, "zz LOGOUT\r\n")
-	c.conn.Close()
+	_, _ = io.WriteString(c.conn, "zz LOGOUT\r\n")
+	_ = c.conn.Close()
+}
+
+func (c *imapClient) write(data []byte) {
+	c.t.Helper()
+	for len(data) > 0 {
+		n, err := c.conn.Write(data)
+		if err != nil {
+			c.t.Fatalf("imap write: %v", err)
+		}
+		if n == 0 {
+			c.t.Fatal("imap write made no progress")
+		}
+		data = data[n:]
+	}
 }
 
 // readUntil reads past untagged/unsolicited lines until one starts with prefix.
@@ -1500,7 +2042,7 @@ func (c *imapClient) do(format string, args ...any) []string {
 	c.tag++
 	tag := fmt.Sprintf("t%d", c.tag)
 	command := fmt.Sprintf(format, args...)
-	fmt.Fprintf(c.conn, "%s %s\r\n", tag, command)
+	c.write([]byte(fmt.Sprintf("%s %s\r\n", tag, command)))
 	var untagged []string
 	for {
 		line, err := c.reader.ReadString('\n')
@@ -1509,7 +2051,7 @@ func (c *imapClient) do(format string, args ...any) []string {
 		}
 		line = strings.TrimRight(line, "\r\n")
 		if strings.HasPrefix(line, tag+" ") {
-			if !strings.HasPrefix(line, tag+" OK") {
+			if !imapTaggedOK(line, tag) {
 				c.t.Fatalf("imap %s: %s", command, line)
 			}
 			return untagged
@@ -1521,11 +2063,10 @@ func (c *imapClient) do(format string, args ...any) []string {
 // selectFolder selects a mailbox and returns its UIDVALIDITY.
 func (c *imapClient) selectFolder(folder string) uint32 {
 	c.t.Helper()
-	var validity uint32
-	for _, line := range c.do("SELECT %q", folder) {
-		if _, err := fmt.Sscanf(line, "* OK [UIDVALIDITY %d]", &validity); err == nil {
-			return validity
-		}
+	lines := c.do("SELECT %q", folder)
+	validity, ok := parseIMAPUIDValidity(lines)
+	if !ok {
+		c.t.Fatalf("SELECT %q returned no valid UIDVALIDITY: %v", folder, lines)
 	}
 	return validity
 }
@@ -1538,11 +2079,11 @@ func imapAppend(t *testing.T, port int, user, password, folder string, message [
 	defer client.close()
 	client.tag++
 	tag := fmt.Sprintf("t%d", client.tag)
-	fmt.Fprintf(client.conn, "%s APPEND %q {%d}\r\n", tag, folder, len(message))
+	client.write([]byte(fmt.Sprintf("%s APPEND %q {%d}\r\n", tag, folder, len(message))))
 	client.readUntil("+")
-	client.conn.Write(message)
-	client.conn.Write([]byte("\r\n"))
-	if line := client.readUntil(tag + " "); !strings.HasPrefix(line, tag+" OK") {
+	client.write(message)
+	client.write([]byte("\r\n"))
+	if line := client.readUntil(tag + " "); !imapTaggedOK(strings.TrimRight(line, "\r\n"), tag) {
 		t.Fatalf("imap append failed: %s", line)
 	}
 }
@@ -1554,16 +2095,45 @@ func imapFlags(t *testing.T, port int, user, password, folder string, uid uint32
 	client := dialIMAP(t, port, user, password)
 	defer client.close()
 	client.selectFolder(folder)
-	for _, line := range client.do("UID FETCH %d (FLAGS)", uid) {
-		marker := strings.Index(line, "UID ")
+	return parseIMAPFlags(client.do("UID FETCH %d (FLAGS)", uid), uid)
+}
+
+func imapTaggedOK(line, tag string) bool {
+	fields := strings.Fields(line)
+	return len(fields) >= 2 && fields[0] == tag && strings.EqualFold(fields[1], "OK")
+}
+
+func parseIMAPUIDValidity(lines []string) (uint32, bool) {
+	for _, line := range lines {
+		upper := strings.ToUpper(line)
+		marker := strings.Index(upper, "[UIDVALIDITY ")
+		if marker < 0 {
+			continue
+		}
+		value := line[marker+len("[UIDVALIDITY "):]
+		if end := strings.IndexByte(value, ']'); end >= 0 {
+			value = value[:end]
+		}
+		parsed, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32)
+		if err == nil && parsed > 0 {
+			return uint32(parsed), true
+		}
+	}
+	return 0, false
+}
+
+func parseIMAPFlags(lines []string, uid uint32) string {
+	for _, line := range lines {
+		upper := strings.ToUpper(line)
+		marker := strings.Index(upper, "UID ")
 		if marker < 0 {
 			continue
 		}
 		var got uint32
-		if _, err := fmt.Sscanf(line[marker:], "UID %d", &got); err != nil || got != uid {
+		if _, err := fmt.Sscanf(upper[marker:], "UID %d", &got); err != nil || got != uid {
 			continue
 		}
-		start := strings.Index(line, "FLAGS (")
+		start := strings.Index(upper, "FLAGS (")
 		if start < 0 {
 			continue
 		}
@@ -1573,6 +2143,27 @@ func imapFlags(t *testing.T, port int, user, password, folder string, uid uint32
 		}
 	}
 	return ""
+}
+
+// imapSetFlags changes the two user-visible flags as another mail client would.
+func imapSetFlags(t *testing.T, port int, user, password, folder string, uid uint32, seen, starred bool) {
+	t.Helper()
+	client := dialIMAP(t, port, user, password)
+	defer client.close()
+	client.selectFolder(folder)
+	for _, change := range []struct {
+		flag    string
+		enabled bool
+	}{
+		{`\Seen`, seen},
+		{`\Flagged`, starred},
+	} {
+		operation := "-FLAGS"
+		if change.enabled {
+			operation = "+FLAGS"
+		}
+		client.do("UID STORE %d %s (%s)", uid, operation, change.flag)
+	}
 }
 
 // imapExpunge deletes a message the way another client would: flag it \Deleted
@@ -1612,16 +2203,20 @@ func imapSearchSubject(t *testing.T, port int, user, password, folder, subject s
 	client := dialIMAP(t, port, user, password)
 	defer client.close()
 	client.selectFolder(folder)
+	return parseIMAPSearch(client.do("UID SEARCH HEADER SUBJECT %q", subject))
+}
+
+func parseIMAPSearch(lines []string) []uint32 {
 	var uids []uint32
-	for _, line := range client.do("UID SEARCH HEADER SUBJECT %q", subject) {
+	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) < 2 || fields[0] != "*" || !strings.EqualFold(fields[1], "SEARCH") {
 			continue
 		}
 		for _, field := range fields[2:] {
-			var uid uint32
-			if _, err := fmt.Sscanf(field, "%d", &uid); err == nil {
-				uids = append(uids, uid)
+			uid, err := strconv.ParseUint(field, 10, 32)
+			if err == nil && uid > 0 {
+				uids = append(uids, uint32(uid))
 			}
 		}
 	}

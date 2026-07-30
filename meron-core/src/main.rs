@@ -494,15 +494,15 @@ async fn idle_watch(engine: Arc<Engine>, out: Writer, account: String, folder: S
         // Stop cleanly once the account has been removed (account.remove).
         if !engine.accounts.lock().await.contains_key(&account) {
             engine.watched.lock().unwrap().remove(&key);
-            return;
+            break;
         }
         // Stop checking while paused; account.setPaused respawns us on resume.
         if engine.is_paused(&account) {
             engine.watched.lock().unwrap().remove(&key);
-            return;
+            break;
         }
         if !engine.watched.lock().unwrap().contains(&key) {
-            return;
+            break;
         }
         if let Err(e) = idle_once(&engine, &out, &account, &folder).await {
             emit(
@@ -521,6 +521,12 @@ async fn idle_watch(engine: Arc<Engine>, out: Writer, account: String, folder: S
             }
         }
     }
+    emit(
+        &out,
+        "watch.stopped",
+        json!({ "account": account, "folder": folder }),
+    )
+    .await;
 }
 
 /// Sync `folder` and surface the result to the UI: a "new mail" toast when
