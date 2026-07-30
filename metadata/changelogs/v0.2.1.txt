@@ -1,0 +1,2 @@
+- Support deleting custom folders on server
+- Support switching a Kanban column to another folder

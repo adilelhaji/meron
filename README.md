@@ -51,14 +51,12 @@ bundle their own and need nothing extra.
 
 ## Features
 
-- **Email** over IMAP/SMTP, with threaded conversations and a rich-text composer
-- **RSS / Atom feeds** alongside your mail
-- **OAuth** sign-in (e.g. Gmail) plus password auth with mailbox autodiscovery
-- **Encrypted local storage** (SQLite via SQLCipher), with credentials kept in
-  the OS keyring
-- **Native notifications**, system tray, and `mailto:` handling on desktop
-- **Push notifications** on mobile via IMAP IDLE
-- **Localized** into 20+ languages (see [`locales/`](locales/))
+- Unified Inbox, kanban and chat views
+- IMAP/SMTP email and RSS/Atom feeds
+- Threaded conversations with rich-text composing and media galleries
+- Easy setup with OAuth or automatic mailbox discovery
+- Encrypted local storage with credentials kept in the OS keyring
+- Themes and 20+ languages
 
 ## Architecture
 
