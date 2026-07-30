@@ -100,7 +100,7 @@ func boolValue(message map[string]any, key string) bool {
 
 func TestIntegrationMailFlow(t *testing.T) {
 	server := startMaddy(t)
-	sidecar := startSidecar(t)
+	sidecar, events := startSidecar(t)
 
 	connectAccount(t, sidecar, server, "alice", "alice@maddy.test")
 	connectAccount(t, sidecar, server, "bob", "bob@maddy.test")
@@ -247,6 +247,12 @@ func TestIntegrationMailFlow(t *testing.T) {
 		if num(updated, "uid") != uid {
 			t.Fatalf("flagged message uid = %d, want %d", num(updated, "uid"), uid)
 		}
+		// The rows above came out of the same store the flag write updated, so
+		// check the server too: a STORE that never left the client would look
+		// identical locally.
+		if flags := imapFlags(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", uid); !strings.Contains(flags, `\Seen`) || !strings.Contains(flags, `\Flagged`) {
+			t.Fatalf("server flags for INBOX uid %d = %q, want \\Seen and \\Flagged", uid, flags)
+		}
 
 		result := callMap(t, sidecar, "messages.move", map[string]any{
 			"account":       "bob",
@@ -266,6 +272,15 @@ func TestIntegrationMailFlow(t *testing.T) {
 		})
 		if !boolValue(moved, "seen") || !boolValue(moved, "starred") {
 			t.Fatalf("moved message lost flags: %v", moved)
+		}
+		// A MOVE re-APPENDs at the destination, so the flags have to survive the
+		// copy on the server, under the new UID.
+		movedUID := num(moved, "uid")
+		if movedUID == 0 {
+			t.Fatalf("moved message has no uid: %v", moved)
+		}
+		if flags := imapFlags(t, server.imapPort, "bob@maddy.test", testPassword, "ITestFolder", movedUID); !strings.Contains(flags, `\Seen`) || !strings.Contains(flags, `\Flagged`) {
+			t.Fatalf("server flags for ITestFolder uid %d = %q, want \\Seen and \\Flagged", movedUID, flags)
 		}
 	})
 
@@ -784,6 +799,586 @@ func TestIntegrationMailFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("external expunge prunes the local row", func(t *testing.T) {
+		// A message another client deletes for good must not linger as a ghost
+		// row: the sync compares the server's UID set against the cache and
+		// drops what is no longer there.
+		expungeSubject := "Meron integration expunge " + nonce
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "alice",
+			"to":         "bob@maddy.test",
+			"subject":    expungeSubject,
+			"body":       "delete me from another client",
+			"message_id": fmt.Sprintf("itest-expunge-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send expunge fixture: %v", err)
+		}
+		message := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == expungeSubject
+		})
+		uid := num(message, "uid")
+		if uid == 0 {
+			t.Fatalf("expunge fixture has no uid: %v", message)
+		}
+
+		imapExpunge(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", uid)
+		assertNoMessageInFolder(t, sidecar, "bob", "INBOX", func(m map[string]any) bool {
+			return str(m, "subject") == expungeSubject
+		})
+	})
+
+	t.Run("uidvalidity change clears the cached folder", func(t *testing.T) {
+		// A recreated mailbox hands out a new UIDVALIDITY and starts UIDs over
+		// from 1, so cached rows describe messages that no longer exist under
+		// those UIDs. The sync must drop the folder's rows wholesale instead of
+		// merging two generations — the UID-set prune is deliberately skipped
+		// when validity changed, so nothing else would clean them up.
+		folder := "ITestUidv"
+		if result := callMap(t, sidecar, "folders.create", map[string]any{"account": "bob", "name": folder}); !foldersContain(result, folder) {
+			t.Fatalf("folders.create did not return %s: %v", folder, result)
+		}
+		firstSubject := "Meron integration uidv first " + nonce
+		secondSubject := "Meron integration uidv second " + nonce
+		for i, subj := range []string{firstSubject, secondSubject} {
+			imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, folder, rawMessage([]string{
+				"From: Carol <carol@example.net>",
+				"To: bob@maddy.test",
+				"Subject: " + subj,
+				fmt.Sprintf("Message-ID: <itest-uidv-%d-%s@maddy.test>", i, nonce),
+				"Date: " + time.Now().Format(time.RFC1123Z),
+			}, "before the mailbox was recreated"))
+		}
+		for _, subj := range []string{firstSubject, secondSubject} {
+			pollFolder(t, sidecar, "bob", folder, func(m map[string]any) bool {
+				return str(m, "subject") == subj
+			})
+		}
+		before := imapUIDValidity(t, server.imapPort, "bob@maddy.test", testPassword, folder)
+
+		imapRecreateFolder(t, server.imapPort, "bob@maddy.test", testPassword, folder)
+		if after := imapUIDValidity(t, server.imapPort, "bob@maddy.test", testPassword, folder); after == before {
+			t.Skipf("maddy reused UIDVALIDITY %d for the recreated folder; nothing to reconcile", after)
+		}
+
+		freshSubject := "Meron integration uidv fresh " + nonce
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, folder, rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + freshSubject,
+			fmt.Sprintf("Message-ID: <itest-uidv-fresh-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "after the mailbox was recreated"))
+
+		pollFolder(t, sidecar, "bob", folder, func(m map[string]any) bool {
+			return str(m, "subject") == freshSubject
+		})
+		// The new message reuses UID 1, so an upsert alone would hide the first
+		// stale row. The second one can only be gone if the folder was cleared.
+		for _, subj := range []string{firstSubject, secondSubject} {
+			assertNoMessageInFolder(t, sidecar, "bob", folder, func(m map[string]any) bool {
+				return str(m, "subject") == subj
+			})
+		}
+	})
+
+	t.Run("idle pushes folder updates while watched", func(t *testing.T) {
+		// IMAP IDLE is per selected mailbox, so kanban starts a watch per visible
+		// non-INBOX column. A message another client appends has to reach the
+		// store from the push alone — no refresh call — and stop reaching it once
+		// the watch is dropped.
+		folder := "ITestIdle"
+		if result := callMap(t, sidecar, "folders.create", map[string]any{"account": "bob", "name": folder}); !foldersContain(result, folder) {
+			t.Fatalf("folders.create did not return %s: %v", folder, result)
+		}
+		synced := func() int {
+			return events.count(func(event sidecarEvent) bool {
+				return event.name == "mail.synced" && str(event.detail, "account") == "bob" &&
+					strings.EqualFold(str(event.detail, "folder"), folder)
+			})
+		}
+		callMap(t, sidecar, "watch.start", map[string]any{"account": "bob", "folder": folder})
+
+		baseline := synced()
+		pushedSubject := "Meron integration idle pushed " + nonce
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, folder, rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + pushedSubject,
+			fmt.Sprintf("Message-ID: <itest-idle-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "pushed over IDLE"))
+
+		deadline := time.Now().Add(60 * time.Second)
+		for synced() == baseline {
+			if time.Now().After(deadline) {
+				t.Fatalf("IDLE never pushed a mail.synced for %s", folder)
+			}
+			time.Sleep(200 * time.Millisecond)
+		}
+		// refresh:false serves the store cache only, so a hit proves the push
+		// itself wrote the row.
+		cached := callMap(t, sidecar, "messages.recent", map[string]any{
+			"account": "bob",
+			"folder":  folder,
+			"refresh": false,
+			"limit":   50,
+		})
+		if !messagesContainSubject(cached, pushedSubject) {
+			t.Fatalf("IDLE push did not land %q in the store: %v", pushedSubject, cached)
+		}
+
+		if result := callMap(t, sidecar, "watch.stop", map[string]any{"account": "bob", "folder": folder}); !boolValue(result, "stopped") {
+			t.Fatalf("watch.stop did not stop the watcher: %v", result)
+		}
+		// watch.stop cancels the parked IDLE via the pause signal; give the
+		// watcher a moment to unwind before checking that nothing else arrives.
+		time.Sleep(2 * time.Second)
+		baseline = synced()
+		quietSubject := "Meron integration idle quiet " + nonce
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, folder, rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + quietSubject,
+			fmt.Sprintf("Message-ID: <itest-idle-quiet-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "appended after the watch stopped"))
+		time.Sleep(5 * time.Second)
+		if synced() != baseline {
+			t.Fatalf("a stopped watch kept syncing %s", folder)
+		}
+		cached = callMap(t, sidecar, "messages.recent", map[string]any{
+			"account": "bob",
+			"folder":  folder,
+			"refresh": false,
+			"limit":   50,
+		})
+		if messagesContainSubject(cached, quietSubject) {
+			t.Fatalf("a stopped watch still cached %q: %v", quietSubject, cached)
+		}
+	})
+
+	t.Run("unified inbox merges and writes across accounts", func(t *testing.T) {
+		// The unified view fans messages.recent out over every included account
+		// and merges the pages by date; markAllReadUnified fans the write out the
+		// same way. Both must cover *both* accounts and report no per-account
+		// failure — a partial merge looks like a working inbox with mail missing.
+		unifiedSubject := "Meron integration unified " + nonce
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "bob",
+			"to":         "alice@maddy.test",
+			"subject":    unifiedSubject,
+			"body":       "so alice has inbox mail too",
+			"message_id": fmt.Sprintf("itest-unified-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send unified fixture: %v", err)
+		}
+		pollInbox(t, sidecar, "alice", func(m map[string]any) bool {
+			return str(m, "subject") == unifiedSubject
+		})
+		pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == subject
+		})
+
+		// refresh:false: both stores were just primed, and the merge is the thing
+		// under test, not another round of IMAP sync.
+		merged := callMap(t, sidecar, "messages.unifiedRecent", map[string]any{
+			"limit":   50,
+			"refresh": false,
+		})
+		if failures, _ := merged["failures"].([]any); len(failures) > 0 {
+			t.Fatalf("unifiedRecent reported account failures: %v", failures)
+		}
+		threads, _ := merged["threads"].([]any)
+		if len(threads) == 0 {
+			t.Fatalf("unifiedRecent returned no threads: %v", merged)
+		}
+		seen := map[string]bool{}
+		lastDate := int64(-1)
+		for _, item := range threads {
+			card, ok := item.(map[string]any)
+			if !ok {
+				t.Fatalf("unified thread has type %T", item)
+			}
+			seen[str(card, "account_id")] = true
+			date, _ := card["date"].(float64)
+			if lastDate >= 0 && int64(date) > lastDate {
+				t.Fatalf("unified page is not sorted newest first: %v", threads)
+			}
+			lastDate = int64(date)
+		}
+		for _, account := range []string{"alice", "bob"} {
+			if !seen[account] {
+				t.Fatalf("unified page has no cards from %s: %v", account, seen)
+			}
+		}
+
+		result := callMap(t, sidecar, "messages.markAllReadUnified", map[string]any{"folder": "INBOX"})
+		if failures, _ := result["failures"].([]any); len(failures) > 0 {
+			t.Fatalf("markAllReadUnified reported account failures: %v", failures)
+		}
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			merged = callMap(t, sidecar, "messages.unifiedRecent", map[string]any{
+				"limit":   50,
+				"refresh": false,
+			})
+			unread, _ := merged["folder_unread"].(float64)
+			if unread == 0 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("unified folder_unread stayed at %v after markAllReadUnified: %v", unread, merged)
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+	})
+
+	t.Run("encoded subject and quoted-printable body decode", func(t *testing.T) {
+		// Real mail arrives encoded — an RFC 2047 subject and a quoted-printable
+		// body — and meron's own send path never emits either, so only a raw
+		// append exercises the decode on the way in.
+		want := "Méron héllo " + nonce
+		encoded := "=?UTF-8?B?" + base64.StdEncoding.EncodeToString([]byte(want)) + "?="
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + encoded,
+			fmt.Sprintf("Message-ID: <itest-encoded-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+			"MIME-Version: 1.0",
+			"Content-Type: text/plain; charset=utf-8",
+			"Content-Transfer-Encoding: quoted-printable",
+		}, "caf=C3=A9 pi=C3=B1a "+nonce))
+
+		row := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == want
+		})
+		thread := callMap(t, sidecar, "messages.thread", map[string]any{
+			"account":    "bob",
+			"folder":     "INBOX",
+			"thread_key": str(row, "thread_key"),
+		})
+		message := firstThreadMessage(t, thread)
+		if body := str(message, "body"); !strings.Contains(body, "café piña") {
+			t.Fatalf("quoted-printable body = %q, want it to contain %q", body, "café piña")
+		}
+	})
+
+	t.Run("multipart alternative keeps both text and html", func(t *testing.T) {
+		// The thread read serves text and HTML separately (the HTML view is a
+		// per-account preference), so a multipart/alternative message must land
+		// with both halves, not whichever part the walk saw last.
+		altSubject := "Meron integration alternative " + nonce
+		boundary := "itest-boundary-" + nonce
+		body := strings.Join([]string{
+			"--" + boundary,
+			"Content-Type: text/plain; charset=utf-8",
+			"",
+			"plain part " + nonce,
+			"--" + boundary,
+			"Content-Type: text/html; charset=utf-8",
+			"",
+			"<p>html part " + nonce + "</p>",
+			"--" + boundary + "--",
+		}, "\n")
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + altSubject,
+			fmt.Sprintf("Message-ID: <itest-alt-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+			"MIME-Version: 1.0",
+			`Content-Type: multipart/alternative; boundary="` + boundary + `"`,
+		}, body))
+
+		row := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == altSubject
+		})
+		thread := callMap(t, sidecar, "messages.thread", map[string]any{
+			"account":    "bob",
+			"folder":     "INBOX",
+			"thread_key": str(row, "thread_key"),
+		})
+		message := firstThreadMessage(t, thread)
+		if text := str(message, "body"); !strings.Contains(text, "plain part "+nonce) {
+			t.Fatalf("body = %q, want the text/plain part", text)
+		}
+		if html := str(message, "body_html"); !strings.Contains(html, "html part "+nonce) {
+			t.Fatalf("body_html = %q, want the text/html part", html)
+		}
+	})
+
+	t.Run("message without a message-id still threads", func(t *testing.T) {
+		// Threading keys off Message-ID, but mail without one exists and must
+		// still be readable: it needs a synthesized thread_key, or the row is
+		// unreachable from the thread view even though the list shows it.
+		bareSubject := "Meron integration no message id " + nonce
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + bareSubject,
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "no Message-ID header at all"))
+
+		row := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == bareSubject
+		})
+		threadKey := str(row, "thread_key")
+		if threadKey == "" {
+			t.Fatalf("message without a Message-ID got no thread_key: %v", row)
+		}
+		thread := callMap(t, sidecar, "messages.thread", map[string]any{
+			"account":    "bob",
+			"folder":     "INBOX",
+			"thread_key": threadKey,
+		})
+		if !threadContainsSubject(thread, bareSubject) {
+			t.Fatalf("messages.thread cannot reach the id-less message: %v", thread)
+		}
+	})
+
+	t.Run("empty junk", func(t *testing.T) {
+		// emptyFolder is role-gated to Trash *and* Junk (the Trash half and the
+		// INBOX refusal are covered above), and the role has to resolve for a
+		// folder the account never had special-use metadata for.
+		// maddy pre-creates Junk; folders.list serves the cache and refreshes in
+		// the background, so poll until the role-bearing row is there to empty.
+		deadline := time.Now().Add(30 * time.Second)
+		for {
+			result := callMap(t, sidecar, "folders.list", map[string]any{"account": "bob"})
+			if foldersContain(result, "Junk") {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("Junk never appeared in folders.list: %v", result)
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+		junkSubject := "Meron integration junk " + nonce
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, "Junk", rawMessage([]string{
+			"From: Spammer <spam@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + junkSubject,
+			fmt.Sprintf("Message-ID: <itest-junk-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "junk body"))
+		pollFolder(t, sidecar, "bob", "Junk", func(m map[string]any) bool {
+			return str(m, "subject") == junkSubject
+		})
+
+		callMap(t, sidecar, "messages.emptyFolder", map[string]any{
+			"account": "bob",
+			"folder":  "Junk",
+		})
+		assertNoMessageInFolder(t, sidecar, "bob", "Junk", func(map[string]any) bool { return true })
+		if uids := imapSearchSubject(t, server.imapPort, "bob@maddy.test", testPassword, "Junk", junkSubject); len(uids) != 0 {
+			t.Fatalf("emptying Junk left %v on the server", uids)
+		}
+	})
+
+	t.Run("clearing the attachment cache refetches the bytes", func(t *testing.T) {
+		// The cache is cleared behind the store's back (a plain rmdir from the
+		// bridge), so cached rows keep pointing at files that are gone. A thread
+		// read has to notice the missing file and refetch, not serve an
+		// attachment whose bytes no longer exist.
+		app := &App{}
+		usage, err := app.storageUsage()
+		if err != nil {
+			t.Fatalf("storageUsage: %v", err)
+		}
+		if bytes, _ := usage.(map[string]any)["cacheBytes"].(int64); bytes == 0 {
+			t.Fatalf("no cached attachment bytes to clear: %v", usage)
+		}
+
+		cleared, err := app.storageClearCache()
+		if err != nil {
+			t.Fatalf("storageClearCache: %v", err)
+		}
+		if bytes, _ := cleared.(map[string]any)["cacheBytes"].(int64); bytes != 0 {
+			t.Fatalf("cacheBytes after clear = %d, want 0", bytes)
+		}
+		if db, _ := cleared.(map[string]any)["dbBytes"].(int64); db == 0 {
+			t.Fatalf("clearing the cache emptied the database too: %v", cleared)
+		}
+
+		attachmentSubject := "Meron integration attachment " + nonce
+		row := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == attachmentSubject
+		})
+		thread := callMap(t, sidecar, "messages.thread", map[string]any{
+			"account":    "bob",
+			"folder":     "INBOX",
+			"thread_key": str(row, "thread_key"),
+		})
+		message := firstThreadMessage(t, thread)
+		attachments := attachmentRows(t, message)
+		if len(attachments) != 1 {
+			t.Fatalf("attachments len = %d, want 1: %v", len(attachments), message)
+		}
+		key := str(attachments[0], "key")
+		if key == "" {
+			t.Fatalf("refetched attachment has no key: %v", attachments[0])
+		}
+		got, err := os.ReadFile(filepath.Join(mediaDir(), key))
+		if err != nil {
+			t.Fatalf("attachment was not refetched after the cache was cleared: %v", err)
+		}
+		if !strings.Contains(string(got), "hello attachment "+nonce) {
+			t.Fatalf("refetched attachment bytes = %q", got)
+		}
+	})
+
+	t.Run("cold sync from an empty profile sees server state", func(t *testing.T) {
+		// Everything above reads back through the same store that performed the
+		// write, so a write that never left the client would still pass. A second
+		// sidecar on a fresh profile has no cached rows at all: whatever it
+		// reports came from maddy.
+		cold, _ := startSidecar(t)
+		connectAccount(t, cold, server, "bob", "bob@maddy.test")
+
+		moveSubject := "Meron integration move " + nonce
+		row := pollFolder(t, cold, "bob", "ITestFolder", func(m map[string]any) bool {
+			return str(m, "subject") == moveSubject
+		})
+		if !boolValue(row, "seen") || !boolValue(row, "starred") {
+			t.Fatalf("cold sync does not see the flags a warm store reported: %v", row)
+		}
+		// Bodies come from IMAP too — nothing local can stand in for them.
+		thread := callMap(t, cold, "messages.thread", map[string]any{
+			"account":    "bob",
+			"folder":     "ITestFolder",
+			"thread_key": str(row, "thread_key"),
+		})
+		message := firstThreadMessage(t, thread)
+		if boolValue(message, "body_missing") {
+			t.Fatalf("cold sync could not fetch the message body: %v", message)
+		}
+		if body := str(message, "body"); !strings.Contains(body, "move me to the integration folder") {
+			t.Fatalf("cold-synced body = %q", body)
+		}
+	})
+
+	t.Run("sent copy honors the account override", func(t *testing.T) {
+		// A generic IMAP server does not file sent mail itself, so meron APPENDs
+		// the copy — exactly once, since a duplicate upload would show the
+		// message twice in Sent. The override exists for providers that do file
+		// their own, and must suppress the upload entirely.
+		defaultSubject := "Meron integration sentcopy default " + nonce
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "alice",
+			"to":         "bob@maddy.test",
+			"subject":    defaultSubject,
+			"body":       "should be filed in Sent by us",
+			"message_id": fmt.Sprintf("itest-sentcopy-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send sentcopy fixture: %v", err)
+		}
+		pollFolder(t, sidecar, "alice", "Sent", func(m map[string]any) bool {
+			return str(m, "subject") == defaultSubject
+		})
+		if uids := imapSearchSubject(t, server.imapPort, "alice@maddy.test", testPassword, "Sent", defaultSubject); len(uids) != 1 {
+			t.Fatalf("Sent holds %d copies of the message, want 1: %v", len(uids), uids)
+		}
+
+		callMap(t, sidecar, "account.setSaveSentCopy", map[string]any{"account": "alice", "value": false})
+		// Back to the provider default, so nothing after this inherits it.
+		defer callMap(t, sidecar, "account.setSaveSentCopy", map[string]any{"account": "alice", "value": nil})
+
+		suppressedSubject := "Meron integration sentcopy off " + nonce
+		if _, err := sidecar.Call("send", map[string]any{
+			"account":    "alice",
+			"to":         "bob@maddy.test",
+			"subject":    suppressedSubject,
+			"body":       "should not be filed in Sent",
+			"message_id": fmt.Sprintf("itest-sentcopy-off-%s@maddy.test", nonce),
+		}); err != nil {
+			t.Fatalf("send suppressed sentcopy fixture: %v", err)
+		}
+		// Delivery is what proves the send itself went through.
+		pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == suppressedSubject
+		})
+		if uids := imapSearchSubject(t, server.imapPort, "alice@maddy.test", testPassword, "Sent", suppressedSubject); len(uids) != 0 {
+			t.Fatalf("override off still uploaded a Sent copy: %v", uids)
+		}
+	})
+
+	t.Run("connect rejects bad credentials", func(t *testing.T) {
+		// Validation is what stands between a typo'd password and an account that
+		// looks connected but can never sync, so the account must not be stored.
+		id := "itest-badpass"
+		_, err := sidecar.Call("account.connect", map[string]any{
+			"account":   id,
+			"email":     "alice@maddy.test",
+			"host":      "127.0.0.1",
+			"port":      server.imapPort,
+			"tls":       false,
+			"smtp_host": "127.0.0.1",
+			"smtp_port": server.smtpPort,
+			"smtp_tls":  false,
+			"user":      "alice@maddy.test",
+			"password":  "definitely-not-" + testPassword,
+			"validate":  true,
+		})
+		if err == nil {
+			t.Fatal("account.connect accepted a wrong password")
+		}
+		accounts, _ := callMap(t, sidecar, "account.list", map[string]any{})["accounts"].([]any)
+		for _, item := range accounts {
+			account, ok := item.(map[string]any)
+			if ok && str(account, "id") == id {
+				t.Fatalf("rejected account was stored anyway: %v", account)
+			}
+		}
+	})
+
+	t.Run("sync recovers after a server restart", func(t *testing.T) {
+		// A server that goes away must not need a client restart: reads retry a
+		// stale pooled connection, so a refresh once the server is back succeeds
+		// on its own.
+		restartMaddy(t, server)
+
+		restartSubject := "Meron integration restart " + nonce
+		// Appended rather than sent: SMTP submission is a write path, and writes
+		// deliberately do not retry a pooled connection.
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + restartSubject,
+			fmt.Sprintf("Message-ID: <itest-restart-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "delivered after the restart"))
+
+		// The refresh itself can fail while the reconnect is in flight, so retry
+		// the call, not just the assertion.
+		deadline := time.Now().Add(90 * time.Second)
+		for {
+			result, err := sidecar.Call("messages.recent", map[string]any{
+				"account": "bob",
+				"folder":  "INBOX",
+				"refresh": true,
+				"limit":   50,
+			})
+			if err == nil {
+				if page, ok := result.(map[string]any); ok && messagesContainSubject(page, restartSubject) {
+					break
+				}
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("sync never recovered after the server restart (last error: %v)", err)
+			}
+			time.Sleep(1 * time.Second)
+		}
+
+		// Reads recovered on their own; write sessions do not retry, so drop the
+		// pooled sockets both accounts may still hold from before the restart
+		// rather than leaving them for later subtests.
+		for _, account := range []string{"alice", "bob"} {
+			callMap(t, sidecar, "account.setPaused", map[string]any{"account": account, "enabled": true})
+			callMap(t, sidecar, "account.setPaused", map[string]any{"account": account, "enabled": false})
+		}
+	})
+
 	// Last on purpose: no later subtest sends from alice, so nothing but the
 	// piggyback under test can refresh her Sent folder.
 	t.Run("sent from another client surfaces via inbox sync", func(t *testing.T) {
@@ -855,42 +1450,191 @@ func TestIntegrationMailFlow(t *testing.T) {
 	})
 }
 
-// imapAppend adds a message to a folder over raw IMAP, standing in for another
-// mail client (e.g. webmail) writing to the mailbox behind meron's back.
-func imapAppend(t *testing.T, port int, user, password, folder string, message []byte) {
+// imapClient is a bare-bones IMAP client standing in for another mail client
+// (webmail, a phone) touching the mailbox behind meron's back — and for reading
+// server truth directly. Assertions that only consult the sidecar cannot tell a
+// write that reached the server from one that stopped at the local store.
+type imapClient struct {
+	t      *testing.T
+	conn   net.Conn
+	reader *bufio.Reader
+	tag    int
+}
+
+func dialIMAP(t *testing.T, port int, user, password string) *imapClient {
 	t.Helper()
 	conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 5*time.Second)
 	if err != nil {
 		t.Fatalf("dial imap: %v", err)
 	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(15 * time.Second))
-	reader := bufio.NewReader(conn)
-	// Reads past untagged/unsolicited lines until one starts with prefix.
-	expect := func(prefix string) string {
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil {
-				t.Fatalf("imap read waiting for %q: %v", prefix, err)
+	conn.SetDeadline(time.Now().Add(30 * time.Second))
+	client := &imapClient{t: t, conn: conn, reader: bufio.NewReader(conn)}
+	client.readUntil("* OK")
+	client.do("LOGIN %q %q", user, password)
+	return client
+}
+
+func (c *imapClient) close() {
+	fmt.Fprintf(c.conn, "zz LOGOUT\r\n")
+	c.conn.Close()
+}
+
+// readUntil reads past untagged/unsolicited lines until one starts with prefix.
+func (c *imapClient) readUntil(prefix string) string {
+	c.t.Helper()
+	for {
+		line, err := c.reader.ReadString('\n')
+		if err != nil {
+			c.t.Fatalf("imap read waiting for %q: %v", prefix, err)
+		}
+		if strings.HasPrefix(line, prefix) {
+			return line
+		}
+	}
+}
+
+// do runs one command, fails the test unless the server answers OK, and returns
+// the untagged lines the command produced.
+func (c *imapClient) do(format string, args ...any) []string {
+	c.t.Helper()
+	c.tag++
+	tag := fmt.Sprintf("t%d", c.tag)
+	command := fmt.Sprintf(format, args...)
+	fmt.Fprintf(c.conn, "%s %s\r\n", tag, command)
+	var untagged []string
+	for {
+		line, err := c.reader.ReadString('\n')
+		if err != nil {
+			c.t.Fatalf("imap %s: %v", command, err)
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if strings.HasPrefix(line, tag+" ") {
+			if !strings.HasPrefix(line, tag+" OK") {
+				c.t.Fatalf("imap %s: %s", command, line)
 			}
-			if strings.HasPrefix(line, prefix) {
-				return line
+			return untagged
+		}
+		untagged = append(untagged, line)
+	}
+}
+
+// selectFolder selects a mailbox and returns its UIDVALIDITY.
+func (c *imapClient) selectFolder(folder string) uint32 {
+	c.t.Helper()
+	var validity uint32
+	for _, line := range c.do("SELECT %q", folder) {
+		if _, err := fmt.Sscanf(line, "* OK [UIDVALIDITY %d]", &validity); err == nil {
+			return validity
+		}
+	}
+	return validity
+}
+
+// imapAppend adds a message to a folder over raw IMAP, standing in for another
+// mail client (e.g. webmail) writing to the mailbox behind meron's back.
+func imapAppend(t *testing.T, port int, user, password, folder string, message []byte) {
+	t.Helper()
+	client := dialIMAP(t, port, user, password)
+	defer client.close()
+	client.tag++
+	tag := fmt.Sprintf("t%d", client.tag)
+	fmt.Fprintf(client.conn, "%s APPEND %q {%d}\r\n", tag, folder, len(message))
+	client.readUntil("+")
+	client.conn.Write(message)
+	client.conn.Write([]byte("\r\n"))
+	if line := client.readUntil(tag + " "); !strings.HasPrefix(line, tag+" OK") {
+		t.Fatalf("imap append failed: %s", line)
+	}
+}
+
+// imapFlags reads a message's flags straight from the server, e.g.
+// `\Seen \Flagged`. Returns "" when the UID is gone.
+func imapFlags(t *testing.T, port int, user, password, folder string, uid uint32) string {
+	t.Helper()
+	client := dialIMAP(t, port, user, password)
+	defer client.close()
+	client.selectFolder(folder)
+	for _, line := range client.do("UID FETCH %d (FLAGS)", uid) {
+		marker := strings.Index(line, "UID ")
+		if marker < 0 {
+			continue
+		}
+		var got uint32
+		if _, err := fmt.Sscanf(line[marker:], "UID %d", &got); err != nil || got != uid {
+			continue
+		}
+		start := strings.Index(line, "FLAGS (")
+		if start < 0 {
+			continue
+		}
+		rest := line[start+len("FLAGS ("):]
+		if end := strings.Index(rest, ")"); end >= 0 {
+			return rest[:end]
+		}
+	}
+	return ""
+}
+
+// imapExpunge deletes a message the way another client would: flag it \Deleted
+// and expunge it out of the mailbox.
+func imapExpunge(t *testing.T, port int, user, password, folder string, uid uint32) {
+	t.Helper()
+	client := dialIMAP(t, port, user, password)
+	defer client.close()
+	client.selectFolder(folder)
+	client.do(`UID STORE %d +FLAGS (\Deleted)`, uid)
+	client.do("EXPUNGE")
+}
+
+// imapUIDValidity reports a mailbox's current UIDVALIDITY.
+func imapUIDValidity(t *testing.T, port int, user, password, folder string) uint32 {
+	t.Helper()
+	client := dialIMAP(t, port, user, password)
+	defer client.close()
+	return client.selectFolder(folder)
+}
+
+// imapRecreateFolder deletes and recreates a mailbox, which is what makes a
+// server hand out a fresh UIDVALIDITY and start UIDs over from 1.
+func imapRecreateFolder(t *testing.T, port int, user, password, folder string) {
+	t.Helper()
+	client := dialIMAP(t, port, user, password)
+	defer client.close()
+	client.do("DELETE %q", folder)
+	client.do("CREATE %q", folder)
+}
+
+// imapSearchSubject returns the UIDs in a folder whose Subject header matches,
+// server side — how many copies of a sent message actually exist, regardless of
+// what the local store cached.
+func imapSearchSubject(t *testing.T, port int, user, password, folder, subject string) []uint32 {
+	t.Helper()
+	client := dialIMAP(t, port, user, password)
+	defer client.close()
+	client.selectFolder(folder)
+	var uids []uint32
+	for _, line := range client.do("UID SEARCH HEADER SUBJECT %q", subject) {
+		fields := strings.Fields(line)
+		if len(fields) < 2 || fields[0] != "*" || !strings.EqualFold(fields[1], "SEARCH") {
+			continue
+		}
+		for _, field := range fields[2:] {
+			var uid uint32
+			if _, err := fmt.Sscanf(field, "%d", &uid); err == nil {
+				uids = append(uids, uid)
 			}
 		}
 	}
-	expect("* OK")
-	fmt.Fprintf(conn, "a1 LOGIN %q %q\r\n", user, password)
-	if line := expect("a1 "); !strings.HasPrefix(line, "a1 OK") {
-		t.Fatalf("imap login failed: %s", line)
-	}
-	fmt.Fprintf(conn, "a2 APPEND %q {%d}\r\n", folder, len(message))
-	expect("+")
-	conn.Write(message)
-	conn.Write([]byte("\r\n"))
-	if line := expect("a2 "); !strings.HasPrefix(line, "a2 OK") {
-		t.Fatalf("imap append failed: %s", line)
-	}
-	fmt.Fprintf(conn, "a3 LOGOUT\r\n")
+	return uids
+}
+
+// rawMessage builds an RFC 5322 message for imapAppend. Headers are passed
+// verbatim so a test can deliver encodings and header shapes meron's own send
+// path never emits.
+func rawMessage(headers []string, body string) []byte {
+	joined := strings.Join(headers, "\r\n")
+	body = strings.ReplaceAll(body, "\n", "\r\n")
+	return []byte(joined + "\r\n\r\n" + body + "\r\n")
 }
 
 func foldersContain(result map[string]any, name string) bool {

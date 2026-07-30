@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -157,11 +158,25 @@ func waitForIMAPGreeting(t *testing.T, port int, docker, container string) {
 	t.Fatalf("maddy did not become ready on port %d\ncontainer logs:\n%s", port, logs)
 }
 
-// startSidecar launches the Rust core against a throwaway profile dir. The
-// sidecar resolves its DB/media paths from XDG dirs (sidecarEnv), so pointing
-// XDG_* and HOME at a temp dir isolates it; MERON_KEYRING=off keeps the test
-// run out of the OS keychain.
-func startSidecar(t *testing.T) *Sidecar {
+// restartMaddy stops and starts the server container, standing in for a mail
+// server that goes away mid-session (restart, deploy, transient outage). The
+// mailbox state lives in the container filesystem, so it survives.
+func restartMaddy(t *testing.T, server *maddyServer) {
+	t.Helper()
+	docker := dockerBin(t)
+	runCmd(t, docker, "restart", "-t", "3", server.container)
+	waitForIMAPGreeting(t, server.imapPort, docker, server.container)
+}
+
+// startSidecar launches the Rust core against a throwaway profile dir, and
+// records the events it pushes. The sidecar resolves its DB/media paths from XDG
+// dirs (sidecarEnv), so pointing XDG_* and HOME at a temp dir isolates it;
+// MERON_KEYRING=off keeps the test run out of the OS keychain.
+//
+// The profile and the env pointing at it are scoped to the `t` passed in, so
+// calling this from a subtest yields a *second*, empty profile against the same
+// server — a cold store whose contents can only have come from IMAP.
+func startSidecar(t *testing.T) (*Sidecar, *eventLog) {
 	t.Helper()
 	bin := "meron-core/target/debug/meron-core"
 	if _, err := os.Stat(bin); err != nil {
@@ -175,11 +190,54 @@ func startSidecar(t *testing.T) *Sidecar {
 	t.Setenv("MERON_KEYRING", "off")
 
 	sidecar := NewSidecar(bin, os.Stderr)
+	events := &eventLog{}
+	// Must be installed before Start: the read loop is what dispatches events.
+	sidecar.onEvent = events.record
 	if err := sidecar.Start(nil); err != nil {
 		t.Fatalf("start sidecar: %v", err)
 	}
 	t.Cleanup(sidecar.Close)
-	return sidecar
+	return sidecar, events
+}
+
+// eventLog collects the push events the sidecar emits (mail.newMessages,
+// mail.synced, …) so tests can assert on the push path — IDLE has no request to
+// hang an assertion off.
+type eventLog struct {
+	mu     sync.Mutex
+	events []sidecarEvent
+}
+
+type sidecarEvent struct {
+	name   string
+	detail map[string]any
+}
+
+func (l *eventLog) record(name string, detail any) {
+	object, _ := detail.(map[string]any)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, sidecarEvent{name: name, detail: object})
+}
+
+// match returns the events so far satisfying predicate.
+func (l *eventLog) match(predicate func(sidecarEvent) bool) []sidecarEvent {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	var out []sidecarEvent
+	for _, event := range l.events {
+		if predicate(event) {
+			out = append(out, event)
+		}
+	}
+	return out
+}
+
+// count returns how many recorded events satisfy predicate. Tests compare it
+// across an action rather than asserting on an absolute number: watchers emit a
+// catch-up event when they start, so only the delta is meaningful.
+func (l *eventLog) count(predicate func(sidecarEvent) bool) int {
+	return len(l.match(predicate))
 }
 
 // connectAccount registers an account on the sidecar against the local maddy.
