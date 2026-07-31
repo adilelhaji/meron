@@ -153,7 +153,7 @@ function KanbanColumnContent({
         )
   const deleteColumnFolder = () => {
     if (!deletableTarget) return
-    void deleteFolder(column.accountId, column.folderId, deletableTarget.name)
+    void deleteFolder(column.accountId, column.folderId, deletableTarget.name, deletableTarget.nested)
   }
   const emptyColumnFolder = async () => {
     if (!emptiableTarget) return

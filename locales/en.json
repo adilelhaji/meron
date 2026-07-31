@@ -269,6 +269,7 @@
   "folders.delete.action": "Delete folder",
   "folders.delete.confirmTitle": "Delete {folder}?",
   "folders.delete.confirmMessage": "{folder} and every message in it will be permanently deleted from the server. This cannot be undone.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {{folder}, its subfolder, and every message in them will be permanently deleted from the server. This cannot be undone.} other {{folder}, its {count} subfolders, and every message in them will be permanently deleted from the server. This cannot be undone.}}",
   "folders.delete.confirmButton": "Delete folder",
   "folders.delete.done": "{folder} deleted",
   "folders.delete.failed": "Could not delete {folder}",

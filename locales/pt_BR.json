@@ -272,6 +272,7 @@
   "folders.delete.action": "Excluir pasta",
   "folders.delete.confirmTitle": "Excluir {folder}?",
   "folders.delete.confirmMessage": "A pasta {folder} e todas as mensagens nela serão excluídas permanentemente do servidor. Isso não pode ser desfeito.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {A pasta {folder}, a subpasta dela e todas as mensagens nelas serão excluídas permanentemente do servidor. Isso não pode ser desfeito.} other {A pasta {folder}, as {count} subpastas dela e todas as mensagens nelas serão excluídas permanentemente do servidor. Isso não pode ser desfeito.}}",
   "folders.delete.confirmButton": "Excluir pasta",
   "folders.delete.done": "{folder} excluída",
   "folders.delete.failed": "Não foi possível excluir {folder}",

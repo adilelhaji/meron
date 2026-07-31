@@ -272,6 +272,7 @@
   "folders.delete.action": "Elimina cartella",
   "folders.delete.confirmTitle": "Eliminare {folder}?",
   "folders.delete.confirmMessage": "{folder} e tutti i messaggi che contiene verranno eliminati definitivamente dal server. L’operazione non può essere annullata.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {{folder}, la sua sottocartella e tutti i messaggi che contengono verranno eliminati definitivamente dal server. L’operazione non può essere annullata.} other {{folder}, le sue {count} sottocartelle e tutti i messaggi che contengono verranno eliminati definitivamente dal server. L’operazione non può essere annullata.}}",
   "folders.delete.confirmButton": "Elimina cartella",
   "folders.delete.done": "{folder} eliminata",
   "folders.delete.failed": "Impossibile eliminare {folder}",

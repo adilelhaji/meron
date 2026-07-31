@@ -272,6 +272,7 @@
   "folders.delete.action": "刪除資料夾",
   "folders.delete.confirmTitle": "刪除 {folder}？",
   "folders.delete.confirmMessage": "{folder} 及其中的所有郵件將從伺服器永久刪除，且無法復原。",
+  "folders.delete.confirmMessageNested": "{folder}、其 {count} 個子資料夾及其中的所有郵件將從伺服器永久刪除，且無法復原。",
   "folders.delete.confirmButton": "刪除資料夾",
   "folders.delete.done": "已刪除 {folder}",
   "folders.delete.failed": "無法刪除 {folder}",

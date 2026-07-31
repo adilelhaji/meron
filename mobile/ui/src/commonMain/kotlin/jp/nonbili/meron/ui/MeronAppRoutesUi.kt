@@ -554,6 +554,12 @@ internal fun KanbanRouteContent(
                                 accountId = folder.accountId,
                                 folderId = folder.name,
                                 folderName = folder.displayName,
+                                nested =
+                                    nestedFolders(
+                                        foldersByAccount[folder.accountId].orEmpty(),
+                                        folder.accountId,
+                                        folder.name,
+                                    ).size,
                                 column = column,
                             )
                     },
@@ -832,7 +838,7 @@ internal fun MailRouteContent(
                                         }
                                     }
                                 // Deleting the folder itself is offered only for an
-                                // ordinary folder with nothing nested under it.
+                                // ordinary folder; anything nested under it goes too.
                                 val deletableMailboxFolder =
                                     if (selectedAccountIsRss) {
                                         null
@@ -935,6 +941,12 @@ internal fun MailRouteContent(
                                                             accountId = folder.accountId,
                                                             folderId = folder.name,
                                                             folderName = folder.displayName,
+                                                            nested =
+                                                                nestedFolders(
+                                                                    coreFolders,
+                                                                    folder.accountId,
+                                                                    folder.name,
+                                                                ).size,
                                                         )
                                                 },
                                             )

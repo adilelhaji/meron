@@ -161,6 +161,30 @@ fun parseFolderListResponse(responseJson: String): List<FolderSummary> {
     }
 }
 
+data class FolderDeleteResult(
+    val removed: Set<String>,
+    val warning: String?,
+)
+
+fun parseFolderDeleteResponse(responseJson: String): FolderDeleteResult {
+    val removed =
+        responseJson
+            .findJsonArrayProperty("removed")
+            ?.jsonArrayElements()
+            ?.mapNotNull { item ->
+                item
+                    .takeIf { it.startsWith('"') }
+                    ?.readJsonString(0)
+                    ?.value
+                    ?.takeIf { it.isNotBlank() }
+            }?.toSet()
+            .orEmpty()
+    return FolderDeleteResult(
+        removed = removed,
+        warning = responseJson.findJsonStringProperty("warning")?.takeIf { it.isNotBlank() },
+    )
+}
+
 fun parseContactSuggestResponse(responseJson: String): List<ContactSuggestion> {
     val contactsJson = responseJson.findJsonArrayProperty("contacts") ?: return emptyList()
     return contactsJson.jsonArrayElements().mapNotNull { item ->

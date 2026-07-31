@@ -1038,20 +1038,37 @@ describe('deletableFolder', () => {
   it('accepts an ordinary leaf folder', () => {
     const folders = [folder('inbox', { role: 'inbox' }), folder('Work'), folder('Receipts')]
 
-    expect(deletableFolder(folder('Receipts'), folders)).toEqual({ name: 'Receipts' })
+    expect(deletableFolder(folder('Receipts'), folders)).toEqual({ name: 'Receipts', nested: 0 })
   })
 
-  it('refuses special-use folders, parents and the unified view', () => {
+  it('accepts a parent and counts the subfolders that go with it', () => {
     const folders = [
       folder('inbox', { role: 'inbox' }),
       folder('Work', { delimiter: '/' }),
       folder('Work/Reports', { delimiter: '/' }),
+      folder('Work/Reports/2026', { delimiter: '/' }),
+      // Shares a name prefix but is not nested under Work.
+      folder('Workshop', { delimiter: '/' }),
+    ]
+
+    expect(deletableFolder(folder('Work', { delimiter: '/' }), folders)).toEqual({ name: 'Work', nested: 2 })
+    expect(deletableFolder(folder('Work/Reports', { delimiter: '/' }), folders)).toEqual({
+      name: 'Work/Reports',
+      nested: 1,
+    })
+  })
+
+  it('refuses special-use folders, their parents and the unified view', () => {
+    const folders = [
+      folder('inbox', { role: 'inbox' }),
+      folder('Mail', { delimiter: '/' }),
+      folder('Mail/Archive', { delimiter: '/', role: 'archive' }),
     ]
 
     expect(deletableFolder(folder('inbox', { role: 'inbox' }), folders)).toBeNull()
-    expect(deletableFolder(folder('Work', { delimiter: '/' }), folders)).toBeNull()
-    expect(deletableFolder(folder('Work/Reports', { delimiter: '/' }), folders)).toEqual({ name: 'Work/Reports' })
-    expect(deletableFolder(folder('Work', { account_id: 'unified' }), folders)).toBeNull()
+    // Deleting Mail would take the archive with it.
+    expect(deletableFolder(folder('Mail', { delimiter: '/' }), folders)).toBeNull()
+    expect(deletableFolder(folder('Mail', { account_id: 'unified' }), folders)).toBeNull()
     expect(deletableFolder(undefined, folders)).toBeNull()
   })
 })
@@ -1115,6 +1132,64 @@ describe('deleteFolder', () => {
     expect(settings$.kanbanBoards.get()[0].columns).toEqual([{ accountId: 'acc', folderId: 'inbox' }])
     expect(ui$.selectedFolder.get()).toBe('inbox')
     expect(ui$.toast.get()).toBe('Work deleted')
+  })
+
+  it('clears the columns and the open view of every folder the core removed', async () => {
+    settings$.kanbanBoards.set([
+      {
+        id: 'b1',
+        name: 'Board',
+        columns: [
+          { accountId: 'acc', folderId: 'inbox' },
+          { accountId: 'acc', folderId: 'Work' },
+          { accountId: 'acc', folderId: 'Work/Reports' },
+        ],
+      },
+    ])
+    ui$.selectedFolder.set('Work/Reports')
+    responses['mail.folderDelete'] = {
+      ok: true,
+      deleted: 3,
+      removed: ['Work/Reports', 'Work'],
+      folders: [{ id: 'inbox', account_id: 'acc', name: 'Inbox', role: 'inbox', unread: 0 }],
+    }
+
+    const pending = deleteFolder('acc', 'Work', 'Work', 1)
+    settleConfirm(true)
+
+    expect(await pending).toBe(true)
+    expect(settings$.kanbanBoards.get()[0].columns).toEqual([{ accountId: 'acc', folderId: 'inbox' }])
+    // The mailbox was sitting in the subfolder, not in the folder deleted.
+    expect(ui$.selectedFolder.get()).toBe('inbox')
+  })
+
+  it('reconciles folders removed before a later server DELETE fails', async () => {
+    settings$.kanbanBoards.set([
+      {
+        id: 'b1',
+        name: 'Board',
+        columns: [
+          { accountId: 'acc', folderId: 'Work' },
+          { accountId: 'acc', folderId: 'Work/Reports' },
+        ],
+      },
+    ])
+    ui$.selectedFolder.set('Work/Reports')
+    responses['mail.folderDelete'] = {
+      ok: false,
+      deleted: 1,
+      removed: ['Work/Reports'],
+      warning: 'One subfolder was deleted before the server rejected Work',
+      folders: [{ id: 'Work', account_id: 'acc', name: 'Work', role: 'folder', unread: 0 }],
+    }
+
+    const pending = deleteFolder('acc', 'Work', 'Work', 1)
+    settleConfirm(true)
+
+    expect(await pending).toBe(false)
+    expect(settings$.kanbanBoards.get()[0].columns).toEqual([{ accountId: 'acc', folderId: 'Work' }])
+    expect(ui$.selectedFolder.get()).toBe('inbox')
+    expect(ui$.toast.get()).toBe('One subfolder was deleted before the server rejected Work')
   })
 
   it('clears a selected thread that exists only in the deleted Kanban column', async () => {

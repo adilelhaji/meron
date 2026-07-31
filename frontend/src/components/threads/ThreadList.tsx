@@ -271,7 +271,8 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                 }
                 onDeleteFolder={
                   deletableTarget
-                    ? () => void deleteFolder(selectedAccount, selectedFolder, deletableTarget.name)
+                    ? () =>
+                        void deleteFolder(selectedAccount, selectedFolder, deletableTarget.name, deletableTarget.nested)
                     : undefined
                 }
                 onSync={syncMail}

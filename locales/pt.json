@@ -272,6 +272,7 @@
   "folders.delete.action": "Eliminar pasta",
   "folders.delete.confirmTitle": "Eliminar {folder}?",
   "folders.delete.confirmMessage": "A pasta {folder} e todas as mensagens nela serão eliminadas permanentemente do servidor. Isto não pode ser anulado.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {A pasta {folder}, a sua subpasta e todas as mensagens nelas serão eliminadas permanentemente do servidor. Isto não pode ser anulado.} other {A pasta {folder}, as suas {count} subpastas e todas as mensagens nelas serão eliminadas permanentemente do servidor. Isto não pode ser anulado.}}",
   "folders.delete.confirmButton": "Eliminar pasta",
   "folders.delete.done": "{folder} eliminada",
   "folders.delete.failed": "Não foi possível eliminar {folder}",

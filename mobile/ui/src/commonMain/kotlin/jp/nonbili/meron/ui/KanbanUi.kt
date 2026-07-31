@@ -824,7 +824,7 @@ internal fun KanbanColumnHeader(
             }
         }
     // Deleting the folder itself is offered only for an ordinary per-account
-    // folder with nothing nested under it — see `deletableFolder`.
+    // folder; anything nested under it goes too — see `deletableFolder`.
     val deletableColumnFolder =
         deletableFolder(foldersByAccount[column.accountId].orEmpty(), column.accountId, column.folderId)
     Row(

@@ -1145,41 +1145,58 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "folders": serde_json::to_value(vec![folder])? }))
         }
 
-        // Delete a folder on the server and forget everything cached under it.
-        // Unrecoverable, so the special-use / has-children gate is re-checked
-        // here rather than trusted from the caller.
+        // Delete a folder and everything nested under it on the server, then
+        // forget the whole subtree's cache. Unrecoverable, so the special-use
+        // gate is re-checked here rather than trusted from the caller.
         "folders.delete" => {
             let account = req_str(p, "account")?;
             if is_rss(engine, &account)? {
                 return Err(anyhow::anyhow!("RSS accounts do not support folders"));
             }
             let folder = canon_folder(&req_str(p, "folder").or_else(|_| req_str(p, "name"))?);
-            {
+            let targets = {
                 let db = engine.db.lock().unwrap();
                 mail_model::check_folder_deletable(&db, &account, &folder)
                     .map_err(anyhow::Error::msg)?;
-            }
+                mail_model::folder_delete_targets(&db, &account, &folder)
+                    .map_err(anyhow::Error::msg)?
+            };
 
             // Mutating, so it never auto-retries.
-            engine
+            let server_result = engine
                 .with_write_session(&account, |session| {
-                    let folder = folder.clone();
-                    Box::pin(async move { imap::delete_folder(session, &folder).await })
+                    let targets = targets.clone();
+                    Box::pin(async move { imap::delete_folders(session, &targets).await })
                 })
-                .await?;
+                .await;
+            let (removed, warning) = match server_result {
+                Ok(removed) => (removed, None),
+                Err(err) => match err.downcast::<imap::PartialFolderDelete>() {
+                    Ok(partial) => {
+                        let (removed, warning) = partial.into_parts();
+                        (removed, Some(warning))
+                    }
+                    Err(err) => return Err(err),
+                },
+            };
 
             let (deleted, folders) = {
                 let db = engine.db.lock().unwrap();
-                (
-                    store::delete_folder(&db, &account, &folder)?,
-                    store::get_folders(&db, &account)?,
-                )
+                let mut deleted = 0;
+                for target in &removed {
+                    deleted += store::delete_folder(&db, &account, target)?;
+                }
+                (deleted, store::get_folders(&db, &account)?)
             };
             Ok(json!({
-                "ok": true,
+                "ok": warning.is_none(),
                 "folder": folder,
+                // Every folder that went with it, so the caller can clear the
+                // views and caches keyed on a nested folder as well.
+                "removed": removed,
                 "deleted": deleted,
                 "folders": serde_json::to_value(folders)?,
+                "warning": warning,
             }))
         }
 

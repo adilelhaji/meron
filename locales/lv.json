@@ -272,6 +272,7 @@
   "folders.delete.action": "Dzēst mapi",
   "folders.delete.confirmTitle": "Vai dzēst {folder}?",
   "folders.delete.confirmMessage": "Mape {folder} un visas tajā esošās ziņas tiks neatgriezeniski dzēstas no servera. Šo darbību nevar atsaukt.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {Mape {folder}, tās apakšmape un visas tajās esošās ziņas tiks neatgriezeniski dzēstas no servera. Šo darbību nevar atsaukt.} other {Mape {folder}, tās {count} apakšmapes un visas tajās esošās ziņas tiks neatgriezeniski dzēstas no servera. Šo darbību nevar atsaukt.}}",
   "folders.delete.confirmButton": "Dzēst mapi",
   "folders.delete.done": "{folder} dzēsta",
   "folders.delete.failed": "Neizdevās izdzēst {folder}",

@@ -272,6 +272,7 @@
   "folders.delete.action": "Kustuta kaust",
   "folders.delete.confirmTitle": "Kas kustutada {folder}?",
   "folders.delete.confirmMessage": "Kaust {folder} ja kõik selle sõnumid kustutatakse serverist jäädavalt. Seda ei saa tagasi võtta.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {Kaust {folder}, selle alamkaust ja kõik nende sõnumid kustutatakse serverist jäädavalt. Seda ei saa tagasi võtta.} other {Kaust {folder}, selle {count} alamkausta ja kõik nende sõnumid kustutatakse serverist jäädavalt. Seda ei saa tagasi võtta.}}",
   "folders.delete.confirmButton": "Kustuta kaust",
   "folders.delete.done": "{folder} on kustutatud",
   "folders.delete.failed": "Kausta {folder} ei õnnestunud kustutada",

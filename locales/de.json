@@ -272,6 +272,7 @@
   "folders.delete.action": "Ordner löschen",
   "folders.delete.confirmTitle": "{folder} löschen?",
   "folders.delete.confirmMessage": "{folder} und alle darin enthaltenen Nachrichten werden endgültig vom Server gelöscht. Dies kann nicht rückgängig gemacht werden.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {{folder}, sein Unterordner und alle darin enthaltenen Nachrichten werden endgültig vom Server gelöscht. Dies kann nicht rückgängig gemacht werden.} other {{folder}, seine {count} Unterordner und alle darin enthaltenen Nachrichten werden endgültig vom Server gelöscht. Dies kann nicht rückgängig gemacht werden.}}",
   "folders.delete.confirmButton": "Ordner löschen",
   "folders.delete.done": "{folder} gelöscht",
   "folders.delete.failed": "{folder} konnte nicht gelöscht werden",

@@ -145,6 +145,7 @@ func TestFolderDeleteReshapesFoldersAndRefusesBadTargets(t *testing.T) {
 		"ok":      true,
 		"folder":  "Work",
 		"deleted": float64(3),
+		"removed": []any{"Work/Reports", "Work"},
 		"folders": []any{map[string]any{"name": "INBOX", "delimiter": "/"}},
 	}})
 
@@ -161,10 +162,28 @@ func TestFolderDeleteReshapesFoldersAndRefusesBadTargets(t *testing.T) {
 	if result["deleted"] != float64(3) {
 		t.Fatalf("deleted = %#v, want the sidecar's count", result["deleted"])
 	}
+	if removed, _ := result["removed"].([]any); len(removed) != 2 {
+		t.Fatalf("removed = %#v, want the sidecar's subtree", result["removed"])
+	}
 	// The remaining folders come back in bridge shape, with ids and roles filled in.
 	folders, _ := result["folders"].([]Folder)
 	if len(folders) != 1 || folders[0].ID != "INBOX" || folders[0].Role != "inbox" {
 		t.Fatalf("folders = %#v, want the reshaped INBOX row", result["folders"])
+	}
+
+	app, _ = newMailHandlerTestApp(t, sidecarResponsePlan{Result: map[string]any{
+		"ok":      false,
+		"warning": "one child was deleted before DELETE failed",
+		"removed": []any{"Work/Reports"},
+		"folders": []any{map[string]any{"name": "Work", "delimiter": "/"}},
+	}})
+	out, err = app.folderDelete(map[string]any{"account_id": "acc", "folder_id": "Work"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, _ = out.(map[string]any)
+	if result["ok"] != false || result["warning"] != "one child was deleted before DELETE failed" {
+		t.Fatalf("partial delete result = %#v", result)
 	}
 
 	app, writer = newMailHandlerTestApp(t)

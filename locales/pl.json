@@ -272,6 +272,7 @@
   "folders.delete.action": "Usuń folder",
   "folders.delete.confirmTitle": "Usunąć {folder}?",
   "folders.delete.confirmMessage": "Folder {folder} i wszystkie wiadomości w nim zostaną trwale usunięte z serwera. Tej operacji nie można cofnąć.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {Folder {folder}, jego podfolder i wszystkie wiadomości w nich zostaną trwale usunięte z serwera. Tej operacji nie można cofnąć.} other {Folder {folder}, jego {count} podfolderów i wszystkie wiadomości w nich zostaną trwale usunięte z serwera. Tej operacji nie można cofnąć.}}",
   "folders.delete.confirmButton": "Usuń folder",
   "folders.delete.done": "Usunięto {folder}",
   "folders.delete.failed": "Nie udało się usunąć {folder}",

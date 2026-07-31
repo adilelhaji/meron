@@ -93,9 +93,9 @@ func (a *App) folderCreate(payload map[string]any) (any, error) {
 	return foldersJSON(req.AccountID, res), nil
 }
 
-// folderDelete removes a folder on the server, along with the cached messages
-// under it. The sidecar re-checks that the folder is an ordinary one with no
-// children, so a bad payload cannot delete Sent or Archive.
+// folderDelete removes a folder on the server, subfolders included, along with
+// the cached messages under it. The sidecar re-checks that no special-use folder
+// is in that subtree, so a bad payload cannot delete Sent or Archive.
 func (a *App) folderDelete(payload map[string]any) (any, error) {
 	var req FolderDeleteRequest
 	_ = decode(payload, &req)
@@ -126,8 +126,19 @@ func (a *App) folderDelete(payload map[string]any) (any, error) {
 	}
 	out := map[string]any{"ok": true, "folder": req.FolderID}
 	if m, isMap := res.(map[string]any); isMap {
+		if ok, found := m["ok"]; found {
+			out["ok"] = ok
+		}
 		if deleted, found := m["deleted"]; found {
 			out["deleted"] = deleted
+		}
+		if warning, found := m["warning"]; found {
+			out["warning"] = warning
+		}
+		// The whole subtree that went with the folder, so the frontend can
+		// clear the views and caches keyed on a nested folder as well.
+		if removed, found := m["removed"]; found {
+			out["removed"] = removed
 		}
 		// Same reshaping as folderList: the sidecar returns raw folder rows.
 		if shaped, isShaped := foldersJSON(req.AccountID, res).(map[string]any); isShaped {

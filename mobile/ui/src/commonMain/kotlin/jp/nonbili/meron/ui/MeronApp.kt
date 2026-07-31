@@ -1289,6 +1289,7 @@ private fun MeronMobileScreenContent(
         pendingDeleteFolder?.let { target ->
             DeleteFolderDialog(
                 folderName = target.folderName,
+                nested = target.nested,
                 onConfirm = {
                     pendingDeleteFolder = null
                     deleteMailFolder(

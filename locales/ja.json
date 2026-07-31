@@ -272,6 +272,7 @@
   "folders.delete.action": "フォルダーを削除",
   "folders.delete.confirmTitle": "{folder} を削除しますか？",
   "folders.delete.confirmMessage": "{folder} とその中のすべてのメールがサーバーから完全に削除されます。元に戻すことはできません。",
+  "folders.delete.confirmMessageNested": "{folder} とその {count} 個のサブフォルダー、およびそれらに含まれるすべてのメールがサーバーから完全に削除されます。元に戻すことはできません。",
   "folders.delete.confirmButton": "フォルダーを削除",
   "folders.delete.done": "{folder} を削除しました",
   "folders.delete.failed": "{folder} を削除できませんでした",

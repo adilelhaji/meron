@@ -100,13 +100,22 @@ internal fun EmptyFolderDialog(
 @Composable
 internal fun DeleteFolderDialog(
     folderName: String,
+    nested: Int,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("folders.delete.confirmTitle", mapOf("folder" to folderName))) },
-        text = { Text(tr("folders.delete.confirmMessage", mapOf("folder" to folderName))) },
+        text = {
+            Text(
+                if (nested > 0) {
+                    tr("folders.delete.confirmMessageNested", mapOf("folder" to folderName, "count" to nested))
+                } else {
+                    tr("folders.delete.confirmMessage", mapOf("folder" to folderName))
+                },
+            )
+        },
         confirmButton = {
             TextButton(onClick = onConfirm) {
                 Text(

@@ -116,8 +116,17 @@ pub(crate) fn engine_block_on<F, T>(future: F) -> Result<T, String>
 where
     F: std::future::Future<Output = anyhow::Result<T>>,
 {
-    let rt = engine_runtime().ok_or_else(|| "engine runtime unavailable".to_string())?;
-    rt.block_on(future).map_err(|err| format!("{err:#}"))
+    engine_block_on_anyhow(future).map_err(|err| format!("{err:#}"))
+}
+
+/// Variant that preserves the concrete error for callers which must reconcile
+/// details from a partially applied server mutation.
+pub(crate) fn engine_block_on_anyhow<F, T>(future: F) -> anyhow::Result<T>
+where
+    F: std::future::Future<Output = anyhow::Result<T>>,
+{
+    let rt = engine_runtime().ok_or_else(|| anyhow::anyhow!("engine runtime unavailable"))?;
+    rt.block_on(future)
 }
 
 /// INBOX IDLE watches started by `engine.foreground` (as opposed to the opt-in

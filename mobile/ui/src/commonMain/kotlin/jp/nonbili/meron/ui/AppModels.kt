@@ -165,12 +165,15 @@ internal data class EmptyFolderTarget(
     val column: KanbanColumnSpec? = null,
 )
 
-/** A folder awaiting "delete folder" confirmation. [column] is set when the
- *  action came from a Kanban column, so that column is dropped from the board. */
+/** A folder awaiting "delete folder" confirmation. [nested] is how many
+ *  subfolders would go with it, which the dialog spells out. [column] is set when
+ *  the action came from a Kanban column, so that column is dropped from the
+ *  board. */
 internal data class DeleteFolderTarget(
     val accountId: String,
     val folderId: String,
     val folderName: String,
+    val nested: Int = 0,
     val column: KanbanColumnSpec? = null,
 )
 

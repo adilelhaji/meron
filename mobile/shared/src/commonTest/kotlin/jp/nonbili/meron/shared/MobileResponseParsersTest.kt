@@ -449,6 +449,17 @@ class MobileResponseParsersTest {
     }
 
     @Test
+    fun parsesPartialFolderDeleteResult() {
+        val result =
+            parseFolderDeleteResponse(
+                """{"result":{"ok":false,"removed":["Work/Reports"],"warning":"DELETE Work failed"}}""",
+            )
+
+        assertEquals(setOf("Work/Reports"), result.removed)
+        assertEquals("DELETE Work failed", result.warning)
+    }
+
+    @Test
     fun parsesThreadActionLocationFromArchiveResponse() {
         val location =
             parseThreadActionLocationResponse(

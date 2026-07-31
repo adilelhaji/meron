@@ -207,6 +207,38 @@ func TestIntegrationMailFlow(t *testing.T) {
 		if _, err := sidecar.Call("folders.delete", map[string]any{"account": "alice", "folder": "INBOX"}); err == nil {
 			t.Fatal("folders.delete accepted INBOX, want refusal")
 		}
+
+		// A real hierarchy is removed leaf-first, and the response names every
+		// mailbox that disappeared so clients can clear nested views.
+		delimiter := folderDelimiter(result, "INBOX")
+		if delimiter == "" {
+			t.Fatal("maddy reported no hierarchy delimiter for INBOX")
+		}
+		parent := "ITestDeleteTree"
+		child := parent + delimiter + "Child"
+		callMap(t, sidecar, "folders.create", map[string]any{"account": "alice", "name": parent})
+		callMap(t, sidecar, "folders.create", map[string]any{"account": "alice", "name": child})
+		deadline = time.Now().Add(30 * time.Second)
+		for {
+			result = callMap(t, sidecar, "folders.list", map[string]any{"account": "alice"})
+			if foldersContain(result, parent) &&
+				foldersContain(result, child) &&
+				folderDelimiter(result, parent) == delimiter {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("nested folders never refreshed with delimiter %q: %v", delimiter, result)
+			}
+			time.Sleep(300 * time.Millisecond)
+		}
+		result = callMap(t, sidecar, "folders.delete", map[string]any{"account": "alice", "folder": parent})
+		if foldersContain(result, parent) || foldersContain(result, child) {
+			t.Fatalf("folders.delete left part of the subtree cached: %v", result)
+		}
+		removed, _ := result["removed"].([]any)
+		if len(removed) != 2 || removed[0] != child || removed[1] != parent {
+			t.Fatalf("removed = %#v, want [%q %q]", removed, child, parent)
+		}
 	})
 
 	nonce := fmt.Sprintf("%d", time.Now().UnixNano())
@@ -2244,6 +2276,21 @@ func foldersContain(result map[string]any, name string) bool {
 		}
 	}
 	return false
+}
+
+func folderDelimiter(result map[string]any, name string) string {
+	folders, _ := result["folders"].([]any)
+	for _, item := range folders {
+		folder, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		if value, _ := folder["name"].(string); strings.EqualFold(value, name) {
+			delimiter, _ := folder["delimiter"].(string)
+			return delimiter
+		}
+	}
+	return ""
 }
 
 func threadLength(result map[string]any) int {

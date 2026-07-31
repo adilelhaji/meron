@@ -29,9 +29,10 @@ internal fun folderTreeDelimiter(folders: List<FolderSummary>): String =
 
 /**
  * The folder a "delete folder" action may target: an ordinary folder of a single
- * account with nothing nested under it. Special-use folders carry the app's own
- * routing (Inbox/Sent/Drafts/Trash/Junk/Archive), and IMAP refuses to delete a
- * mailbox that still has children. The core re-checks both rules.
+ * account. Special-use folders carry the app's own routing
+ * (Inbox/Sent/Drafts/Trash/Junk/Archive), and that rules out a parent holding one
+ * as well, because deleting a folder takes everything nested under it too. The
+ * core re-checks both rules.
  */
 internal fun deletableFolder(
     folders: List<FolderSummary>,
@@ -41,9 +42,18 @@ internal fun deletableFolder(
     if (accountId == UNIFIED_ACCOUNT_ID) return null
     val folder = folders.firstOrNull { it.accountId == accountId && it.name == folderId } ?: return null
     if (folder.role != "folder") return null
-    val prefix = folder.name + folderTreeDelimiter(folders)
-    if (folders.any { it.name != folder.name && it.name.startsWith(prefix) }) return null
+    if (nestedFolders(folders, accountId, folderId).any { it.role != "folder" }) return null
     return folder
+}
+
+/** The folders nested under [folderId], which a delete of it would take along. */
+internal fun nestedFolders(
+    folders: List<FolderSummary>,
+    accountId: String,
+    folderId: String,
+): List<FolderSummary> {
+    val prefix = folderId + folderTreeDelimiter(folders)
+    return folders.filter { it.accountId == accountId && it.name != folderId && it.name.startsWith(prefix) }
 }
 
 private class MutableFolderTreeNode(

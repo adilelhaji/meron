@@ -116,22 +116,30 @@ pub fn delete_folder(conn: &Connection, account: &str, name: &str) -> Result<usi
     Ok(deleted)
 }
 
-/// Names of the folders nested under `name`, using each row's own delimiter.
-/// IMAP DELETE fails on a mailbox with inferiors, so callers check this first to
-/// explain why instead of surfacing a bare server error.
+/// Names of the folders nested under `name`, using the target folder's
+/// server-reported delimiter. A NULL/empty delimiter means the server exposed
+/// no hierarchy for this mailbox; punctuation in another mailbox's name must
+/// not turn it into a destructive delete target.
 pub fn child_folders(conn: &Connection, account: &str, name: &str) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT name, delimiter FROM folders WHERE account = ?1 AND name <> ?2 ORDER BY name",
-    )?;
-    let rows = stmt.query_map(params![account, name], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
-    })?;
+    let delimiter: Option<String> = conn
+        .query_row(
+            "SELECT delimiter FROM folders WHERE account = ?1 AND name = ?2",
+            params![account, name],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten()
+        .filter(|delimiter: &String| !delimiter.is_empty());
+    let Some(delimiter) = delimiter else {
+        return Ok(Vec::new());
+    };
+
+    let mut stmt =
+        conn.prepare("SELECT name FROM folders WHERE account = ?1 AND name <> ?2 ORDER BY name")?;
+    let rows = stmt.query_map(params![account, name], |row| row.get::<_, String>(0))?;
     let mut out = Vec::new();
     for row in rows {
-        let (child, delimiter) = row?;
-        let delimiter = delimiter
-            .filter(|d| !d.is_empty())
-            .unwrap_or_else(|| "/".to_string());
+        let child = row?;
         if child.starts_with(&format!("{name}{delimiter}")) {
             out.push(child);
         }

@@ -481,10 +481,42 @@ pub async fn create_folder(session: &mut Session, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Delete a folder on the server, messages and all. Callers must refuse
-/// special-use folders first: IMAP happily deletes Sent or Archive, and nothing
-/// on the server brings them back.
-pub async fn delete_folder(session: &mut Session, name: &str) -> Result<()> {
+/// A multi-folder delete that failed after removing part of its target list.
+/// Callers must reconcile `removed` before surfacing the failure.
+#[derive(Debug)]
+pub struct PartialFolderDelete {
+    pub removed: Vec<String>,
+    failure: String,
+}
+
+impl std::fmt::Display for PartialFolderDelete {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} folder(s) were deleted before the server rejected the operation: {}",
+            self.removed.len(),
+            self.failure
+        )
+    }
+}
+
+impl std::error::Error for PartialFolderDelete {}
+
+impl PartialFolderDelete {
+    pub fn into_parts(self) -> (Vec<String>, String) {
+        let warning = self.to_string();
+        (self.removed, warning)
+    }
+}
+
+/// Delete folders on the server, messages and all. `names` is deleted in order,
+/// so a subtree must arrive deepest first — RFC 3501 lets a server refuse DELETE
+/// on a mailbox that still has inferiors. Returns the names actually removed;
+/// if a later command fails, the error carries the successful prefix so callers
+/// can reconcile irreversible changes. Callers must refuse special-use folders
+/// first: IMAP happily deletes Sent or Archive, and nothing on the server brings
+/// them back.
+pub async fn delete_folders(session: &mut Session, names: &[String]) -> Result<Vec<String>> {
     // Pooled sessions retain their selected mailbox. Some servers refuse to
     // delete that mailbox, so safely move the session to INBOX first. EXAMINE
     // implicitly deselects without expunging messages marked \Deleted.
@@ -492,8 +524,18 @@ pub async fn delete_folder(session: &mut Session, name: &str) -> Result<()> {
         .examine("INBOX")
         .await
         .context("EXAMINE INBOX before DELETE")?;
-    session.delete(name).await.context("DELETE")?;
-    Ok(())
+    let mut removed = Vec::new();
+    for name in names {
+        if let Err(err) = session.delete(name).await {
+            let failure = format!("DELETE {name}: {err:#}");
+            if removed.is_empty() {
+                return Err(anyhow::anyhow!(failure));
+            }
+            return Err(PartialFolderDelete { removed, failure }.into());
+        }
+        removed.push(name.clone());
+    }
+    Ok(removed)
 }
 
 /// Fetch the most recent `limit` messages in `folder` as envelope summaries,

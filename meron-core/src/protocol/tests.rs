@@ -1040,7 +1040,7 @@ fn mobile_protocol_folder_create_requires_usable_account_secret() {
 }
 
 #[test]
-fn mobile_protocol_folder_delete_refuses_special_use_and_parents() {
+fn mobile_protocol_folder_delete_refuses_special_use_anywhere_in_the_subtree() {
     let data_dir = unique_data_dir("folder-delete-gate");
     seed_mobile_account(&data_dir, "me@example.com");
     let conn = store::open_at(data_dir.join("meron.db")).unwrap();
@@ -1069,6 +1069,17 @@ fn mobile_protocol_folder_delete_refuses_special_use_and_parents() {
                 delimiter: Some("/".to_string()),
                 ..Default::default()
             },
+            Folder {
+                name: "Mail".to_string(),
+                delimiter: Some("/".to_string()),
+                ..Default::default()
+            },
+            Folder {
+                name: "Mail/Junk".to_string(),
+                delimiter: Some("/".to_string()),
+                special_use: Some("junk".to_string()),
+                ..Default::default()
+            },
         ],
     )
     .unwrap();
@@ -1087,16 +1098,30 @@ fn mobile_protocol_folder_delete_refuses_special_use_and_parents() {
             .contains("special folder")
     );
 
-    // So is a folder that still has nested folders — IMAP DELETE would fail.
+    // So is one nested under an ordinary parent: the parent's delete would take
+    // the whole subtree with it.
     let parent = invoke_mobile_protocol_json(
-        r#"{"id":81,"method":"mail.folderDelete","params":{"account_id":"me@example.com","folder_id":"Work"}}"#,
+        r#"{"id":81,"method":"mail.folderDelete","params":{"account_id":"me@example.com","folder_id":"Mail"}}"#,
         Some(data_dir.to_str().unwrap()),
     );
     assert!(
         parent["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("nested folder")
+            .contains("Mail/Junk is a special folder")
+    );
+
+    // An ordinary parent passes the gate and gets as far as the creds check —
+    // nesting alone no longer blocks the delete.
+    let nested = invoke_mobile_protocol_json(
+        r#"{"id":83,"method":"mail.folderDelete","params":{"account_id":"me@example.com","folder_id":"Work"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    assert!(
+        nested["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("account needs reconnect")
     );
 
     // An ordinary leaf folder passes the gate and gets as far as the creds check.

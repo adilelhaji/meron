@@ -16,8 +16,8 @@ pub fn canon_folder(folder: &str) -> String {
 /// Gate for deleting a folder on the server. Both clients call this so the rule
 /// lives in one place: special-use mailboxes are off limits (the app routes mail
 /// through Inbox/Sent/Drafts/Trash/Junk/Archive, and the server keeps no copy
-/// once they are gone), and a folder with children is refused because IMAP
-/// DELETE fails on a mailbox with inferiors.
+/// once they are gone), and that applies to anything nested under the folder
+/// too, since deleting it takes the whole subtree.
 pub fn check_folder_deletable(
     conn: &Connection,
     account: &str,
@@ -32,14 +32,28 @@ pub fn check_folder_deletable(
             "{folder} is a special folder and cannot be deleted"
         ));
     }
-    let children = store::child_folders(conn, account, folder).map_err(|err| err.to_string())?;
-    if !children.is_empty() {
-        return Err(format!(
-            "{folder} has {} nested folder(s); delete those first",
-            children.len()
-        ));
+    for child in store::child_folders(conn, account, folder).map_err(|err| err.to_string())? {
+        let role = store::folder_role(conn, account, &child).map_err(|err| err.to_string())?;
+        if role != "folder" {
+            return Err(format!("{child} is a special folder and cannot be deleted"));
+        }
     }
     Ok(())
+}
+
+/// The folders a delete of `folder` removes, deepest first: IMAP DELETE fails on
+/// a mailbox that still has inferiors, so the subtree has to come off leaf-end
+/// first, with `folder` itself last. Sorting by descending name length puts every
+/// descendant ahead of its own parent, whatever the server's delimiter is.
+pub fn folder_delete_targets(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+) -> Result<Vec<String>, String> {
+    let mut targets = store::child_folders(conn, account, folder).map_err(|err| err.to_string())?;
+    targets.sort_by_key(|name| std::cmp::Reverse(name.len()));
+    targets.push(folder.to_string());
+    Ok(targets)
 }
 
 pub fn format_thread_id(account_id: &str, folder: &str, thread_key: &str) -> String {
@@ -296,25 +310,116 @@ mod tests {
                     ..Default::default()
                 },
                 crate::imap::Folder {
+                    name: "Projects/2026".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Projects/2026/Q1".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
                     name: "Localized Sent".to_string(),
                     delimiter: Some("/".to_string()),
                     special_use: Some("sent".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Mail".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Mail/Archive".to_string(),
+                    delimiter: Some("/".to_string()),
+                    special_use: Some("archive".to_string()),
                     ..Default::default()
                 },
             ],
         )
         .unwrap();
 
+        // A parent goes with its subfolders, so nesting is no bar on its own.
         assert!(check_folder_deletable(&conn, "me@example.com", "Projects").is_ok());
         assert!(
             check_folder_deletable(&conn, "me@example.com", "Localized Sent")
                 .unwrap_err()
                 .contains("special folder")
         );
+        // ...but a special-use folder buried in the subtree still blocks it.
+        assert!(
+            check_folder_deletable(&conn, "me@example.com", "Mail")
+                .unwrap_err()
+                .contains("Mail/Archive is a special folder")
+        );
         assert!(
             check_folder_deletable(&conn, "me@example.com", "Uncached")
                 .unwrap_err()
                 .contains("synchronized folder list")
+        );
+    }
+
+    #[test]
+    fn folder_delete_targets_list_the_subtree_deepest_first() {
+        let conn = Connection::open_in_memory().unwrap();
+        store::run_migrations(&conn).unwrap();
+        store::upsert_folders(
+            &conn,
+            "me@example.com",
+            &[
+                crate::imap::Folder {
+                    name: "Projects".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Projects/2026".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Projects/2026/Q1".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Projects2".to_string(),
+                    delimiter: Some("/".to_string()),
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Flat".to_string(),
+                    delimiter: None,
+                    ..Default::default()
+                },
+                crate::imap::Folder {
+                    name: "Flat/Independent".to_string(),
+                    delimiter: None,
+                    ..Default::default()
+                },
+            ],
+        )
+        .unwrap();
+
+        // Every child comes before its own parent, and the lookalike sibling
+        // that merely shares a name prefix stays out of it.
+        assert_eq!(
+            folder_delete_targets(&conn, "me@example.com", "Projects").unwrap(),
+            vec![
+                "Projects/2026/Q1".to_string(),
+                "Projects/2026".to_string(),
+                "Projects".to_string(),
+            ]
+        );
+        assert_eq!(
+            folder_delete_targets(&conn, "me@example.com", "Projects/2026/Q1").unwrap(),
+            vec!["Projects/2026/Q1".to_string()]
+        );
+        // A NIL hierarchy delimiter makes slash ordinary name punctuation.
+        assert_eq!(
+            folder_delete_targets(&conn, "me@example.com", "Flat").unwrap(),
+            vec!["Flat".to_string()]
         );
     }
 

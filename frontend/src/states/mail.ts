@@ -306,30 +306,39 @@ export async function emptyFolder(
 }
 
 // Only an ordinary folder can be deleted on the server: special-use mailboxes
-// carry the app's own routing (Inbox/Sent/Drafts/Trash/Junk/Archive), and a
-// folder with children can't be deleted over IMAP at all. Takes the account's
-// folder list so the nesting check stays inside the caller's reactive list, and
-// returns the display name for the menu label, or null when not deletable.
-export function deletableFolder(folder: Folder | undefined | null, folders: Folder[]): { name: string } | null {
+// carry the app's own routing (Inbox/Sent/Drafts/Trash/Junk/Archive), and that
+// covers anything nested under the folder too, because deleting it takes the
+// whole subtree along. Takes the account's folder list so the nesting check
+// stays inside the caller's reactive list, and returns the display name for the
+// menu label plus the number of subfolders that would go with it, or null when
+// not deletable.
+export function deletableFolder(
+  folder: Folder | undefined | null,
+  folders: Folder[],
+): { name: string; nested: number } | null {
   if (!folder || !folder.id || folder.account_id === 'unified') return null
   if (folder.role && folder.role !== 'folder') return null
   const prefix = `${folder.id}${folder.delimiter || '/'}`
-  if (folders.some((item) => item.id !== folder.id && item.id.startsWith(prefix))) return null
-  return { name: folder.name || folder.id }
+  const nested = folders.filter((item) => item.id !== folder.id && item.id.startsWith(prefix))
+  if (nested.some((item) => item.role && item.role !== 'folder')) return null
+  return { name: folder.name || folder.id, nested: nested.length }
 }
 
-// Delete a folder on the server, along with its cached messages and any board
-// column that showed it. Confirms first — the folder's mail goes with it and the
-// server keeps no copy. Core re-checks that the folder is deletable. Returns
-// true when the folder is gone, so the caller can move its view elsewhere.
-export async function deleteFolder(accountId: string, folderId: string, name?: string): Promise<boolean> {
+// Delete a folder on the server, along with its subfolders, their cached
+// messages and any board column that showed one of them. Confirms first — the
+// mail goes with them and the server keeps no copy. Core re-checks that the
+// subtree is deletable. Returns true when the folder is gone, so the caller can
+// move its view elsewhere.
+export async function deleteFolder(accountId: string, folderId: string, name?: string, nested = 0): Promise<boolean> {
   if (!accountId || !folderId || accountId === 'unified') return false
   const label = name || folderId
 
   if (
     !(await confirmAction({
       title: t('folders.delete.confirmTitle', { folder: label }),
-      message: t('folders.delete.confirmMessage', { folder: label }),
+      message: nested
+        ? t('folders.delete.confirmMessageNested', { folder: label, count: nested })
+        : t('folders.delete.confirmMessage', { folder: label }),
       confirmLabel: t('folders.delete.confirmButton'),
       tone: 'danger',
     }))
@@ -338,10 +347,13 @@ export async function deleteFolder(accountId: string, folderId: string, name?: s
   }
 
   try {
-    const res = await invoke<{ folders?: Folder[] }>('mail.folderDelete', {
+    const res = await invoke<{ folders?: Folder[]; removed?: string[]; warning?: string }>('mail.folderDelete', {
       account_id: accountId,
       folder_id: folderId,
     })
+    // Core reports the whole subtree it took down; fall back to the folder
+    // itself if an older core answers without the list.
+    const removed = res?.removed?.length ? res.removed : [folderId]
     const folders = res?.folders
     if (folders) {
       mail$.foldersByAccount[accountId].set(folders)
@@ -352,11 +364,18 @@ export async function deleteFolder(accountId: string, folderId: string, name?: s
     // Capture this before removing the Kanban column, which also drops the
     // column's thread cache and would make the selected conversation unfindable.
     const openThread = findLocalThread(ui$.selectedThread.get())
-    removeKanbanColumnsForFolder(accountId, folderId)
-    // The open conversation and the mailbox view may have been inside the folder.
-    if (openThread?.account_id === accountId && openThread?.folder_id === folderId) ui$.selectedThread.set('')
-    if (ui$.selectedAccount.get() === accountId && ui$.selectedFolder.get() === folderId) {
+    for (const gone of removed) removeKanbanColumnsForFolder(accountId, gone)
+    // The open conversation and the mailbox view may have been inside any of
+    // the deleted folders, not just the one the action targeted.
+    if (openThread?.account_id === accountId && removed.includes(openThread?.folder_id ?? '')) {
+      ui$.selectedThread.set('')
+    }
+    if (ui$.selectedAccount.get() === accountId && removed.includes(ui$.selectedFolder.get())) {
       ui$.selectedFolder.set('inbox')
+    }
+    if (res?.warning) {
+      showToast(res.warning, 'error')
+      return false
     }
     showToast(t('folders.delete.done', { folder: label }))
     return true

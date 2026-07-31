@@ -272,6 +272,7 @@
   "folders.delete.action": "Supprimer le dossier",
   "folders.delete.confirmTitle": "Supprimer {folder} ?",
   "folders.delete.confirmMessage": "{folder} et tous les messages qu’il contient seront définitivement supprimés du serveur. Cette action est irréversible.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {{folder}, son sous-dossier et tous les messages qu’ils contiennent seront définitivement supprimés du serveur. Cette action est irréversible.} other {{folder}, ses {count} sous-dossiers et tous les messages qu’ils contiennent seront définitivement supprimés du serveur. Cette action est irréversible.}}",
   "folders.delete.confirmButton": "Supprimer le dossier",
   "folders.delete.done": "{folder} supprimé",
   "folders.delete.failed": "Impossible de supprimer {folder}",

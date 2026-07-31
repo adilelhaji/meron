@@ -272,6 +272,7 @@
   "folders.delete.action": "Ta bort mapp",
   "folders.delete.confirmTitle": "Ta bort {folder}?",
   "folders.delete.confirmMessage": "Mappen {folder} och alla meddelanden i den raderas permanent från servern. Detta kan inte ångras.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {Mappen {folder}, dess undermapp och alla meddelanden i dem raderas permanent från servern. Detta kan inte ångras.} other {Mappen {folder}, dess {count} undermappar och alla meddelanden i dem raderas permanent från servern. Detta kan inte ångras.}}",
   "folders.delete.confirmButton": "Ta bort mapp",
   "folders.delete.done": "{folder} borttagen",
   "folders.delete.failed": "Det gick inte att ta bort {folder}",

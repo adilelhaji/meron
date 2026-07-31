@@ -272,6 +272,7 @@
   "folders.delete.action": "Διαγραφή φακέλου",
   "folders.delete.confirmTitle": "Διαγραφή {folder};",
   "folders.delete.confirmMessage": "Ο φάκελος {folder} και όλα τα μηνύματά του θα διαγραφούν οριστικά από τον διακομιστή. Αυτή η ενέργεια δεν αναιρείται.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {Ο φάκελος {folder}, ο υποφάκελός του και όλα τα μηνύματά τους θα διαγραφούν οριστικά από τον διακομιστή. Αυτή η ενέργεια δεν αναιρείται.} other {Ο φάκελος {folder}, οι {count} υποφάκελοί του και όλα τα μηνύματά τους θα διαγραφούν οριστικά από τον διακομιστή. Αυτή η ενέργεια δεν αναιρείται.}}",
   "folders.delete.confirmButton": "Διαγραφή φακέλου",
   "folders.delete.done": "Ο φάκελος {folder} διαγράφηκε",
   "folders.delete.failed": "Δεν ήταν δυνατή η διαγραφή του {folder}",

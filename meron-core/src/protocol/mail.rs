@@ -481,9 +481,9 @@ pub(crate) fn create_mobile_folder(data_dir: &str, params: &Value) -> Result<Val
     })
 }
 
-// Delete a folder on the server and drop everything cached under it. The
-// special-use / has-children gate is re-checked here rather than trusted from
-// the caller: the delete takes the folder's mail with it.
+// Delete a folder and everything nested under it on the server, then drop the
+// whole subtree's cache. The special-use gate is re-checked here rather than
+// trusted from the caller: the delete takes the folders' mail with it.
 pub(crate) fn delete_mobile_folder(data_dir: &str, params: &Value) -> Result<Value, String> {
     let account_id = req_account_id(params)?;
     let folder = params
@@ -504,23 +504,44 @@ pub(crate) fn delete_mobile_folder(data_dir: &str, params: &Value) -> Result<Val
             return Err("RSS accounts do not support folders".to_string());
         }
         crate::mail_model::check_folder_deletable(&conn, &account_id, &folder)?;
+        let targets = crate::mail_model::folder_delete_targets(&conn, &account_id, &folder)?;
         let creds = load_mobile_account_creds(&conn, &account_id)?;
         if account_needs_reconnect(&creds) {
             return Err(format!("account needs reconnect: {account_id}"));
         }
-        {
-            let folder = folder.clone();
-            crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
-                let folder = folder.clone();
-                Box::pin(async move { imap::delete_folder(session, &folder).await })
-            }))?;
+        let server_result = {
+            let targets = targets.clone();
+            crate::ffi::engine_block_on_anyhow(engine.with_write_session(
+                &account_id,
+                move |session| {
+                    let targets = targets.clone();
+                    Box::pin(async move { imap::delete_folders(session, &targets).await })
+                },
+            ))
+        };
+        let (removed, warning) = match server_result {
+            Ok(removed) => (removed, None),
+            Err(err) => match err.downcast::<imap::PartialFolderDelete>() {
+                Ok(partial) => {
+                    let (removed, warning) = partial.into_parts();
+                    (removed, Some(warning))
+                }
+                Err(err) => return Err(err.to_string()),
+            },
+        };
+        let mut deleted = 0;
+        for target in &removed {
+            deleted +=
+                store::delete_folder(&conn, &account_id, target).map_err(|err| err.to_string())?;
         }
-        let deleted =
-            store::delete_folder(&conn, &account_id, &folder).map_err(|err| err.to_string())?;
         let mut response = list_mobile_folders(data_dir, params)?;
-        response["ok"] = json!(true);
+        response["ok"] = json!(warning.is_none());
         response["folder"] = json!(folder);
+        // Every folder that went with it, so the caller can clear the views and
+        // caches keyed on a nested folder as well.
+        response["removed"] = json!(removed);
         response["deleted"] = json!(deleted);
+        response["warning"] = json!(warning);
         Ok(response)
     })
 }

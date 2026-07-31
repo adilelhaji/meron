@@ -213,6 +213,7 @@ import jp.nonbili.meron.shared.parseAccountListResponse
 import jp.nonbili.meron.shared.parseAttachmentDataResponse
 import jp.nonbili.meron.shared.parseAutodiscoverResponse
 import jp.nonbili.meron.shared.parseContactSuggestResponse
+import jp.nonbili.meron.shared.parseFolderDeleteResponse
 import jp.nonbili.meron.shared.parseFolderListResponse
 import jp.nonbili.meron.shared.parseFolderUnreadChanges
 import jp.nonbili.meron.shared.parseMailtoUrl
@@ -1679,10 +1680,10 @@ internal fun MeronMobileState.emptyMailFolder(
     }
 }
 
-// Delete a folder on the server, with its mail and any board column showing it.
-// The core re-checks that the folder is an ordinary one with no children, so a
-// stale menu can never delete Sent or Archive. Callers confirm first: the server
-// keeps no copy of what the folder held.
+// Delete a folder on the server, with everything nested under it, their mail and
+// any board column showing one of them. The core re-checks that no special-use
+// folder is in the subtree, so a stale menu can never delete Sent or Archive.
+// Callers confirm first: the server keeps no copy of what the folders held.
 internal fun MeronMobileState.deleteMailFolder(
     accountId: String,
     folderId: String,
@@ -1695,31 +1696,41 @@ internal fun MeronMobileState.deleteMailFolder(
     val account = coreAccounts.firstOrNull { it.id == accountId }
     if (accountId == UNIFIED_ACCOUNT_ID || account == null || accountSummaryIsRss(account)) return
 
+    // The delete takes the subtree with it, so the local cleanup below has to
+    // cover every folder under it, not just the one the menu named.
+    val expectedRemoved =
+        (nestedFolders(foldersByAccount[accountId].orEmpty(), accountId, folderId).map { it.name } + folderId)
+            .toSet()
+
     scope.launch {
         runCatching {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
-                requireCoreOk(
-                    withManagedGoogleAuth(client, accountId) {
-                        client.deleteFolder(FolderDeleteParams(accountId = accountId, folderId = folderId))
-                    },
-                )
-                loadAccountFolders(client, account)
+                val response =
+                    requireCoreOk(
+                        withManagedGoogleAuth(client, accountId) {
+                            client.deleteFolder(FolderDeleteParams(accountId = accountId, folderId = folderId))
+                        },
+                    )
+                parseFolderDeleteResponse(response) to loadAccountFolders(client, account)
             }
-        }.onSuccess { folders ->
+        }.onSuccess { (result, folders) ->
+            // New cores report the exact successful prefix when a later DELETE
+            // fails. Older cores omit it after a complete success.
+            val removed = result.removed.ifEmpty { expectedRemoved }
             foldersByAccount = foldersByAccount + (accountId to folders)
-            coreFolders = coreFolders.filterNot { it.accountId == accountId && it.name == folderId }
-            val inFolder = { thread: ThreadSummary -> thread.accountId == accountId && thread.folder == folderId }
+            coreFolders = coreFolders.filterNot { it.accountId == accountId && it.name in removed }
+            val inFolder = { thread: ThreadSummary -> thread.accountId == accountId && thread.folder in removed }
             coreThreads = coreThreads.filterNot(inFolder)
             selectedMailThreadIds = emptySet()
             mailSelectionMenuOpen = false
-            removeKanbanColumnsForFolder(accountId, folderId)
-            // The mailbox view may have been sitting in the folder that just went away.
-            if (selectedCoreAccountId == accountId && selectedCoreFolder == folderId) {
+            removed.forEach { removeKanbanColumnsForFolder(accountId, it) }
+            // The mailbox view may have been sitting in any folder that just went away.
+            if (selectedCoreAccountId == accountId && selectedCoreFolder in removed) {
                 selectCoreMailbox(accountId, INBOX_FOLDER)
                 syncCoreThreads(accountOverride = accountId, folderOverride = INBOX_FOLDER, syncFirst = false)
             }
-            status = "Folder deleted"
+            status = result.warning ?: "Folder deleted"
         }.onFailure {
             Log.w("Mail", "delete folder failed", it)
             status = "Delete folder failed: ${it.message}"

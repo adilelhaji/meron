@@ -413,8 +413,8 @@ data class FolderCreateParams(
 }
 
 /**
- * Deletes a folder on the server with everything in it; the core rejects
- * special-use folders and folders that still have nested folders.
+ * Deletes a folder on the server with everything in it, subfolders included; the
+ * core rejects special-use folders anywhere in that subtree.
  */
 data class FolderDeleteParams(
     val accountId: String,

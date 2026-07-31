@@ -272,6 +272,7 @@
   "folders.delete.action": "Klasörü sil",
   "folders.delete.confirmTitle": "{folder} silinsin mi?",
   "folders.delete.confirmMessage": "{folder} klasörü ve içindeki tüm iletiler sunucudan kalıcı olarak silinecek. Bu işlem geri alınamaz.",
+  "folders.delete.confirmMessageNested": "{folder} klasörü, {count} alt klasörü ve bunlardaki tüm iletiler sunucudan kalıcı olarak silinecek. Bu işlem geri alınamaz.",
   "folders.delete.confirmButton": "Klasörü sil",
   "folders.delete.done": "{folder} silindi",
   "folders.delete.failed": "{folder} silinemedi",

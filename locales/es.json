@@ -272,6 +272,7 @@
   "folders.delete.action": "Eliminar carpeta",
   "folders.delete.confirmTitle": "¿Eliminar {folder}?",
   "folders.delete.confirmMessage": "{folder} y todos sus mensajes se eliminarán permanentemente del servidor. Esta acción no se puede deshacer.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {{folder}, su subcarpeta y todos sus mensajes se eliminarán permanentemente del servidor. Esta acción no se puede deshacer.} other {{folder}, sus {count} subcarpetas y todos sus mensajes se eliminarán permanentemente del servidor. Esta acción no se puede deshacer.}}",
   "folders.delete.confirmButton": "Eliminar carpeta",
   "folders.delete.done": "{folder} eliminada",
   "folders.delete.failed": "No se pudo eliminar {folder}",

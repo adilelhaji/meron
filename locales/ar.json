@@ -272,6 +272,7 @@
   "folders.delete.action": "حذف المجلد",
   "folders.delete.confirmTitle": "حذف {folder}؟",
   "folders.delete.confirmMessage": "سيتم حذف {folder} وجميع الرسائل التي يحتويها نهائيًا من الخادم. لا يمكن التراجع عن هذا الإجراء.",
+  "folders.delete.confirmMessageNested": "{count, plural, one {سيتم حذف {folder} ومجلده الفرعي وجميع الرسائل التي بداخلهما نهائيًا من الخادم. لا يمكن التراجع عن هذا الإجراء.} other {سيتم حذف {folder} و{count} من مجلداته الفرعية وجميع الرسائل التي بداخلها نهائيًا من الخادم. لا يمكن التراجع عن هذا الإجراء.}}",
   "folders.delete.confirmButton": "حذف المجلد",
   "folders.delete.done": "تم حذف {folder}",
   "folders.delete.failed": "تعذر حذف {folder}",

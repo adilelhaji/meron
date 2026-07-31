@@ -131,6 +131,30 @@ fn delete_folder_drops_the_row_its_messages_and_its_sync_state() {
 }
 
 #[test]
+fn delimiterless_folder_names_do_not_form_a_delete_subtree() {
+    let conn = test_conn();
+    upsert_folders(
+        &conn,
+        "acct",
+        &[
+            Folder {
+                name: "Work".to_string(),
+                delimiter: None,
+                ..Default::default()
+            },
+            Folder {
+                name: "Work/Reports".to_string(),
+                delimiter: None,
+                ..Default::default()
+            },
+        ],
+    )
+    .unwrap();
+
+    assert!(child_folders(&conn, "acct", "Work").unwrap().is_empty());
+}
+
+#[test]
 fn folder_role_assignment_uses_special_use_then_name_fallback() {
     let cases = [
         ("Mail/Entwürfe", Some("drafts"), "drafts"),

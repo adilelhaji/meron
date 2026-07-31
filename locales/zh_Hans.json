@@ -272,6 +272,7 @@
   "folders.delete.action": "删除文件夹",
   "folders.delete.confirmTitle": "删除 {folder}？",
   "folders.delete.confirmMessage": "{folder} 及其中的所有邮件将从服务器永久删除，此操作无法撤销。",
+  "folders.delete.confirmMessageNested": "{folder}、其 {count} 个子文件夹及其中的所有邮件将从服务器永久删除，此操作无法撤销。",
   "folders.delete.confirmButton": "删除文件夹",
   "folders.delete.done": "已删除 {folder}",
   "folders.delete.failed": "无法删除 {folder}",
