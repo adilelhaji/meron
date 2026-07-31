@@ -65,6 +65,20 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+// Thread-list scroll positions kept across mailbox switches. Comfortably covers
+// the unified inbox plus a few accounts' folders; beyond that the oldest are
+// dropped rather than held for the lifetime of the process.
+private const val MAX_REMEMBERED_MAIL_LIST_STATES = 12
+
+internal fun rememberedMailListKeysToEvict(
+    existingKeys: List<MailboxCacheKey>,
+    requestedKey: MailboxCacheKey,
+    maxSize: Int,
+): List<MailboxCacheKey> {
+    if (requestedKey in existingKeys || existingKeys.size < maxSize) return emptyList()
+    return existingKeys.take(existingKeys.size - maxSize + 1)
+}
+
 @Composable
 internal fun MailSelectionTitle(
     selectedCount: Int,
@@ -599,6 +613,15 @@ internal fun MailRouteContent(
                 ?: mailboxCacheKey(selectedCoreAccountId, selectedCoreFolder, mailSearch, mailFilter)
         val mailListState =
             remember(mailListKey) {
+                // Keyed by search text and filter as well as the mailbox, so every
+                // query the user submits leaves a state behind. Evict the
+                // oldest-inserted ones past the cap — the mailboxes worth
+                // returning to are the handful most recently opened.
+                rememberedMailListKeysToEvict(
+                    existingKeys = mailListStates.keys.toList(),
+                    requestedKey = mailListKey,
+                    maxSize = MAX_REMEMBERED_MAIL_LIST_STATES,
+                ).forEach(mailListStates::remove)
                 mailListStates.getOrPut(mailListKey) { LazyListState() }
             }
         ModalNavigationDrawer(

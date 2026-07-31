@@ -388,6 +388,12 @@ class ComposeMainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         activityStarted = true
+        // The background worker syncs while the activity is stopped, and its
+        // core events never reach this composition. Announce the return so the
+        // visible mailbox re-reads the store instead of showing what was on
+        // screen when the user left.
+        jp.nonbili.meron.ui.AppForegroundSignal
+            .signal()
         foregroundEngineJob?.cancel()
         foregroundEngineJob =
             foregroundEngineScope.launch {

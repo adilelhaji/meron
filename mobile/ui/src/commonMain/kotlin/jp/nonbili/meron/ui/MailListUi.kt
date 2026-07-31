@@ -352,6 +352,24 @@ internal fun StarredItemRow(
     }
 }
 
+// Rows from the end at which scrolling starts fetching the next page.
+private const val THREAD_LIST_PAGINATION_MARGIN = 3
+
+/**
+ * Whether the thread list is scrolled close enough to its end to pull the next
+ * page. [lastVisibleIndex] is null before anything is laid out — that, and an
+ * empty list, are deliberately *not* near the bottom: the plain comparison also
+ * holds for a list with no rows (`0 >= 0 - 3`), which fired pagination against a
+ * list the user had never seen.
+ */
+internal fun threadListNearBottom(
+    lastVisibleIndex: Int?,
+    threadCount: Int,
+): Boolean {
+    if (lastVisibleIndex == null || threadCount == 0) return false
+    return lastVisibleIndex >= threadCount - THREAD_LIST_PAGINATION_MARGIN
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MailList(
@@ -386,11 +404,13 @@ internal fun MailList(
     val currentThreads by rememberUpdatedState(threads)
     val nearBottom by remember(listState) {
         derivedStateOf {
-            val lastVisible =
-                listState.layoutInfo.visibleItemsInfo
-                    .lastOrNull()
-                    ?.index ?: 0
-            lastVisible >= currentThreads.size - 3
+            threadListNearBottom(
+                lastVisibleIndex =
+                    listState.layoutInfo.visibleItemsInfo
+                        .lastOrNull()
+                        ?.index,
+                threadCount = currentThreads.size,
+            )
         }
     }
     LaunchedEffect(nearBottom, canLoadMore, loadingMore) {

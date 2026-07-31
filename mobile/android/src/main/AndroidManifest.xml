@@ -37,8 +37,16 @@
                 android:value="Maintains persistent IMAP IDLE connections to the user's mail servers so new-mail notifications arrive in real time; IMAP has no push transport (unlike FCM) and disconnecting ends server-side notification delivery." />
         </service>
 
+        <!-- Compose reads these off the composition, so handle them here rather
+             than letting the activity be recreated: a recreate drops the whole
+             UI state (thread-list scroll positions, open conversation, search,
+             selection) and replays the cold-start load from an empty list.
+             `locale` and `layoutDirection` are deliberately absent — the locale
+             is applied in attachBaseContext, which only runs on a fresh
+             activity, and in-app language changes call recreate() themselves. -->
         <activity
             android:name=".ComposeMainActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|navigation|uiMode|density|fontScale"
             android:exported="true"
             android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">

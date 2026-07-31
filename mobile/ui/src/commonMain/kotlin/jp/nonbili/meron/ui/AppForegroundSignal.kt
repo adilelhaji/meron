@@ -5,10 +5,12 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 
 /** Bridges the platform "app returned to foreground" lifecycle event into the
- *  shared composition. The iOS host calls [signal] from
- *  `willEnterForegroundNotification`; the app collects [events] to refresh mail
- *  immediately instead of waiting for the next poll tick. Replays nothing and
- *  drops on overflow, so a missed collector never queues a stale refresh. */
+ *  shared composition. iOS calls [signal] from `willEnterForegroundNotification`
+ *  and Android from `onStart`; the app collects [events] to refresh mail
+ *  immediately — on iOS instead of waiting for the next poll tick, on Android to
+ *  pick up whatever the background worker stored while the activity was gone.
+ *  Replays nothing and drops on overflow, so a missed collector never queues a
+ *  stale refresh. */
 object AppForegroundSignal {
     private val _events =
         MutableSharedFlow<Unit>(

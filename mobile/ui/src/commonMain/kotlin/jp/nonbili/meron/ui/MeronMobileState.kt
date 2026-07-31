@@ -118,6 +118,14 @@ internal class MeronMobileState(
     var initialAccountsLoaded by mutableStateOf(false)
     var mailboxCursor by mutableStateOf("")
     var mailboxAccountCursors by mutableStateOf(emptyMap<String, String>())
+
+    // Per-account header depth the visible mailbox holds: one page until the user
+    // pages further. Reloads re-request it so a background sync event can't shrink
+    // the list under a scrolled reader.
+    var mailboxPageDepth by mutableStateOf(MAILBOX_PAGE_SIZE)
+
+    // In-flight debounce for event-driven mailbox reloads.
+    var mailboxReloadJob: Job? = null
     var mailListScrollToTopRequest by mutableStateOf(0L)
     var loadingMoreThreads by mutableStateOf(false)
     var starredItems by mutableStateOf(emptyList<StarredItemSummary>())

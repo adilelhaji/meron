@@ -447,6 +447,11 @@ data class ThreadListParams(
     val filter: String = "all",
     val beforeCursor: String? = null,
     val refresh: Boolean = false,
+    // Header rows to return, per account (the unified fan-out applies it to each
+    // account's page). Omitted when null so the core keeps its own default; the
+    // mailbox passes the depth it has already paged in so a background reload
+    // does not shrink the list back to one page.
+    val limit: Int? = null,
 ) {
     fun toJson(): String =
         jsonObject(
@@ -456,6 +461,7 @@ data class ThreadListParams(
             "filter" to filter.jsonString(),
             "before_cursor" to beforeCursor?.jsonString(),
             "refresh" to refresh.toString(),
+            "limit" to limit?.toString(),
         )
 }
 

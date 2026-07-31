@@ -620,6 +620,20 @@ class MobileCommandsTest {
         )
     }
 
+    // Omitted unless the mailbox asks for a specific depth, so the core keeps
+    // applying its own page default for every other caller.
+    @Test
+    fun threadListSendsLimitOnlyWhenSet() {
+        assertEquals(
+            """{"account_id":"acc1","folder_id":"inbox","query":"","filter":"all","refresh":false,"limit":150}""",
+            ThreadListParams(accountId = "acc1", limit = 150).toJson(),
+        )
+        assertEquals(
+            """{"account_id":"acc1","folder_id":"inbox","query":"","filter":"all","refresh":false}""",
+            ThreadListParams(accountId = "acc1").toJson(),
+        )
+    }
+
     @Test
     fun folderCreatePreservesFrontendWireFieldNames() {
         assertEquals(

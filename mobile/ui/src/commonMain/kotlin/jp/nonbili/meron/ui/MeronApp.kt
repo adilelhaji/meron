@@ -371,11 +371,7 @@ private fun MeronMobileScreenContent(
                                 val eventAccount = event.detailJson.jsonStringValue("account")
                                 val eventFolder = event.detailJson.jsonStringValue("folder")
                                 scope.launch {
-                                    syncCoreThreads(
-                                        accountOverride = selectedCoreAccountId,
-                                        folderOverride = selectedCoreFolder,
-                                        syncFirst = false,
-                                    )
+                                    reloadVisibleMailboxFor(eventAccount, eventFolder)
                                     refreshKanbanColumnsForMailEvent(eventAccount, eventFolder)
                                     refreshOpenThreadFor(eventAccount)
                                 }
@@ -385,11 +381,7 @@ private fun MeronMobileScreenContent(
                                 val eventAccount = event.detailJson.jsonStringValue("account")
                                 val eventFolder = event.detailJson.jsonStringValue("folder")
                                 scope.launch {
-                                    syncCoreThreads(
-                                        accountOverride = selectedCoreAccountId,
-                                        folderOverride = selectedCoreFolder,
-                                        syncFirst = false,
-                                    )
+                                    reloadVisibleMailboxFor(eventAccount, eventFolder)
                                     refreshKanbanColumnsForMailEvent(eventAccount, eventFolder)
                                     refreshOpenThreadFor(eventAccount)
                                 }
@@ -445,11 +437,11 @@ private fun MeronMobileScreenContent(
         LaunchedEffect(backgroundSyncEnabled) {
             mobileHost.syncBackgroundRefresh(backgroundSyncEnabled)
         }
-        // Foreground refresh for platforms without a real background channel
-        // (iOS): re-sync the visible mailbox on the chosen interval while the app
-        // is open, and immediately when it returns to the foreground. Both honor
-        // "Off" (interval 0). The timer suspends with the app and resumes on
-        // return; the foreground signal covers the gap after a long suspension.
+        // Foreground poll for platforms without a real background channel (iOS):
+        // re-sync the visible mailbox on the chosen interval while the app is
+        // open. Honors "Off" (interval 0). The timer suspends with the app and
+        // resumes on return; the foreground signal below covers the gap after a
+        // long suspension.
         if (!mobileHost.supportsBackgroundPush) {
             LaunchedEffect(pollIntervalMinutes, coreLoaded) {
                 if (!coreLoaded || pollIntervalMinutes <= 0) return@LaunchedEffect
@@ -462,16 +454,23 @@ private fun MeronMobileScreenContent(
                     )
                 }
             }
-            LaunchedEffect(coreLoaded) {
-                if (!coreLoaded) return@LaunchedEffect
-                AppForegroundSignal.events.collect {
-                    if (pollIntervalMinutes <= 0) return@collect
-                    syncCoreThreads(
-                        accountOverride = selectedCoreAccountId,
-                        folderOverride = selectedCoreFolder,
-                        syncFirst = true,
-                    )
-                }
+        }
+        // Refresh the visible mailbox whenever the app comes back to the
+        // foreground. Something else kept mail arriving while it was away —
+        // Android's background worker, iOS's poll — and on Android the activity
+        // may have been stopped for all of it, leaving the list showing what was
+        // on screen when the user left even though the store has moved on. A
+        // store re-read is enough to close that gap, so only platforms that have
+        // to fetch for themselves (iOS, and only when its poll is on) go to the
+        // network here.
+        LaunchedEffect(coreLoaded, pollIntervalMinutes) {
+            if (!coreLoaded) return@LaunchedEffect
+            AppForegroundSignal.events.collect {
+                syncCoreThreads(
+                    accountOverride = selectedCoreAccountId,
+                    folderOverride = selectedCoreFolder,
+                    syncFirst = !mobileHost.supportsBackgroundPush && pollIntervalMinutes > 0,
+                )
             }
         }
         LaunchedEffect(Unit) {
@@ -517,6 +516,7 @@ private fun MeronMobileScreenContent(
                                 selectedCoreFolder = INBOX_FOLDER
                                 visibleMailboxKey =
                                     mailboxCacheKey(accountId, INBOX_FOLDER, mailSearch, mailFilter)
+                                mailboxPageDepth = MAILBOX_PAGE_SIZE
                                 status = if (imported == 0) "No new feeds imported" else "Imported $imported feed(s)"
                             }.onFailure {
                                 status = "OPML import failed: ${it.message}"

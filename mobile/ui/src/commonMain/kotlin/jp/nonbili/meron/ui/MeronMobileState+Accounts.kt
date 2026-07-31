@@ -1114,6 +1114,7 @@ internal suspend fun MeronMobileState.loadAccountInbox(
     syncFirst: Boolean = true,
     beforeCursor: String? = null,
     syncLimit: Int = MAILBOX_SYNC_LIMIT,
+    listLimit: Int = MAILBOX_PAGE_SIZE,
     refreshSearch: Boolean = true,
 ): MailboxLoadResult {
     // When syncFirst is false we read whatever the local (encrypted) store
@@ -1168,6 +1169,9 @@ internal suspend fun MeronMobileState.loadAccountInbox(
                 filter = filter.protocolValue(),
                 beforeCursor = beforeCursor,
                 refresh = refreshSearch,
+                // Paging forward always fetches a single page; only a reload of
+                // the whole mailbox re-requests the depth already on screen.
+                limit = if (beforeCursor == null) listLimit else MAILBOX_PAGE_SIZE,
             ),
         )
     val page = parseThreadListPage(threadsJson)
@@ -1203,6 +1207,7 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
     syncFirst: Boolean = true,
     beforeCursor: String? = null,
     syncLimit: Int = MAILBOX_SYNC_LIMIT,
+    listLimit: Int = MAILBOX_PAGE_SIZE,
     refreshSearch: Boolean = true,
 ): MailboxLoadResult {
     if (syncFirst) {
@@ -1249,6 +1254,10 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
                     filter = filter.protocolValue(),
                     beforeCursor = beforeCursor,
                     refresh = refreshSearch,
+                    // The core fans this out per account, so the limit is a
+                    // per-account depth here too — matching how load-more appends
+                    // one page from each account.
+                    limit = if (beforeCursor == null) listLimit else MAILBOX_PAGE_SIZE,
                 ),
             ),
         )

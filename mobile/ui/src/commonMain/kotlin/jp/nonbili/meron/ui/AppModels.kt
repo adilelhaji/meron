@@ -141,6 +141,10 @@ internal data class MailboxLoadResult(
     val nextCursor: String = "",
     val accountCursors: Map<String, String> = emptyMap(),
     val folderSynced: Boolean? = null,
+    // Per-account header depth these threads were read at. Cached with the
+    // mailbox so switching away and back keeps the pages the user paged in.
+    // Loaders leave it at the default; the mailbox sets it when caching.
+    val pageDepth: Int = MAILBOX_PAGE_SIZE,
 )
 
 internal data class MailboxCacheKey(

@@ -249,6 +249,22 @@ import kotlin.math.abs
 internal const val MAILBOX_SYNC_LIMIT = 250
 internal const val MAILBOX_FIRST_SYNC_LIMIT = 50
 
+// Header rows one thread-list page holds, per account. Mirrors the core's own
+// default (thread_list::DEFAULT_LIMIT) so an unpaged mailbox reads exactly what
+// it did before this became explicit.
+internal const val MAILBOX_PAGE_SIZE = 50
+
+// Ceiling on the depth an event-driven reload re-requests. Reloads run on every
+// sync event, so a mailbox paged very deep would otherwise make each one
+// progressively more expensive; past this the list falls back to re-paging.
+internal const val MAILBOX_MAX_RELOAD_DEPTH = 500
+
+// Sync events arrive in bursts — cold start alone fires one catch-up sync per
+// account per watched folder (INBOX and Sent), plus body prefetch and thread-gap
+// fills. Each reload is a full store re-read that repaints the list, so coalesce
+// them into one instead of running the burst back to back.
+internal const val MAILBOX_RELOAD_DEBOUNCE_MS = 400L
+
 internal fun mailboxCacheKey(
     accountId: String,
     folderId: String,
@@ -277,6 +293,7 @@ private fun MeronMobileState.cacheVisibleMailbox() {
                     threads = withLocalDraftFlags(coreThreads),
                     nextCursor = mailboxCursor,
                     accountCursors = mailboxAccountCursors,
+                    pageDepth = mailboxPageDepth,
                 )
         )
 }
@@ -296,6 +313,7 @@ private fun MeronMobileState.restoreCachedMailbox(
     visibleMailboxKey = key
     mailboxCursor = cached.nextCursor
     mailboxAccountCursors = cached.accountCursors
+    mailboxPageDepth = cached.pageDepth
     initialThreadsLoaded = true
     errorBanner = null
     return true
@@ -321,8 +339,77 @@ internal fun MeronMobileState.selectCoreMailbox(
         visibleMailboxKey = null
         mailboxCursor = ""
         mailboxAccountCursors = emptyMap()
+        mailboxPageDepth = MAILBOX_PAGE_SIZE
         initialThreadsLoaded = false
     }
+}
+
+// Whether a core sync event changes what the visible thread list shows. Events
+// fire per account and per watched folder — the foreground watchers alone cover
+// every account's INBOX *and* Sent — so reloading on all of them re-reads a
+// mailbox that did not change. Blank fields mean "unknown" (folder-list syncs
+// carry no folder) and reload rather than risk going stale.
+internal fun mailEventAffectsVisibleMailbox(
+    eventAccount: String,
+    eventFolder: String,
+    selectedAccountId: String,
+    selectedFolder: String,
+    unifiedAccountIds: Set<String>,
+): Boolean {
+    if (eventAccount.isBlank()) return true
+    val visibleAccount = selectedAccountId.ifBlank { UNIFIED_ACCOUNT_ID }
+    val accountMatches =
+        if (visibleAccount == UNIFIED_ACCOUNT_ID) {
+            eventAccount in unifiedAccountIds
+        } else {
+            eventAccount == visibleAccount
+        }
+    if (!accountMatches) return false
+    if (eventFolder.isBlank()) return true
+    // The unified list only ever shows each account's inbox.
+    val visibleFolder =
+        if (visibleAccount == UNIFIED_ACCOUNT_ID) {
+            INBOX_FOLDER
+        } else {
+            selectedFolder.ifBlank { INBOX_FOLDER }
+        }
+    return eventFolder.equals(visibleFolder, ignoreCase = true)
+}
+
+// Reload the visible mailbox off a sync event when the event actually concerns
+// it, coalescing the burst that arrives on cold start (and whenever several
+// accounts sync at once) into a single re-read.
+internal fun MeronMobileState.reloadVisibleMailboxFor(
+    eventAccount: String,
+    eventFolder: String,
+) {
+    val affected =
+        mailEventAffectsVisibleMailbox(
+            eventAccount = eventAccount,
+            eventFolder = eventFolder,
+            selectedAccountId = selectedCoreAccountId,
+            selectedFolder = selectedCoreFolder,
+            unifiedAccountIds = coreAccounts.filter { it.includedInUnified }.map { it.id }.toSet(),
+        )
+    if (!affected) {
+        Log.i("MailLoad", "reload skipped unrelated event account=$eventAccount folder=$eventFolder")
+        return
+    }
+    // A fixed window rather than a resettable debounce: a steady event stream (a
+    // long first sync on a large mailbox) would keep pushing a resettable timer
+    // back and the list would never refresh. Events arriving inside the window
+    // need no reload of their own — the one already scheduled re-reads the store
+    // after they have landed in it.
+    if (mailboxReloadJob?.isActive == true) return
+    mailboxReloadJob =
+        scope.launch {
+            delay(MAILBOX_RELOAD_DEBOUNCE_MS)
+            syncCoreThreads(
+                accountOverride = selectedCoreAccountId,
+                folderOverride = selectedCoreFolder,
+                syncFirst = false,
+            )
+        }
 }
 
 internal fun MeronMobileState.syncCoreThreads(
@@ -369,9 +456,21 @@ internal fun MeronMobileState.syncCoreThreads(
     // fetch: sync a small first page now and deepen in the background below.
     val firstLoad = !initialThreadsLoaded
     val syncLimit = if (firstLoad) MAILBOX_FIRST_SYNC_LIMIT else MAILBOX_SYNC_LIMIT
+    // Re-read as deep as the visible mailbox has already been paged. Reloads run
+    // on every sync event, and reading only the first page here would drop the
+    // pages the user scrolled through — the list shrinks under them, the keyed
+    // scroll anchor disappears, and the position clamps to the end. A request for
+    // a *different* mailbox (folder switch, new search, filter change) starts at
+    // one page, since that list is not on screen yet.
+    val listLimit =
+        if (visibleMailboxKey == requestKey) {
+            mailboxPageDepth.coerceIn(MAILBOX_PAGE_SIZE, MAILBOX_MAX_RELOAD_DEPTH)
+        } else {
+            MAILBOX_PAGE_SIZE
+        }
     Log.i(
         "MailLoad",
-        "sync start account=$accountId folder=$requestedFolder accounts=${selectedAccounts.size} syncFirst=$syncFirst limit=$syncLimit query=${query.isNotBlank()} filter=${filter.protocolValue()}",
+        "sync start account=$accountId folder=$requestedFolder accounts=${selectedAccounts.size} syncFirst=$syncFirst limit=$syncLimit listLimit=$listLimit query=${query.isNotBlank()} filter=${filter.protocolValue()}",
     )
     scope.launch {
         runCatching {
@@ -385,6 +484,7 @@ internal fun MeronMobileState.syncCoreThreads(
                         filter = filter,
                         syncFirst = syncFirst,
                         syncLimit = syncLimit,
+                        listLimit = listLimit,
                         refreshSearch = refreshSearch,
                     )
                 } else {
@@ -396,6 +496,7 @@ internal fun MeronMobileState.syncCoreThreads(
                         filter = filter,
                         syncFirst = syncFirst,
                         syncLimit = syncLimit,
+                        listLimit = listLimit,
                         refreshSearch = refreshSearch,
                     )
                 }
@@ -412,6 +513,7 @@ internal fun MeronMobileState.syncCoreThreads(
                             threads = withLocalDraftFlags(withoutLocallyDiscardedThreads(result.threads)),
                             nextCursor = result.nextCursor,
                             accountCursors = result.accountCursors,
+                            pageDepth = listLimit,
                         )
                 )
             if (activeMailboxLoadToken != requestToken) {
@@ -431,6 +533,7 @@ internal fun MeronMobileState.syncCoreThreads(
             visibleMailboxKey = resultKey
             mailboxCursor = result.nextCursor
             mailboxAccountCursors = result.accountCursors
+            mailboxPageDepth = listLimit
             // The open conversation is deliberately left alone here. A refresh
             // returns one page of one mailbox, so the open thread being absent
             // means nothing (it may sit past the page limit, or belong to
@@ -641,6 +744,9 @@ internal fun MeronMobileState.loadMoreCoreThreads(quiet: Boolean = false) {
             coreThreads = (coreThreads + appended).sortedByDescending { it.dateEpochSeconds }
             mailboxCursor = result.nextCursor
             mailboxAccountCursors = result.accountCursors
+            // One more page is on screen, so event-driven reloads have to re-read
+            // this deep to keep it there.
+            mailboxPageDepth = (mailboxPageDepth + MAILBOX_PAGE_SIZE).coerceAtMost(MAILBOX_MAX_RELOAD_DEPTH)
             cacheVisibleMailbox()
             loadingMoreThreads = false
             errorBanner = null
@@ -1009,6 +1115,7 @@ internal fun MeronMobileState.openNotificationThread(target: NotificationThreadT
             visibleMailboxKey = mailboxCacheKey(target.accountId, result.folder, "", FilterMode.All)
             mailboxCursor = result.nextCursor
             mailboxAccountCursors = result.accountCursors
+            mailboxPageDepth = MAILBOX_PAGE_SIZE
             syncing = false
             initialThreadsLoaded = true
             selectedMailThreadIds = emptySet()
