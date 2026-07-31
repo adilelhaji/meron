@@ -518,6 +518,14 @@ fn init_mobile_core(data_dir: &str, db_key: Option<&str>) -> serde_json::Value {
     } else {
         Some(db_key.to_string())
     });
+    // Publish the app-wide proxy before any command can open a socket. Mobile
+    // has stateless command paths that connect without ever building an Engine
+    // (background syncs, one-off sends), and `init` is the one point they all
+    // pass through.
+    let _ = crate::protocol::with_mobile_db(data_dir, |conn| {
+        crate::proxy::load_global(&conn).map_err(|err| err.to_string())?;
+        Ok(json!({ "ok": true }))
+    });
     // Route core logs to the platform over the event channel; the host forwards
     // `log` events to os_log / Logcat. Without this the core's logs (which use
     // `eprintln!` on desktop) are invisible on device.

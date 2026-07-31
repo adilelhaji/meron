@@ -1,7 +1,7 @@
 import { observable } from '@legendapp/state'
 import { invoke } from '../lib/bridge'
 import { boot } from '../boot'
-import type { Account, Alias, ChatWallpaper } from '../types'
+import type { Account, AccountProxy, Alias, ChatWallpaper } from '../types'
 import { confirmAction, ui$, showToast } from './ui'
 
 // Accounts state — maps 1:1 to the `accounts` DB table. The list is loaded by
@@ -229,6 +229,19 @@ export async function setAccountAvatar(accountId: string, avatarUrl: string) {
     accounts$.set(previous)
     showToast(error instanceof Error ? error.message : 'Failed to update account avatar', 'error')
     return false
+  }
+}
+
+// Point one account at its own proxy, at the app-wide one, or at a direct
+// connection. Takes effect as the account's connections are re-established.
+export async function setAccountProxy(accountId: string, proxy: AccountProxy) {
+  const previous = accounts$.get()
+  accounts$.set(previous.map((acc) => (acc.id === accountId ? { ...acc, proxy } : acc)))
+  try {
+    await invoke('account.setProxy', { id: accountId, proxy })
+  } catch (error) {
+    accounts$.set(previous)
+    showToast(error instanceof Error ? error.message : 'Failed to update proxy', 'error')
   }
 }
 

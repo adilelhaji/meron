@@ -94,6 +94,9 @@ pub struct Creds {
     pub oauth_client_secret: String,
     pub oauth_token_url: String,
     pub oauth_scope: String,
+    /// Whether this account follows the app-wide proxy, forces a direct
+    /// connection, or uses its own.
+    pub proxy: crate::proxy::ProxyChoice,
 }
 
 impl Creds {
@@ -205,7 +208,7 @@ const CONNECT_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// Resolve `host` and connect to each address in resolver order with a short
 /// per-attempt cap. Logs slow stages so a stalling first sync can be traced to
 /// DNS vs TCP from device logs alone.
-async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream> {
+pub(crate) async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream> {
     let dns_started = std::time::Instant::now();
     let addrs: Vec<std::net::SocketAddr> =
         tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((host, port)))
@@ -244,8 +247,20 @@ async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream> {
 
 /// Open a TCP connection, optionally wrapped in implicit TLS. Shared by the
 /// IMAP and SMTP paths.
-pub async fn connect_stream(host: &str, port: u16, tls: bool) -> Result<Stream> {
-    let tcp = connect_tcp(host, port).await?;
+///
+/// `proxy` is the account's resolved proxy (see [`crate::proxy`]); `None`
+/// connects directly. TLS is negotiated with the real destination host either
+/// way, so the tunnel never terminates the mail server's certificate.
+pub async fn connect_stream(
+    host: &str,
+    port: u16,
+    tls: bool,
+    proxy: Option<&crate::proxy::ProxyConfig>,
+) -> Result<Stream> {
+    let tcp = match proxy {
+        Some(proxy) => crate::proxy::connect_through(proxy, host, port).await?,
+        None => connect_tcp(host, port).await?,
+    };
 
     // Enable TCP keepalives to prevent silent drops by NAT/firewalls and detect network loss quickly.
     let sock_ref = socket2::SockRef::from(&tcp);
@@ -306,7 +321,13 @@ pub async fn connect(creds: &Creds) -> Result<Session> {
     // TLS wraps the socket up front. Plaintext (neither flag) is for local test
     // servers only.
     let implicit_tls = creds.tls && !creds.starttls;
-    let stream = connect_stream(&creds.host, creds.port, implicit_tls).await?;
+    let stream = connect_stream(
+        &creds.host,
+        creds.port,
+        implicit_tls,
+        creds.proxy.resolve().as_ref(),
+    )
+    .await?;
     let mut client = async_imap::Client::new(stream);
     // Consume the server greeting (e.g. "* OK ... ready"). Client::new does not
     // read it, and an unconsumed greeting shifts every response by one. That is
@@ -372,6 +393,7 @@ pub async fn refresh_oauth_token(
     client_secret: &str,
     refresh_token: &str,
     scope: Option<&str>,
+    proxy: Option<crate::proxy::ProxyConfig>,
 ) -> Result<(String, i64)> {
     let token_url = token_url.to_string();
     let client_id = client_id.to_string();
@@ -394,7 +416,8 @@ pub async fn refresh_oauth_token(
 
         // Keep non-2xx as a response (not a transport error) so we can surface
         // the JSON error body the provider returns for an invalid/revoked token.
-        let mut resp = ureq::post(&token_url)
+        let mut resp = crate::proxy::agent_for(proxy.as_ref())?
+            .post(&token_url)
             .config()
             .http_status_as_error(false)
             .build()

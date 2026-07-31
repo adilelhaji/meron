@@ -56,6 +56,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.nonbili.meron.shared.AccountSummary
+import jp.nonbili.meron.shared.ProxySpec
 import jp.nonbili.meron.shared.accountSummaryIsRss
 import kotlinx.coroutines.withContext
 
@@ -79,6 +80,7 @@ internal fun SettingsAccountDetailPage(
         rssSyncIntervalMinutes: Int,
         aliasesText: String,
     ) -> Unit,
+    onSaveProxy: (ProxySpec) -> Unit,
     onPickAvatar: () -> Unit,
     onOpenWallpaper: () -> Unit,
     onMoveUp: () -> Unit,
@@ -254,6 +256,17 @@ internal fun SettingsAccountDetailPage(
             ) {
                 visibleInNavigation = !visibleInNavigation
                 persist()
+            }
+        }
+
+        if (!isRss) {
+            item { SettingsSectionLabel(tr("settings.sections.network")) }
+            item {
+                SettingsProxyRow(
+                    spec = account.proxy,
+                    accountScoped = true,
+                    onSave = onSaveProxy,
+                )
             }
         }
 

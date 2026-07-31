@@ -279,7 +279,7 @@ pub async fn send(
     // STARTTLS connects in cleartext, then upgrades after EHLO; implicit TLS
     // wraps the socket up front. smtp_starttls takes precedence over smtp_tls.
     let implicit_tls = creds.smtp_tls && !creds.smtp_starttls;
-    let stream = connect_stream(host, port, implicit_tls).await?;
+    let stream = connect_stream(host, port, implicit_tls, creds.proxy.resolve().as_ref()).await?;
     let mut transport = with_timeout(
         SMTP_COMMAND_TIMEOUT,
         "smtp greeting",

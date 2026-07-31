@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { hydrateSettings, sanitizeKanbanBoards, settings$ } from './settings'
+import { EMPTY_PROXY, hydrateSettings, isProxyUsable, sanitizeKanbanBoards, sanitizeProxy, settings$ } from './settings'
 
 const baseBoard = {
   id: 'kb-1',
@@ -86,5 +86,40 @@ describe('side nav starred setting', () => {
 
     hydrateSettings({ show_starred_in_sidenav: false })
     expect(settings$.showStarredInSideNav.get()).toBe(false)
+  })
+})
+
+describe('proxy setting', () => {
+  afterEach(() => {
+    settings$.proxy.set(EMPTY_PROXY)
+  })
+
+  it('defaults to no proxy', () => {
+    expect(settings$.proxy.get()).toEqual(EMPTY_PROXY)
+  })
+
+  it('hydrates a persisted proxy', () => {
+    hydrateSettings({ proxy: { mode: 'socks5', host: ' 127.0.0.1 ', port: 1080, username: 'u', password: 'p' } })
+    expect(settings$.proxy.get()).toEqual({
+      mode: 'socks5',
+      host: '127.0.0.1',
+      port: 1080,
+      username: 'u',
+      password: 'p',
+    })
+  })
+
+  it('rejects unknown modes and out-of-range ports', () => {
+    expect(sanitizeProxy({ mode: 'ftp', host: 'h', port: 1 })).toBeNull()
+    expect(sanitizeProxy('socks5')).toBeNull()
+    expect(sanitizeProxy({ mode: 'http', host: 'h', port: 70000 })?.port).toBe(0)
+    expect(sanitizeProxy({ mode: 'http', host: 'h', port: -1 })?.port).toBe(0)
+  })
+
+  it('treats a half-filled proxy as unusable', () => {
+    expect(isProxyUsable({ mode: 'off', host: 'h', port: 1080, username: '', password: '' })).toBe(false)
+    expect(isProxyUsable({ mode: 'http', host: '', port: 8080, username: '', password: '' })).toBe(false)
+    expect(isProxyUsable({ mode: 'http', host: 'h', port: 0, username: '', password: '' })).toBe(false)
+    expect(isProxyUsable({ mode: 'http', host: 'h', port: 8080, username: '', password: '' })).toBe(true)
   })
 })

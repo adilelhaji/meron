@@ -83,6 +83,7 @@ pub(crate) fn add_mobile_oauth_account(data_dir: &str, params: &Value) -> Result
         oauth_client_secret,
         oauth_token_url,
         oauth_scope,
+        proxy: crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null)),
     };
     let id = account_id(&email);
     let meta = AccountMeta {
@@ -314,7 +315,9 @@ fn fetch_google_userinfo_blocking(
     if access_token.trim().is_empty() {
         return Ok(GoogleUserInfo::default());
     }
-    let mut resp = ureq::get(userinfo_url)
+    let mut resp = crate::proxy::agent()
+        .map_err(|err| format!("Google userinfo proxy: {err:#}"))?
+        .get(userinfo_url)
         .header("Authorization", &format!("Bearer {access_token}"))
         .config()
         .http_status_as_error(false)
@@ -417,7 +420,9 @@ pub(crate) fn exchange_oauth_code_blocking(
         form.push(("scope", OUTLOOK_SCOPES));
     }
 
-    let mut resp = ureq::post(token_url)
+    let mut resp = crate::proxy::agent()
+        .map_err(|err| format!("oauth code exchange proxy: {err:#}"))?
+        .post(token_url)
         .config()
         .http_status_as_error(false)
         .build()

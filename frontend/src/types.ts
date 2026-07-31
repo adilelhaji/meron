@@ -44,6 +44,20 @@ export type Account = {
   sender_name?: string
   /** Additional send-as addresses (besides the primary `email`). */
   aliases?: Alias[]
+  /** How this account proxies its connections; absent means "follow the app proxy". */
+  proxy?: AccountProxy
+}
+
+/**
+ * Per-account proxy choice: follow the app-wide proxy, always connect directly,
+ * or override it with this account's own HTTP/SOCKS5 proxy.
+ */
+export type AccountProxy = {
+  mode: 'global' | 'direct' | 'http' | 'socks5'
+  host?: string
+  port?: number
+  username?: string
+  password?: string
 }
 
 export type ChatWallpaper = { kind: 'preset'; presetId: string } | { kind: 'custom'; url: string }

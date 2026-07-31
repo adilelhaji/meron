@@ -27,7 +27,7 @@ use meron_core::engine::*;
 use meron_core::engine::{Engine, EngineHost};
 use meron_core::protocol::{Request, ping_response, ready_event};
 use meron_core::{
-    changelog, imap, mail_model, parse, rss, secrets, smtp, store, thread_list, thread_read,
+    changelog, imap, mail_model, parse, proxy, rss, secrets, smtp, store, thread_list, thread_read,
     unified,
 };
 
@@ -808,6 +808,11 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let key = req_str(p, "key")?;
             let value = p.get("value").cloned().unwrap_or(Value::Null);
             store::setting_set(&engine.db.lock().unwrap(), &key, &value)?;
+            // The proxy lives in a process-global slot that socket code reads
+            // without a DB handle, so republish it as soon as it changes.
+            if key == proxy::SETTING_KEY {
+                proxy::set_global(proxy::parse_global(&value));
+            }
             Ok(json!({ "ok": true }))
         }
 
@@ -1038,6 +1043,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     .unwrap_or("")
                     .trim()
                     .to_string(),
+                proxy: proxy::ProxyChoice::from_json(p.get("proxy").unwrap_or(&Value::Null)),
             };
             let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
             // Password accounts validate before storage. OAuth accounts may be
@@ -2368,6 +2374,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         }
 
         // Set the account's display name.
+        // Point one account at a different proxy than the app-wide setting (or
+        // at none). Live sessions keep their sockets; the choice applies as
+        // they reconnect.
+        "account.setProxy" => {
+            let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
+            let choice = proxy::ProxyChoice::from_json(p.get("proxy").unwrap_or(&Value::Null));
+            store::set_account_proxy(&engine.db.lock().unwrap(), &id, &choice)?;
+            if let Some(creds) = engine.accounts.lock().await.get_mut(&id) {
+                creds.proxy = choice;
+            }
+            Ok(json!({ "ok": true }))
+        }
+
         "account.setName" => {
             let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
             let name = req_str(p, "name")?;

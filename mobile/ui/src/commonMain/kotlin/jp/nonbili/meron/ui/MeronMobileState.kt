@@ -12,6 +12,7 @@ import jp.nonbili.meron.shared.FolderSummary
 import jp.nonbili.meron.shared.MeronCore
 import jp.nonbili.meron.shared.MessageAttachment
 import jp.nonbili.meron.shared.MessageBody
+import jp.nonbili.meron.shared.ProxySpec
 import jp.nonbili.meron.shared.StarredItemSummary
 import jp.nonbili.meron.shared.StorageUsage
 import jp.nonbili.meron.shared.ThreadSummary
@@ -251,6 +252,11 @@ internal class MeronMobileState(
     var pendingOpmlExport by mutableStateOf("")
     var accountMediaUploadTarget by mutableStateOf<AccountMediaUploadTarget?>(null)
     var kanbanBoardMediaTarget by mutableStateOf<KanbanBoardMediaTarget?>(null)
+
+    // App-wide proxy. Unlike the other preferences it lives in the core store,
+    // not platform prefs: the socket layer reads it, including from background
+    // syncs that never build this state.
+    var appProxy by mutableStateOf(ProxySpec.off)
     var storageUsage by mutableStateOf<StorageUsage?>(null)
     var storageBusy by mutableStateOf(false)
 

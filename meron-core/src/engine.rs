@@ -195,6 +195,10 @@ pub const POOLED_READ_TIMEOUT: Duration = Duration::from_secs(10);
 impl Engine {
     pub fn new(host: Box<dyn EngineHost>) -> anyhow::Result<Self> {
         let conn = host.open_db()?;
+        // Publish the app-wide proxy before anything can open a socket.
+        if let Err(err) = crate::proxy::load_global(&conn) {
+            eprintln!("meron-core: could not load the proxy setting: {err:#}");
+        }
         let mut accounts: HashMap<String, imap::Creds> = HashMap::new();
         for (id, mut creds) in store::load_accounts(&conn)? {
             host.apply_secret(&conn, &id, &mut creds);
@@ -346,6 +350,7 @@ impl Engine {
                     &client_secret,
                     refresh_token,
                     scope,
+                    creds.proxy.resolve(),
                 )
                 .await?;
                 creds.access_token = Some(new_access);

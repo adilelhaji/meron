@@ -689,6 +689,8 @@ private fun MeronMobileScreenContent(
             } else if (!coreLoaded) {
                 initialAccountsLoaded = true
             }
+            // The proxy lives in the core store, so it needs a read of its own.
+            loadAppProxy()
         }
 
         // Once accounts are known, surface whatever the local store already holds so
@@ -1125,6 +1127,9 @@ private fun MeronMobileScreenContent(
                         sendShortcutMode = next
                         saveSendShortcutMode(prefs, next)
                     },
+                    appProxy = appProxy,
+                    onSaveAppProxy = ::saveAppProxy,
+                    onSaveAccountProxy = ::saveAccountProxy,
                     kanbanColumnWidth = kanbanColumnWidth,
                     onCycleKanbanColumnWidth = {
                         val next = nextKanbanColumnWidth(kanbanColumnWidth)

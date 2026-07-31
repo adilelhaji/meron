@@ -115,6 +115,38 @@ class MobileResponseParsersTest {
     }
 
     @Test
+    fun parsesAccountProxyAndFallsBackToTheAppProxy() {
+        val proxied =
+            parseAccountListResponse(
+                """{"accounts":[{"id":"acc1","email":"me@example.com","proxy":{"mode":"socks5","host":"127.0.0.1","port":9050,"username":"u","password":"p"}}]}""",
+            ).single()
+        assertEquals("socks5", proxied.proxy.mode)
+        assertEquals("127.0.0.1", proxied.proxy.host)
+        assertEquals(9050, proxied.proxy.port)
+        assertEquals("u", proxied.proxy.username)
+        assertTrue(proxied.proxy.usable)
+
+        // An account stored before proxy support carries no proxy object at all.
+        val legacy =
+            parseAccountListResponse(
+                """{"accounts":[{"id":"acc1","email":"me@example.com"}]}""",
+            ).single()
+        assertEquals(ProxySpec.followApp, legacy.proxy)
+    }
+
+    @Test
+    fun parsesAppProxyResponse() {
+        assertEquals(
+            ProxySpec(mode = "http", host = "gateway.corp", port = 3128),
+            parseProxyResponse("""{"proxy":{"mode":"http","host":"gateway.corp","port":3128}}"""),
+        )
+        // No row stored, and an explicit null, both mean "no proxy".
+        assertEquals(ProxySpec.off, parseProxyResponse("""{"ok":true}"""))
+        assertEquals(ProxySpec.off, parseProxyResponse("""{"proxy":null}"""))
+        assertFalse(parseProxyResponse("""{"proxy":{"mode":"socks5","host":"h"}}""").usable)
+    }
+
+    @Test
     fun parsesThreadListEnvelope() {
         val threads =
             parseThreadListResponse(

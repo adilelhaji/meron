@@ -114,6 +114,28 @@ func (a *App) accountReorder(payload map[string]any) (any, error) {
 	return map[string]any{"ok": true}, nil
 }
 
+// accountSetProxy points one account at its own proxy, at the app-wide one, or
+// at a direct connection. The shape of "proxy" is validated in the engine.
+func (a *App) accountSetProxy(payload map[string]any) (any, error) {
+	id, _ := payload["id"].(string)
+	if id == "" {
+		id, _ = payload["account_id"].(string)
+	}
+	if id == "" {
+		return nil, errors.New("account id required")
+	}
+	proxy, _ := payload["proxy"].(map[string]any)
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	if _, err := a.sidecar.Call("account.setProxy", map[string]any{"account": id, "proxy": proxy}); err != nil {
+		return nil, err
+	}
+	// Credentials are never logged; the mode alone is enough to debug routing.
+	a.logf("account.setProxy: account=%s mode=%v", id, proxy["mode"])
+	return map[string]any{"ok": true}, nil
+}
+
 func (a *App) accountSetName(payload map[string]any) (any, error) {
 	id, _ := payload["id"].(string)
 	if id == "" {

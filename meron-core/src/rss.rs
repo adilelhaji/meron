@@ -966,7 +966,7 @@ struct HttpResponse {
 }
 
 fn http_get(url: &str, etag: &str, last_modified: &str) -> Result<HttpResponse> {
-    let mut rb = ureq::get(url);
+    let mut rb = crate::proxy::agent()?.get(url);
     if !etag.is_empty() {
         rb = rb.header("If-None-Match", etag);
     }

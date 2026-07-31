@@ -216,6 +216,8 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.accountSetPref(payload, "account.setConversationHtml")
 	case "account.setChatWallpaper":
 		return a.accountSetChatWallpaper(payload)
+	case "account.setProxy":
+		return a.accountSetProxy(payload)
 	case "account.setName":
 		return a.accountSetName(payload)
 	case "account.setSenderName":

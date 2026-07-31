@@ -75,6 +75,9 @@ pub fn dispatch_protocol_request(req: &Request) -> Result<Value, String> {
         "account.setSaveSentCopy" => Ok(json!({ "ok": true })),
         "account.setRSSSyncInterval" => Ok(json!({ "ok": true })),
         "account.setAliases" => Ok(json!({ "ok": true })),
+        "account.setProxy" => Ok(json!({ "ok": true })),
+        "app.proxyGet" => Ok(json!({ "proxy": Value::Null })),
+        "app.proxySet" => Ok(json!({ "ok": true })),
         "account.reorder" => Ok(json!({ "ok": true })),
         "contacts.suggest" | "mail.suggestContacts" => Ok(json!({ "contacts": [] })),
         "feed.add" | "rss.addFeed" => Ok(json!({ "ok": true })),
@@ -151,6 +154,9 @@ pub fn dispatch_mobile_protocol_request(req: &Request, data_dir: &str) -> Result
         "account.setSaveSentCopy" => set_mobile_account_save_sent_copy(data_dir, &req.params),
         "account.setRSSSyncInterval" => set_mobile_account_rss_sync_interval(data_dir, &req.params),
         "account.setAliases" => set_mobile_account_aliases(data_dir, &req.params),
+        "account.setProxy" => set_mobile_account_proxy(data_dir, &req.params),
+        "app.proxyGet" => get_mobile_proxy(data_dir),
+        "app.proxySet" => set_mobile_proxy(data_dir, &req.params),
         "account.reorder" => reorder_mobile_accounts(data_dir, &req.params),
         "contacts.suggest" | "mail.suggestContacts" => {
             suggest_mobile_contacts(data_dir, &req.params)

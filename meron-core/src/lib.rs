@@ -13,6 +13,7 @@ pub mod log;
 pub mod mail_model;
 pub mod parse;
 pub mod protocol;
+pub mod proxy;
 pub mod rss;
 pub mod secrets;
 #[cfg(target_os = "linux")]

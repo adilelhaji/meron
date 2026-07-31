@@ -2087,3 +2087,90 @@ fn resolve_send_from_falls_back_to_the_login_without_an_account_address() {
         ("me@example.com".to_string(), "Me".to_string())
     );
 }
+
+/// A minimal mail account so proxy persistence can be exercised without the
+/// rest of the connection metadata mattering.
+fn proxy_test_account(conn: &Connection, id: &str, proxy: crate::proxy::ProxyChoice) {
+    let creds = crate::imap::Creds {
+        host: "imap.example.com".to_string(),
+        port: 993,
+        user: "user@example.com".to_string(),
+        password: String::new(),
+        tls: true,
+        starttls: false,
+        smtp_host: "smtp.example.com".to_string(),
+        smtp_port: 587,
+        smtp_tls: false,
+        smtp_starttls: true,
+        auth_type: "password".to_string(),
+        access_token: None,
+        refresh_token: None,
+        token_expires_at: 0,
+        oauth_client_id: String::new(),
+        oauth_client_secret: String::new(),
+        oauth_token_url: String::new(),
+        oauth_scope: String::new(),
+        proxy,
+    };
+    let meta = AccountMeta {
+        engine: "mail".to_string(),
+        provider: "custom".to_string(),
+        email: "user@example.com".to_string(),
+        display_name: String::new(),
+        avatar_url: String::new(),
+        sender_name: String::new(),
+    };
+    upsert_account(conn, id, &meta, &creds).unwrap();
+}
+
+fn stored_proxy(conn: &Connection, id: &str) -> crate::proxy::ProxyChoice {
+    load_accounts(conn)
+        .unwrap()
+        .into_iter()
+        .find(|(account, _)| account == id)
+        .map(|(_, creds)| creds.proxy)
+        .expect("account not found")
+}
+
+#[test]
+fn account_proxy_round_trips_and_defaults_to_global() {
+    let conn = test_conn();
+    let custom = crate::proxy::ProxyChoice::from_json(&json!({
+        "mode": "socks5",
+        "host": "127.0.0.1",
+        "port": 9050,
+        "username": "u",
+        "password": "p",
+    }));
+    proxy_test_account(&conn, "acct", custom.clone());
+    assert_eq!(stored_proxy(&conn, "acct"), custom);
+
+    // An account written before proxy support has no key in its config JSON.
+    conn.execute(
+        "UPDATE accounts SET config = json_remove(config, '$.proxy') WHERE id = 'acct'",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        stored_proxy(&conn, "acct"),
+        crate::proxy::ProxyChoice::Global
+    );
+}
+
+#[test]
+fn set_account_proxy_replaces_only_the_proxy_entry() {
+    let conn = test_conn();
+    proxy_test_account(&conn, "acct", crate::proxy::ProxyChoice::Global);
+    set_account_proxy(&conn, "acct", &crate::proxy::ProxyChoice::Direct).unwrap();
+
+    let (_, creds) = load_accounts(&conn)
+        .unwrap()
+        .into_iter()
+        .find(|(account, _)| account == "acct")
+        .unwrap();
+    assert_eq!(creds.proxy, crate::proxy::ProxyChoice::Direct);
+    // The rest of the connection config survives the targeted update.
+    assert_eq!(creds.host, "imap.example.com");
+    assert_eq!(creds.smtp_port, 587);
+    assert!(creds.smtp_starttls);
+}

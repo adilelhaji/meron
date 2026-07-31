@@ -164,6 +164,7 @@ export function TextRow({
   hint,
   value,
   placeholder,
+  type = 'text',
   onChange,
 }: {
   icon?: ReactNode
@@ -171,6 +172,7 @@ export function TextRow({
   hint?: string
   value: string
   placeholder?: string
+  type?: 'text' | 'password'
   onChange: (value: string) => void
 }) {
   return (
@@ -180,7 +182,7 @@ export function TextRow({
       hint={hint}
       control={
         <TextInput
-          type="text"
+          type={type}
           value={value}
           placeholder={placeholder}
           onChange={(event) => onChange(event.target.value)}

@@ -27,7 +27,31 @@ data class AccountSummary(
     val chatWallpaperKind: String = "",
     val chatWallpaperPresetId: String = "",
     val chatWallpaperUrl: String = "",
+    val proxy: ProxySpec = ProxySpec.followApp,
 )
+
+/**
+ * A proxy endpoint, used for both the app-wide setting and a per-account
+ * override. [mode] is "off"/"http"/"socks5" app-wide, and adds "global" (follow
+ * the app proxy, the default) and "direct" (never proxy) per account. An empty
+ * [username] means the proxy needs no authentication.
+ */
+data class ProxySpec(
+    val mode: String = "off",
+    val host: String = "",
+    val port: Int = 0,
+    val username: String = "",
+    val password: String = "",
+) {
+    /** Whether this is filled in well enough for the core to actually use it. */
+    val usable: Boolean
+        get() = (mode == "http" || mode == "socks5") && host.isNotBlank() && port > 0
+
+    companion object {
+        val off = ProxySpec()
+        val followApp = ProxySpec(mode = "global")
+    }
+}
 
 data class AccountAlias(
     val email: String,

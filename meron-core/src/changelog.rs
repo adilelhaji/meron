@@ -142,7 +142,8 @@ fn normalize_ws(text: &str) -> String {
 }
 
 fn http_get(url: &str) -> Result<Vec<u8>> {
-    let mut resp = ureq::get(url)
+    let mut resp = crate::proxy::agent()?
+        .get(url)
         .config()
         .timeout_global(Some(HTTP_TIMEOUT))
         .build()

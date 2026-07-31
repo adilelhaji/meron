@@ -194,7 +194,9 @@ fn discover_mobile_autoconfig(email: &str, domain: &str) -> Option<DiscoveredMai
 }
 
 fn fetch_mobile_autoconfig(url: &str) -> Option<String> {
-    let mut resp = ureq::get(url)
+    let mut resp = crate::proxy::agent()
+        .ok()?
+        .get(url)
         .header("User-Agent", "Meron-Mail-Autoconfig")
         .config()
         .http_status_as_error(false)
@@ -666,6 +668,42 @@ pub(crate) fn set_mobile_account_aliases(data_dir: &str, params: &Value) -> Resu
     })
 }
 
+pub(crate) fn set_mobile_account_proxy(data_dir: &str, params: &Value) -> Result<Value, String> {
+    let id = req_account_pref_id(params)?;
+    let choice = crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null));
+    let result = with_mobile_db(data_dir, |conn| {
+        store::set_account_proxy(&conn, &id, &choice).map_err(|err| err.to_string())?;
+        Ok(json!({ "ok": true, "proxy": choice.to_json() }))
+    });
+    if result.is_ok() {
+        crate::ffi::evict_engine_account(&id);
+    }
+    result
+}
+
+/// The app-wide proxy. Mobile keeps most preferences on the platform side, but
+/// this one has to live in the core store: the socket layer reads it, including
+/// from background syncs that never touch the UI process state.
+pub(crate) fn get_mobile_proxy(data_dir: &str) -> Result<Value, String> {
+    with_mobile_db(data_dir, |conn| {
+        let stored = store::settings_get(&conn, &[crate::proxy::SETTING_KEY.to_string()])
+            .map_err(|err| err.to_string())?;
+        Ok(json!({ "proxy": stored[crate::proxy::SETTING_KEY] }))
+    })
+}
+
+pub(crate) fn set_mobile_proxy(data_dir: &str, params: &Value) -> Result<Value, String> {
+    let value = params.get("proxy").cloned().unwrap_or(Value::Null);
+    with_mobile_db(data_dir, |conn| {
+        store::setting_set(&conn, crate::proxy::SETTING_KEY, &value)
+            .map_err(|err| err.to_string())?;
+        // Republish immediately: a live Engine (foreground session) would
+        // otherwise keep using the proxy it loaded when it was built.
+        crate::proxy::set_global(crate::proxy::parse_global(&value));
+        Ok(json!({ "ok": true }))
+    })
+}
+
 pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Result<Value, String> {
     let email = req_str(params, "email")?;
     if !email.contains('@') {
@@ -707,6 +745,7 @@ pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Res
         oauth_client_secret: String::new(),
         oauth_token_url: String::new(),
         oauth_scope: String::new(),
+        proxy: crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null)),
     };
     let meta = AccountMeta {
         engine: "mail".to_string(),

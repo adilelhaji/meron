@@ -27,6 +27,9 @@ type Account struct {
 	TokenExpiresAt    int64   `json:"token_expires_at,omitempty"`
 	SortOrder         int     `json:"sort_order"`
 	Aliases           []Alias `json:"aliases,omitempty"`
+	// Proxy is passed through untyped: the engine owns its shape, and the
+	// bridge has no reason to interpret it.
+	Proxy any `json:"proxy,omitempty"`
 }
 
 // Alias is a send-as identity for an account: an address the user owns plus an

@@ -34,6 +34,30 @@ export type KanbanBoard = {
   wallpaper?: ChatWallpaper | null
 }
 
+/** Proxy transport, or 'off' for direct connections. */
+export type ProxyMode = 'off' | 'http' | 'socks5'
+
+/**
+ * Proxy endpoint, shared by the app-wide setting and the per-account override.
+ * An empty `username` means the proxy needs no authentication.
+ */
+export type ProxySettings = {
+  mode: ProxyMode
+  host: string
+  /** 0 while the field is empty; the core treats that as "no proxy". */
+  port: number
+  username: string
+  password: string
+}
+
+export const EMPTY_PROXY: ProxySettings = {
+  mode: 'off',
+  host: '',
+  port: 0,
+  username: '',
+  password: '',
+}
+
 export type Settings = {
   /** Active built-in or custom theme id. The theme's appearance controls light/dark mode. */
   themeId: string
@@ -64,6 +88,11 @@ export type Settings = {
   /** Version whose update banner the user dismissed, so it doesn't nag. */
   dismissedUpdateVersion: string | null
   language: SupportedI18nLanguage | null
+  /**
+   * App-wide proxy for mail sockets, feed fetches and OAuth calls. Accounts
+   * follow this unless they carry their own override (see AccountProxyCard).
+   */
+  proxy: ProxySettings
 }
 
 export const KANBAN_COLUMN_DEFAULT_WIDTH = 360
@@ -90,6 +119,7 @@ const DB_KEY = {
   autoUpdateCheck: 'auto_update_check',
   dismissedUpdateVersion: 'dismissed_update_version',
   language: 'language',
+  proxy: 'proxy',
 } satisfies Record<keyof Settings, string>
 
 /** Keys to request from `app.prefsGet` on boot. */
@@ -187,6 +217,7 @@ export const settings$ = observable<Settings>({
   autoUpdateCheck: true,
   dismissedUpdateVersion: null,
   language: null,
+  proxy: EMPTY_PROXY,
 })
 
 // Suppress persistence while applying values loaded from the DB, so hydration
@@ -314,6 +345,30 @@ function sanitizeBooleanMap(raw: unknown): Record<string, boolean> | null {
   return out
 }
 
+/**
+ * Coerce a stored or user-entered proxy into the canonical shape. Returns null
+ * for anything unrecognizable so hydration leaves the current value alone.
+ */
+export function sanitizeProxy(raw: unknown): ProxySettings | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const v = raw as Record<string, unknown>
+  const mode = v.mode
+  if (mode !== 'off' && mode !== 'http' && mode !== 'socks5') return null
+  const port = typeof v.port === 'number' && Number.isFinite(v.port) ? Math.trunc(v.port) : 0
+  return {
+    mode,
+    host: typeof v.host === 'string' ? v.host.trim() : '',
+    port: port > 0 && port <= 65535 ? port : 0,
+    username: typeof v.username === 'string' ? v.username : '',
+    password: typeof v.password === 'string' ? v.password : '',
+  }
+}
+
+/** Whether a proxy is configured well enough to actually be used. */
+export function isProxyUsable(proxy: ProxySettings): boolean {
+  return proxy.mode !== 'off' && proxy.host.trim() !== '' && proxy.port > 0
+}
+
 function sanitizeStringArray(raw: unknown): string[] | null {
   if (!Array.isArray(raw)) return null
   const out: string[] = []
@@ -399,6 +454,9 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
 
     const minimizedColumns = sanitizeBooleanMap(prefs[DB_KEY.kanbanMinimizedColumns])
     if (minimizedColumns) settings$.kanbanMinimizedColumns.set(minimizedColumns)
+
+    const proxy = sanitizeProxy(prefs[DB_KEY.proxy])
+    if (proxy) settings$.proxy.set(proxy)
 
     const hiddenSideNavAccounts = sanitizeStringArray(prefs[DB_KEY.hiddenSideNavAccounts])
     if (hiddenSideNavAccounts) settings$.hiddenSideNavAccounts.set(hiddenSideNavAccounts)

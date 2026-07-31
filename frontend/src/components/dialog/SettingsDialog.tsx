@@ -45,6 +45,7 @@ import { IconButton } from '../button/IconButton'
 import { NumberRow, SegmentedRow, SettingRow, SettingsGroup, ToggleRow, SelectRow } from './AccountSettingsRows'
 import { supportedI18nLanguages, languageNativeNames, type SupportedI18nLanguage } from '../../lib/i18n'
 import { ThemeSettingsSection } from './ThemeSettingsSection'
+import { AccountProxyCard, ProxySettingsSection } from './ProxySettingsCard'
 import { AccountProfileGroup } from './AccountProfileGroup'
 import { useAccountAvatar } from './useAccountAvatar'
 import { AccountAliasesCard } from './AccountAliasesCard'
@@ -396,6 +397,8 @@ function GeneralSection() {
           onChange={() => setStarredSideNavVisible(!showStarred)}
         />
       </SettingsGroup>
+
+      <ProxySettingsSection />
 
       <SettingsGroup title={t('settings.sections.kanban')}>
         <NumberRow
@@ -771,6 +774,7 @@ function AccountPanel({ account }: { account: Account }) {
         <AccountWallpaperCard account={account} />
       </SettingsGroup>
       <AccountTogglesSection account={account} isRSS={isRSS} />
+      {!isRSS && <AccountProxyCard account={account} />}
       {!isRSS && <AccountAliasesCard account={account} />}
       {isRSS && <OpmlGroup account={account.id} />}
 

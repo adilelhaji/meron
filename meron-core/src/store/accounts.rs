@@ -140,6 +140,7 @@ fn creds_to_config(creds: &Creds) -> String {
         "oauth_client_secret": creds.oauth_client_secret,
         "oauth_token_url": creds.oauth_token_url,
         "oauth_scope": creds.oauth_scope,
+        "proxy": creds.proxy.to_json(),
     })
     .to_string()
 }
@@ -165,6 +166,9 @@ fn config_to_creds(json: &str) -> Creds {
         oauth_client_secret: v["oauth_client_secret"].as_str().unwrap_or("").to_string(),
         oauth_token_url: v["oauth_token_url"].as_str().unwrap_or("").to_string(),
         oauth_scope: v["oauth_scope"].as_str().unwrap_or("").to_string(),
+        // Accounts written before proxy support have no key here, which parses
+        // as "follow the app-wide setting".
+        proxy: crate::proxy::ProxyChoice::from_json(&v["proxy"]),
     }
 }
 
@@ -232,6 +236,22 @@ pub fn set_account_pref(conn: &Connection, id: &str, key: &str, enabled: bool) -
          SET prefs = json_set(prefs, ?2, json(?3)), updated_at = ?4
          WHERE id = ?1",
         params![id, path, if enabled { "true" } else { "false" }, now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Replace just the proxy entry in an account's connection `config`, leaving
+/// the rest of the JSON (hosts, ports, OAuth metadata) untouched.
+pub fn set_account_proxy(
+    conn: &Connection,
+    id: &str,
+    choice: &crate::proxy::ProxyChoice,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE accounts
+         SET config = json_set(config, '$.proxy', json(?2)), updated_at = ?3
+         WHERE id = ?1",
+        params![id, choice.to_json().to_string(), now_unix()],
     )?;
     Ok(())
 }
@@ -671,6 +691,7 @@ pub fn list_accounts(conn: &Connection) -> Result<Vec<serde_json::Value>> {
                 "chat_wallpaper": chat_wallpaper,
                 "sort_order": sort_order,
                 "aliases": p.aliases_json(),
+                "proxy": c.proxy.to_json(),
             }));
         }
     }

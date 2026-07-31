@@ -2545,6 +2545,7 @@ fn seed_mobile_account(data_dir: &std::path::Path, email: &str) {
         oauth_client_secret: String::new(),
         oauth_token_url: String::new(),
         oauth_scope: String::new(),
+        proxy: crate::proxy::ProxyChoice::Global,
     };
     let meta = AccountMeta {
         engine: "mail".to_string(),
@@ -2858,5 +2859,69 @@ fn engine_does_not_refresh_platform_managed_oauth_without_refresh_token() {
     assert_eq!(creds.access_token.as_deref(), Some("access-only"));
     assert_eq!(creds.refresh_token.as_deref(), None);
 
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn mobile_protocol_persists_app_and_account_proxies() {
+    let _guard = crate::proxy::TEST_GLOBAL_LOCK
+        .write()
+        .unwrap_or_else(|err| err.into_inner());
+    let data_dir = unique_data_dir("proxy");
+    let unique = unique_test_suffix();
+    let email = format!("proxy+{unique}@example.com");
+    let data_dir_str = data_dir.to_str().unwrap();
+    let add_request = format!(
+        r#"{{"id":90,"method":"account.addPassword","params":{{"email":"{email}","imap_host":"imap.example.com","smtp_host":"smtp.example.com","username":"{email}","password":"secret"}}}}"#
+    );
+    assert!(
+        invoke_mobile_protocol_json(&add_request, Some(data_dir_str))
+            .get("error")
+            .is_none()
+    );
+
+    // A fresh install has no proxy, and a new account follows the app-wide one.
+    let empty = invoke_mobile_protocol_json(
+        r#"{"id":91,"method":"app.proxyGet","params":{}}"#,
+        Some(data_dir_str),
+    );
+    assert_eq!(empty["result"]["proxy"], serde_json::Value::Null);
+    let listed = invoke_mobile_protocol_json(
+        r#"{"id":92,"method":"account.list","params":{}}"#,
+        Some(data_dir_str),
+    );
+    assert_eq!(listed["result"]["accounts"][0]["proxy"]["mode"], "global");
+
+    let set = invoke_mobile_protocol_json(
+        r#"{"id":93,"method":"app.proxySet","params":{"proxy":{"mode":"socks5","host":"127.0.0.1","port":9050,"username":"u","password":"p"}}}"#,
+        Some(data_dir_str),
+    );
+    assert_eq!(set["result"]["ok"], true);
+    let stored = invoke_mobile_protocol_json(
+        r#"{"id":94,"method":"app.proxyGet","params":{}}"#,
+        Some(data_dir_str),
+    );
+    assert_eq!(stored["result"]["proxy"]["mode"], "socks5");
+    assert_eq!(stored["result"]["proxy"]["port"], 9050);
+    // Saving publishes it, so connections made right after use it without a restart.
+    assert_eq!(
+        crate::proxy::global().map(|cfg| cfg.host),
+        Some("127.0.0.1".to_string())
+    );
+
+    let account_set = format!(
+        r#"{{"id":95,"method":"account.setProxy","params":{{"id":"{email}","proxy":{{"mode":"direct"}}}}}}"#
+    );
+    assert_eq!(
+        invoke_mobile_protocol_json(&account_set, Some(data_dir_str))["result"]["ok"],
+        true
+    );
+    let listed = invoke_mobile_protocol_json(
+        r#"{"id":96,"method":"account.list","params":{}}"#,
+        Some(data_dir_str),
+    );
+    assert_eq!(listed["result"]["accounts"][0]["proxy"]["mode"], "direct");
+
+    crate::proxy::set_global(None);
     let _ = std::fs::remove_dir_all(data_dir);
 }

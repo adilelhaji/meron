@@ -111,11 +111,36 @@ fun parseAccountListResponse(responseJson: String): List<AccountSummary> {
                             )
                         }
                     }.orEmpty(),
+            proxy = parseProxySpec(item.findJsonPropertyValue("proxy"), ProxySpec.followApp),
             chatWallpaperKind = wallpaperJson.findJsonStringProperty("kind").orEmpty(),
             chatWallpaperPresetId = wallpaperJson.findJsonStringProperty("presetId").orEmpty(),
             chatWallpaperUrl = wallpaperJson.findJsonStringProperty("url").orEmpty(),
         )
     }
+}
+
+/** The app-wide proxy from an `app.proxyGet` response; missing means none. */
+fun parseProxyResponse(responseJson: String): ProxySpec = parseProxySpec(responseJson.findJsonPropertyValue("proxy"), ProxySpec.off)
+
+/**
+ * Read a proxy object, falling back to [fallback] when it is absent or carries
+ * a mode this build does not know. Accounts stored before proxy support have no
+ * such object at all, which is why the fallback is the caller's business.
+ */
+private fun parseProxySpec(
+    proxyJson: String?,
+    fallback: ProxySpec,
+): ProxySpec {
+    val json = proxyJson?.takeIf { it.isNotBlank() && it != "null" } ?: return fallback
+    val mode = json.findJsonStringProperty("mode").orEmpty()
+    if (mode.isBlank()) return fallback
+    return ProxySpec(
+        mode = mode,
+        host = json.findJsonStringProperty("host").orEmpty(),
+        port = json.findJsonLongProperty("port")?.toInt() ?: 0,
+        username = json.findJsonStringProperty("username").orEmpty(),
+        password = json.findJsonStringProperty("password").orEmpty(),
+    )
 }
 
 fun parseFolderListResponse(responseJson: String): List<FolderSummary> {

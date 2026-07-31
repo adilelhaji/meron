@@ -142,6 +142,7 @@ import jp.nonbili.meron.shared.AccountFlagParams
 import jp.nonbili.meron.shared.AccountIdParams
 import jp.nonbili.meron.shared.AccountMediaFileParams
 import jp.nonbili.meron.shared.AccountNameParams
+import jp.nonbili.meron.shared.AccountProxyParams
 import jp.nonbili.meron.shared.AccountReorderParams
 import jp.nonbili.meron.shared.AccountRssSyncIntervalParams
 import jp.nonbili.meron.shared.AccountSummary
@@ -172,6 +173,8 @@ import jp.nonbili.meron.shared.MobileMailCommandClient
 import jp.nonbili.meron.shared.MoveRssFeedParams
 import jp.nonbili.meron.shared.MoveThreadParams
 import jp.nonbili.meron.shared.OAuthAuthorizationRequest
+import jp.nonbili.meron.shared.ProxyParams
+import jp.nonbili.meron.shared.ProxySpec
 import jp.nonbili.meron.shared.RemoveRssFeedParams
 import jp.nonbili.meron.shared.RssMarkReadParams
 import jp.nonbili.meron.shared.RssMarkStarredParams
@@ -216,6 +219,7 @@ import jp.nonbili.meron.shared.parseMediaFileUrlResponse
 import jp.nonbili.meron.shared.parseOAuthCallbackUrlForRedirect
 import jp.nonbili.meron.shared.parseOpmlExportResponse
 import jp.nonbili.meron.shared.parseOpmlImportCountResponse
+import jp.nonbili.meron.shared.parseProxyResponse
 import jp.nonbili.meron.shared.parseStarredItemsResponse
 import jp.nonbili.meron.shared.parseStorageUsageResponse
 import jp.nonbili.meron.shared.parseThreadListPage
@@ -301,6 +305,67 @@ internal fun MeronMobileState.listAccounts() {
         }
         accountsLoading = false
         initialAccountsLoaded = true
+    }
+}
+
+/** Read the app-wide proxy from the core store into [MeronMobileState.appProxy]. */
+internal fun MeronMobileState.loadAppProxy() {
+    if (!coreLoaded) return
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                MobileMailCommandClient(core).getProxy()
+            }
+        }.onSuccess { appProxy = parseProxyResponse(it) }
+    }
+}
+
+/**
+ * Persist the app-wide proxy. Live IMAP sessions keep their sockets; the change
+ * lands as they reconnect, which is why the status line says so rather than
+ * implying an instant switch.
+ */
+internal fun MeronMobileState.saveAppProxy(spec: ProxySpec) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    val previous = appProxy
+    appProxy = spec
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                MobileMailCommandClient(core).setProxy(ProxyParams(spec))
+            }
+        }.onSuccess {
+            status = if (spec.mode == "off") "Proxy disabled" else "Proxy saved"
+        }.onFailure {
+            appProxy = previous
+            status = "Proxy update failed: ${it.message}"
+        }
+    }
+}
+
+/** Point one account at its own proxy, at the app-wide one, or at none. */
+internal fun MeronMobileState.saveAccountProxy(
+    account: AccountSummary,
+    spec: ProxySpec,
+) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                MobileMailCommandClient(core).setAccountProxy(AccountProxyParams(account.id, spec))
+            }
+        }.onSuccess {
+            listAccounts()
+            status = "Proxy saved"
+        }.onFailure {
+            status = "Proxy update failed: ${it.message}"
+        }
     }
 }
 

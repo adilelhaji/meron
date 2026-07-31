@@ -25,6 +25,9 @@ object MobileCommand {
     const val AccountSetSaveSentCopy = "account.setSaveSentCopy"
     const val AccountSetRssSyncInterval = "account.setRSSSyncInterval"
     const val AccountSetAliases = "account.setAliases"
+    const val AccountSetProxy = "account.setProxy"
+    const val AppProxyGet = "app.proxyGet"
+    const val AppProxySet = "app.proxySet"
     const val AccountReorder = "account.reorder"
     const val FeedAdd = "feed.add"
     const val FeedRemove = "feed.remove"
@@ -353,6 +356,33 @@ data class AccountAliasesParams(
         jsonObject(
             "id" to accountId.jsonString(),
             "aliases" to aliases.joinToString(separator = ",", prefix = "[", postfix = "]") { it.toJson() },
+        )
+}
+
+/** Serializes a [ProxySpec] the way the core's proxy parser expects it. */
+private fun ProxySpec.toJson(): String =
+    jsonObject(
+        "mode" to mode.jsonString(),
+        "host" to host.jsonString(),
+        "port" to port.toString(),
+        "username" to username.jsonString(),
+        "password" to password.jsonString(),
+    )
+
+data class ProxyParams(
+    val proxy: ProxySpec,
+) {
+    fun toJson(): String = jsonObject("proxy" to proxy.toJson())
+}
+
+data class AccountProxyParams(
+    val accountId: String,
+    val proxy: ProxySpec,
+) {
+    fun toJson(): String =
+        jsonObject(
+            "id" to accountId.jsonString(),
+            "proxy" to proxy.toJson(),
         )
 }
 
@@ -854,6 +884,12 @@ class MobileMailCommandClient(
 
     suspend fun setAccountAliases(params: AccountAliasesParams): String = core.invoke(MobileCommand.AccountSetAliases, params.toJson())
 
+    suspend fun setAccountProxy(params: AccountProxyParams): String = core.invoke(MobileCommand.AccountSetProxy, params.toJson())
+
+    suspend fun getProxy(): String = core.invoke(MobileCommand.AppProxyGet)
+
+    suspend fun setProxy(params: ProxyParams): String = core.invoke(MobileCommand.AppProxySet, params.toJson())
+
     suspend fun reorderAccounts(params: AccountReorderParams): String = core.invoke(MobileCommand.AccountReorder, params.toJson())
 
     suspend fun addRssFeed(params: AddRssFeedParams): String = core.invoke(MobileCommand.FeedAdd, params.toJson())
@@ -1086,6 +1122,18 @@ fun attachmentReadRequest(
     id: Long = 1,
     params: AttachmentReadParams,
 ): CoreRequest = CoreRequest(id, MobileCommand.AttachmentRead, params.toJson())
+
+fun setAccountProxyRequest(
+    id: Long = 1,
+    params: AccountProxyParams,
+): CoreRequest = CoreRequest(id, MobileCommand.AccountSetProxy, params.toJson())
+
+fun proxyGetRequest(id: Long = 1): CoreRequest = CoreRequest(id, MobileCommand.AppProxyGet)
+
+fun proxySetRequest(
+    id: Long = 1,
+    params: ProxyParams,
+): CoreRequest = CoreRequest(id, MobileCommand.AppProxySet, params.toJson())
 
 fun storageUsageRequest(id: Long = 1): CoreRequest = CoreRequest(id, MobileCommand.StorageUsage)
 

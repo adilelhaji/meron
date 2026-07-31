@@ -66,6 +66,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import jp.nonbili.meron.shared.AccountSummary
+import jp.nonbili.meron.shared.ProxySpec
 import jp.nonbili.meron.shared.StorageUsage
 import jp.nonbili.meron.shared.accountSummaryIsRss
 
@@ -128,6 +129,9 @@ internal fun SettingsScreen(
     onToggleStarredNav: () -> Unit,
     sendShortcutMode: SendShortcutMode,
     onToggleSendShortcut: () -> Unit,
+    appProxy: ProxySpec,
+    onSaveAppProxy: (ProxySpec) -> Unit,
+    onSaveAccountProxy: (AccountSummary, ProxySpec) -> Unit,
     kanbanColumnWidth: Int,
     onCycleKanbanColumnWidth: () -> Unit,
     notificationsNeedPermission: Boolean,
@@ -267,6 +271,8 @@ internal fun SettingsScreen(
                     onCycleKanbanColumnWidth = onCycleKanbanColumnWidth,
                     sendShortcutMode = sendShortcutMode,
                     onToggleSendShortcut = onToggleSendShortcut,
+                    appProxy = appProxy,
+                    onSaveAppProxy = onSaveAppProxy,
                     notificationsNeedPermission = notificationsNeedPermission,
                     onEnableNotifications = onEnableNotifications,
                     supportsBackgroundPush = supportsBackgroundPush,
@@ -332,6 +338,7 @@ internal fun SettingsScreen(
                                 aliases,
                             )
                         },
+                        onSaveProxy = { spec -> onSaveAccountProxy(account, spec) },
                         onPickAvatar = { onPickAccountAvatar(account) },
                         onOpenWallpaper = { settingsNavController.navigate(SettingsRoutes.AccountWallpaper) },
                         onMoveUp = { onMoveAccountUp(account) },
@@ -596,6 +603,8 @@ internal fun SettingsGeneralPage(
     onCycleKanbanColumnWidth: () -> Unit,
     sendShortcutMode: SendShortcutMode,
     onToggleSendShortcut: () -> Unit,
+    appProxy: ProxySpec,
+    onSaveAppProxy: (ProxySpec) -> Unit,
     notificationsNeedPermission: Boolean,
     onEnableNotifications: () -> Unit,
     supportsBackgroundPush: Boolean,
@@ -703,6 +712,15 @@ internal fun SettingsGeneralPage(
                 subtitle = tr("settings.composer.sendShortcutHint"),
                 onClick = onToggleSendShortcut,
                 trailing = { Text(sendShortcutMode.label(), color = MaterialTheme.colorScheme.primary) },
+            )
+        }
+
+        item { SettingsSectionLabel(tr("settings.sections.network")) }
+        item {
+            SettingsProxyRow(
+                spec = appProxy,
+                accountScoped = false,
+                onSave = onSaveAppProxy,
             )
         }
 

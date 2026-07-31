@@ -312,6 +312,25 @@ class MobileCommandsTest {
             ).toJson(),
         )
         assertEquals(
+            """{"id":60,"method":"account.setProxy","params":{"id":"acc1","proxy":{"mode":"socks5","host":"127.0.0.1","port":9050,"username":"u","password":"p"}}}""",
+            setAccountProxyRequest(
+                id = 60,
+                params =
+                    AccountProxyParams(
+                        accountId = "acc1",
+                        proxy = ProxySpec(mode = "socks5", host = "127.0.0.1", port = 9050, username = "u", password = "p"),
+                    ),
+            ).toJson(),
+        )
+        assertEquals(
+            """{"id":61,"method":"app.proxyGet","params":{}}""",
+            proxyGetRequest(id = 61).toJson(),
+        )
+        assertEquals(
+            """{"id":62,"method":"app.proxySet","params":{"proxy":{"mode":"off","host":"","port":0,"username":"","password":""}}}""",
+            proxySetRequest(id = 62, params = ProxyParams(ProxySpec.off)).toJson(),
+        )
+        assertEquals(
             """{"id":26,"method":"account.reorder","params":{"accounts":["acc2","acc1"]}}""",
             accountReorderRequest(id = 26, params = AccountReorderParams(listOf("acc2", "acc1"))).toJson(),
         )
@@ -361,6 +380,20 @@ class MobileCommandsTest {
         runSuspend { client.setAccountAliases(AccountAliasesParams("acc1", listOf(AccountAliasParams("alias@example.com", "Alias")))) }
         assertEquals(MobileCommand.AccountSetAliases, core.lastCommand)
         assertEquals("""{"id":"acc1","aliases":[{"email":"alias@example.com","name":"Alias"}]}""", core.lastPayloadJson)
+
+        runSuspend { client.setAccountProxy(AccountProxyParams("acc1", ProxySpec.followApp)) }
+        assertEquals(MobileCommand.AccountSetProxy, core.lastCommand)
+        assertEquals("""{"id":"acc1","proxy":{"mode":"global","host":"","port":0,"username":"","password":""}}""", core.lastPayloadJson)
+
+        runSuspend { client.getProxy() }
+        assertEquals(MobileCommand.AppProxyGet, core.lastCommand)
+
+        runSuspend { client.setProxy(ProxyParams(ProxySpec(mode = "http", host = "gateway.corp", port = 3128))) }
+        assertEquals(MobileCommand.AppProxySet, core.lastCommand)
+        assertEquals(
+            """{"proxy":{"mode":"http","host":"gateway.corp","port":3128,"username":"","password":""}}""",
+            core.lastPayloadJson,
+        )
 
         runSuspend { client.reorderAccounts(AccountReorderParams(listOf("acc2", "acc1"))) }
         assertEquals(MobileCommand.AccountReorder, core.lastCommand)
