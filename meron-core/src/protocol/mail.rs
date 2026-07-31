@@ -511,8 +511,9 @@ pub(crate) fn delete_mobile_folder(data_dir: &str, params: &Value) -> Result<Val
         }
         let server_result = {
             let targets = targets.clone();
-            crate::ffi::engine_block_on_anyhow(engine.with_write_session(
+            crate::ffi::engine_block_on_anyhow(engine.with_preflighted_write_session(
                 &account_id,
+                |session| Box::pin(imap::prepare_folder_delete(session)),
                 move |session| {
                     let targets = targets.clone();
                     Box::pin(async move { imap::delete_folders(session, &targets).await })

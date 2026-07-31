@@ -1162,12 +1162,18 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     .map_err(anyhow::Error::msg)?
             };
 
-            // Mutating, so it never auto-retries.
+            // EXAMINE is a read-only preflight and may retry on a stale pooled
+            // socket. DELETE itself starts only after that succeeds and is
+            // never retried.
             let server_result = engine
-                .with_write_session(&account, |session| {
-                    let targets = targets.clone();
-                    Box::pin(async move { imap::delete_folders(session, &targets).await })
-                })
+                .with_preflighted_write_session(
+                    &account,
+                    |session| Box::pin(imap::prepare_folder_delete(session)),
+                    |session| {
+                        let targets = targets.clone();
+                        Box::pin(async move { imap::delete_folders(session, &targets).await })
+                    },
+                )
                 .await;
             let (removed, warning) = match server_result {
                 Ok(removed) => (removed, None),

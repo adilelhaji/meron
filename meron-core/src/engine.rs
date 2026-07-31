@@ -503,6 +503,83 @@ impl Engine {
     {
         self.with_session(account, false, f).await
     }
+
+    /// Run a mutating operation after a read-only preflight on the same
+    /// session. If the preflight fails on a pooled session, discard that
+    /// session and retry the preflight on a fresh connection. Once the
+    /// mutating closure starts it is never retried.
+    ///
+    /// This is for commands such as folder deletion, which must first move a
+    /// reused session away from the selected mailbox. Keeping the phases
+    /// separate lets a dead pooled socket recover without risking a replay of
+    /// a mutation whose server-side outcome is unknown.
+    pub async fn with_preflighted_write_session<T, P, F>(
+        &self,
+        account: &str,
+        mut preflight: P,
+        mut f: F,
+    ) -> anyhow::Result<T>
+    where
+        P: FnMut(&mut imap::Session) -> SessionOp<'_, ()> + Send,
+        F: FnMut(&mut imap::Session) -> SessionOp<'_, T> + Send,
+        T: Send,
+    {
+        if let Some(mut session) = self.take_pooled(account) {
+            let ready =
+                match tokio::time::timeout(POOLED_READ_TIMEOUT, preflight(&mut session)).await {
+                    Ok(result) => result,
+                    Err(_) => Err(anyhow::anyhow!(
+                        "pooled session preflight timed out after {}s",
+                        POOLED_READ_TIMEOUT.as_secs()
+                    )),
+                };
+            match ready {
+                Ok(()) => {
+                    let result = f(&mut session).await;
+                    match result {
+                        Ok(val) => {
+                            pool_debug(account, "reuse");
+                            self.return_pooled(account, session);
+                            return Ok(val);
+                        }
+                        Err(err) => {
+                            // The mutation may have reached the server. Drop
+                            // the connection and report the result as-is.
+                            drop(session);
+                            return Err(err);
+                        }
+                    }
+                }
+                Err(_) => {
+                    // No mutation has run, so replacing this dead pooled
+                    // connection and repeating the preflight is safe.
+                    drop(session);
+                    pool_debug(account, "stale-retry");
+                }
+            }
+        }
+
+        pool_debug(account, "fresh-connect");
+        let creds = self.ensure_valid_creds(account).await?;
+        let connect_started = std::time::Instant::now();
+        let mut session = imap::connect(&creds).await?;
+        let connect_ms = connect_started.elapsed().as_millis();
+        if connect_ms > 2_000 {
+            crate::mlog!(
+                crate::log::Level::Warn,
+                "net",
+                "slow IMAP connect for {account}: {connect_ms}ms"
+            );
+        }
+        preflight(&mut session).await?;
+        match f(&mut session).await {
+            Ok(val) => {
+                self.return_pooled(account, session);
+                Ok(val)
+            }
+            Err(err) => Err(err),
+        }
+    }
 }
 
 /// A boxed, `Send` future produced by a session-op closure. The `'a` lifetime

@@ -509,14 +509,10 @@ impl PartialFolderDelete {
     }
 }
 
-/// Delete folders on the server, messages and all. `names` is deleted in order,
-/// so a subtree must arrive deepest first — RFC 3501 lets a server refuse DELETE
-/// on a mailbox that still has inferiors. Returns the names actually removed;
-/// if a later command fails, the error carries the successful prefix so callers
-/// can reconcile irreversible changes. Callers must refuse special-use folders
-/// first: IMAP happily deletes Sent or Archive, and nothing on the server brings
-/// them back.
-pub async fn delete_folders(session: &mut Session, names: &[String]) -> Result<Vec<String>> {
+/// Move a reused session away from any mailbox that is about to be deleted.
+/// This is a read-only preflight so the session pool may safely repeat it on a
+/// fresh connection when a warm connection has gone stale.
+pub async fn prepare_folder_delete(session: &mut Session) -> Result<()> {
     // Pooled sessions retain their selected mailbox. Some servers refuse to
     // delete that mailbox, so safely move the session to INBOX first. EXAMINE
     // implicitly deselects without expunging messages marked \Deleted.
@@ -524,6 +520,18 @@ pub async fn delete_folders(session: &mut Session, names: &[String]) -> Result<V
         .examine("INBOX")
         .await
         .context("EXAMINE INBOX before DELETE")?;
+    Ok(())
+}
+
+/// Delete folders on the server, messages and all. The caller must first run
+/// [`prepare_folder_delete`] on the same session. `names` is deleted in order,
+/// so a subtree must arrive deepest first — RFC 3501 lets a server refuse DELETE
+/// on a mailbox that still has inferiors. Returns the names actually removed;
+/// if a later command fails, the error carries the successful prefix so callers
+/// can reconcile irreversible changes. Callers must refuse special-use folders
+/// first: IMAP happily deletes Sent or Archive, and nothing on the server brings
+/// them back.
+pub async fn delete_folders(session: &mut Session, names: &[String]) -> Result<Vec<String>> {
     let mut removed = Vec::new();
     for name in names {
         if let Err(err) = session.delete(name).await {

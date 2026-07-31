@@ -1,5 +1,4 @@
 import type { Folder } from '../../types'
-import { kanbanColumnKey } from '../../states/kanban'
 
 export type AccountGroup = {
   accountId: string
@@ -53,9 +52,15 @@ export function buildFolderTree(folders: Folder[]): TreeNode[] {
   return roots
 }
 
-/** All selectable column keys reachable from a node (itself + descendants). */
-export function collectKeys(node: TreeNode, accountId: string): string[] {
-  const keys = node.folder ? [kanbanColumnKey({ accountId, folderId: node.folder.id })] : []
-  for (const child of node.children) keys.push(...collectKeys(child, accountId))
-  return keys
+/** All real folder ids reachable from a node (itself + descendants). */
+export function collectFolderIds(node: TreeNode): string[] {
+  const ids = node.folder ? [node.folder.id] : []
+  for (const child of node.children) ids.push(...collectFolderIds(child))
+  return ids
+}
+
+/** Folder ids controlled by a node's checkbox. Real folders select independently;
+ * synthetic path nodes group-select the real folders beneath them. */
+export function selectableFolderIds(node: TreeNode): string[] {
+  return node.folder ? [node.folder.id] : collectFolderIds(node)
 }

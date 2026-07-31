@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { MouseEvent } from 'react'
-import { ChevronRight, Loader2, Plus, X } from 'lucide-react'
+import { ChevronRight, CornerDownRight, Loader2, Plus, X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import type { Folder } from '../../types'
 import { kanbanColumnKey } from '../../states/kanban'
@@ -147,8 +147,9 @@ export function AccountSection({
               {error ? (
                 <div className="mt-1.5 px-1 text-[11px] font-medium text-rose-500">{error}</div>
               ) : (
-                <div className="mt-1.5 px-1 text-[11px] text-secondary">
-                  {t('folders.subfolderHint', { delimiter })}
+                <div className="mx-1 flex items-center gap-1.5 rounded-md bg-hover/60 px-2 py-1 text-[10px] font-medium leading-4 text-secondary/75">
+                  <CornerDownRight size={11} strokeWidth={1.75} className="shrink-0 text-accent/70" aria-hidden />
+                  <span>{t('folders.subfolderHint', { delimiter })}</span>
                 </div>
               )}
             </form>

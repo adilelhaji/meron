@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronRight, Folder as FolderIcon } from 'lucide-react'
+import { kanbanColumnKey } from '../../states/kanban'
 import { Checkbox } from '../field/Checkbox'
-import { collectKeys, type TreeNode } from './folderTree'
+import { selectableFolderIds, type TreeNode } from './folderTree'
 
-// One folder node in the column picker tree: an expander, a tri-state checkbox
-// (covering the node and all descendants) and its children, rendered recursively.
+// One folder node in the column picker tree: an expander, a checkbox for the
+// folder itself, and its children, rendered recursively. A structural node
+// without a real folder keeps a tri-state checkbox covering its descendants.
 export function FolderTreeRow({
   node,
   accountId,
@@ -24,9 +26,12 @@ export function FolderTreeRow({
   const checkboxRef = useRef<HTMLInputElement>(null)
   const hasChildren = node.children.length > 0
 
-  const descendantKeys = useMemo(() => collectKeys(node, accountId), [node, accountId])
-  const checkedCount = descendantKeys.filter((key) => selected.has(key)).length
-  const allChecked = descendantKeys.length > 0 && checkedCount === descendantKeys.length
+  const controlledKeys = useMemo(
+    () => selectableFolderIds(node).map((folderId) => kanbanColumnKey({ accountId, folderId })),
+    [node, accountId],
+  )
+  const checkedCount = controlledKeys.filter((key) => selected.has(key)).length
+  const allChecked = controlledKeys.length > 0 && checkedCount === controlledKeys.length
   const someChecked = checkedCount > 0 && !allChecked
 
   useEffect(() => {
@@ -60,8 +65,8 @@ export function FolderTreeRow({
           <Checkbox
             ref={checkboxRef}
             checked={allChecked}
-            disabled={descendantKeys.length === 0}
-            onChange={(event) => onToggle(descendantKeys, event.target.checked)}
+            disabled={controlledKeys.length === 0}
+            onChange={(event) => onToggle(controlledKeys, event.target.checked)}
           />
           <FolderIcon size={14} className="shrink-0 text-secondary" />
           <span className="truncate text-xs font-semibold text-primary">{displayName}</span>
