@@ -12,6 +12,7 @@ import {
   copyThreadToFolder,
   deleteThread,
   discardSavedDraftCopy,
+  ensureAccountFolders,
   loadMoreThreads,
   loadThread,
   loadThreads,
@@ -1118,5 +1119,45 @@ describe('deleteFolder', () => {
     expect(settings$.kanbanBoards.get()[0].columns).toHaveLength(2)
     expect(ui$.toastTone.get()).toBe('error')
     expect(ui$.toast.get()).toBe('Work is a special folder and cannot be deleted')
+  })
+})
+
+describe('ensureAccountFolders', () => {
+  const calls: { command: string; payload: unknown }[] = []
+
+  beforeEach(() => {
+    calls.length = 0
+    mail$.foldersByAccount.set({
+      acc: [
+        { id: 'INBOX', account_id: 'acc', name: 'Inbox', role: 'inbox', unread: 0 },
+        { id: 'Work', account_id: 'acc', name: 'Work', role: 'folder', unread: 0 },
+      ],
+    })
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (command: string, payload: unknown) => {
+            calls.push({ command, payload })
+            return { folders: [] }
+          },
+        },
+      },
+    }
+  })
+
+  it('serves the cache without touching the server by default', async () => {
+    const folders = await ensureAccountFolders('acc')
+
+    expect(folders.map((folder) => folder.id)).toEqual(['INBOX', 'Work'])
+    expect(calls).toHaveLength(0)
+  })
+
+  // A populated cache is not a current one: folders created in webmail only land
+  // through a server-side LIST, which is what refresh:true kicks off.
+  it('kicks a server-side list on forceRefresh while still serving the cache', async () => {
+    const folders = await ensureAccountFolders('acc', { forceRefresh: true })
+
+    expect(folders.map((folder) => folder.id)).toEqual(['INBOX', 'Work'])
+    expect(calls).toEqual([{ command: 'mail.folderList', payload: { account_id: 'acc', refresh: true } }])
   })
 })

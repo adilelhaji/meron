@@ -46,7 +46,6 @@ export function KanbanView({ boardId }: { boardId: string }) {
   // No layer at all when unset, so the default board keeps the plain theme surface.
   const boardWallpaper = board?.wallpaper ? wallpaperCss(board.wallpaper) : null
   const [dialogOpen, setDialogOpen] = useState(false)
-  const [dialogGroups, setDialogGroups] = useState<AccountGroup[]>([])
   // The search bar is collapsed to an icon by default; it expands on click (or the
   // search hotkey) and folds back once it's empty and loses focus. Start open if a
   // query is already active so a persisted search stays visible.
@@ -57,6 +56,20 @@ export function KanbanView({ boardId }: { boardId: string }) {
   const visibleColumns = useMemo(() => getKanbanColumns(boardId), [boards, boardId])
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
   const selectedKeys = useMemo(() => visibleColumns.map((column) => kanbanColumnKey(column)), [visibleColumns])
+  // Derived from the folder cache rather than snapshotted when the dialog opens,
+  // so a folder LIST that finishes while it is open shows up without reopening.
+  const dialogGroups = useMemo<AccountGroup[]>(
+    () =>
+      accounts.map((account) => ({
+        accountId: account.id,
+        label: account.display_name || account.email || account.id,
+        email: account.email,
+        avatarUrl: account.avatar_url,
+        isRSS: isRSSAccount(account.id, accounts),
+        folders: foldersByAccount[account.id] ?? [],
+      })),
+    [accounts, foldersByAccount],
+  )
 
   useKanbanBoardSync(boardId, visibleColumns, accounts)
   const { dragPreview, setDragPreview, moveThread, handleDragStart, handleDragEnd } = useKanbanDnd(boardId, accounts)
@@ -71,20 +84,6 @@ export function KanbanView({ boardId }: { boardId: string }) {
   useEffect(() => {
     clearBulkSelection()
   }, [globalFilter, searchQuery, searchScope])
-
-  useEffect(() => {
-    if (!dialogOpen) return
-    setDialogGroups(
-      accounts.map((account) => ({
-        accountId: account.id,
-        label: account.display_name || account.email || account.id,
-        email: account.email,
-        avatarUrl: account.avatar_url,
-        isRSS: isRSSAccount(account.id, accounts),
-        folders: foldersByAccount[account.id] ?? [],
-      })),
-    )
-  }, [accounts, dialogOpen, foldersByAccount])
 
   useEffect(() => {
     if (globalSearchFocus === 0) return
@@ -113,23 +112,17 @@ export function KanbanView({ boardId }: { boardId: string }) {
     return () => document.removeEventListener('mousedown', onPointerDown)
   }, [searchOpen])
 
-  async function openDialog() {
-    const groups: AccountGroup[] = await Promise.all(
-      accounts.map((account) =>
-        ensureAccountFolders(account.id, {
-          refreshIfBootstrapOnly: !isRSSAccount(account.id, accounts),
-          waitForRefresh: true,
-        }).then((accountFolders) => ({
-          accountId: account.id,
-          label: account.display_name || account.email || account.id,
-          email: account.email,
-          avatarUrl: account.avatar_url,
-          isRSS: isRSSAccount(account.id, accounts),
-          folders: accountFolders,
-        })),
-      ),
-    )
-    setDialogGroups(groups)
+  function openDialog() {
+    // Kick a real folder LIST per account and open immediately on the cache. The
+    // sync is async and deduped in core; its mail.synced({folders:true}) refreshes
+    // foldersByAccount, and because the groups below are derived from that cache
+    // the open dialog repaints with folders added on the server since last sync.
+    for (const account of accounts) {
+      void ensureAccountFolders(account.id, {
+        forceRefresh: !isRSSAccount(account.id, accounts),
+        waitForRefresh: true,
+      })
+    }
     setDialogOpen(true)
   }
 
@@ -181,11 +174,6 @@ export function KanbanView({ boardId }: { boardId: string }) {
     if (ui$.selectedAccount.peek() === accountId) {
       mail$.folders.set(mergeFolders(mail$.folders.peek() ?? []))
     }
-    setDialogGroups((groups) =>
-      groups.map((group) =>
-        group.accountId === accountId ? { ...group, folders: mergeFolders(group.folders) } : group,
-      ),
-    )
     return folder
   }
 

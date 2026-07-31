@@ -583,12 +583,16 @@ function sleep(ms: number) {
 // the unified view, where `mail$.folders` only holds the synthetic unified inbox.
 export async function ensureAccountFolders(
   accountId: string,
-  options: { refreshIfBootstrapOnly?: boolean; waitForRefresh?: boolean } = {},
+  options: { refreshIfBootstrapOnly?: boolean; waitForRefresh?: boolean; forceRefresh?: boolean } = {},
 ): Promise<Folder[]> {
   if (!accountId || accountId === 'unified') return []
   const cached = mail$.foldersByAccount[accountId].get()
   if (cached && cached.length > 0) {
-    if (options.refreshIfBootstrapOnly && hasOnlyBootstrapInbox(cached)) {
+    // A non-empty cache is not proof it is current: folders created on the server
+    // (webmail, another client) only reach us through a real LIST sync. Callers
+    // that show a folder picker pass forceRefresh so the list self-heals; the
+    // result lands asynchronously via mail.synced({folders:true}).
+    if (options.forceRefresh || (options.refreshIfBootstrapOnly && hasOnlyBootstrapInbox(cached))) {
       void refreshAccountFoldersCache(accountId, true)
     }
     return cached
@@ -596,11 +600,11 @@ export async function ensureAccountFolders(
   try {
     const result = await invoke<{ folders: Folder[] }>('mail.folderList', {
       account_id: accountId,
-      refresh: options.refreshIfBootstrapOnly,
+      refresh: options.refreshIfBootstrapOnly || options.forceRefresh,
     })
     const folders = result.folders || []
     mail$.foldersByAccount[accountId].set(folders)
-    if (options.waitForRefresh && options.refreshIfBootstrapOnly && folders.length === 0) {
+    if (options.waitForRefresh && (options.refreshIfBootstrapOnly || options.forceRefresh) && folders.length === 0) {
       for (let attempt = 0; attempt < 10; attempt += 1) {
         await sleep(500)
         const refreshed = await refreshAccountFoldersCache(accountId, false)

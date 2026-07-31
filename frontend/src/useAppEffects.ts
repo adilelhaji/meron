@@ -101,6 +101,22 @@ export function useAppEffects() {
   }, [showUnreadBadge, accounts])
 
   useEffect(() => {
+    // Folders created outside Meron (webmail, another client) only reach the store
+    // through a real LIST sync, and every other refresh here is cache-only. Without
+    // this, a server-side folder stays invisible until the selected account changes
+    // or the app restarts. Cheap: one LIST on a pooled session, deduped in core.
+    if (accounts.length === 0) return
+    const listFolders = () => {
+      for (const account of accounts) {
+        void refreshAccountFoldersCache(account.id, true)
+      }
+    }
+    listFolders()
+    const timer = window.setInterval(listFolders, 15 * 60_000)
+    return () => window.clearInterval(timer)
+  }, [accounts])
+
+  useEffect(() => {
     if (startupSyncDone.current || accounts.length === 0) return
     startupSyncDone.current = true
     for (const account of accounts) {
