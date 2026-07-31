@@ -85,7 +85,6 @@ internal fun SettingsScreen(
     accounts: List<AccountSummary>,
     hiddenNavigationAccountIds: Set<String>,
     kanbanBoards: List<KanbanBoardSpec>,
-    activeKanbanBoardId: String,
     onSaveKanbanBoard: (
         board: KanbanBoardSpec,
         name: String,
@@ -377,7 +376,6 @@ internal fun SettingsScreen(
                 } else {
                     SettingsKanbanBoardDetailPage(
                         board = board,
-                        active = board.id == activeKanbanBoardId,
                         onSave = { name, avatarUrl, wallpaperPresetId, wallpaperUrl ->
                             onSaveKanbanBoard(board, name, avatarUrl, wallpaperPresetId, wallpaperUrl)
                         },

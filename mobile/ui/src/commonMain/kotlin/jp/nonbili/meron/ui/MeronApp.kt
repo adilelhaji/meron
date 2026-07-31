@@ -1035,7 +1035,6 @@ private fun MeronMobileScreenContent(
                     accounts = coreAccounts,
                     hiddenNavigationAccountIds = hiddenNavigationAccountIds,
                     kanbanBoards = kanbanBoards,
-                    activeKanbanBoardId = activeKanbanBoardId,
                     onSaveKanbanBoard = { board, name, avatarUrl, wallpaperPresetId, wallpaperUrl ->
                         updateKanbanBoard(board.id, name, avatarUrl, wallpaperPresetId, wallpaperUrl)
                     },

@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Color presets shared with desktop",
   "settings.kanban.boardBackgroundHint": "Use a custom board background",
   "settings.kanban.boardColumns": "%1$d columns",
-  "settings.kanban.boardColumnsActive": "%1$d columns · Active",
   "settings.kanban.columnWidth": "Column width",
   "settings.kanban.columnWidthHint": "Adjust board density",
   "settings.kanban.columnWidthValue": "%1$ddp",

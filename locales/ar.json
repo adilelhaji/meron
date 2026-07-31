@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "تمت مشاركة الإعدادات المسبقة للألوان مع سطح المكتب",
   "settings.kanban.boardBackgroundHint": "استخدم خلفية لوحة مخصصة",
   "settings.kanban.boardColumns": "%1$d الأعمدة",
-  "settings.kanban.boardColumnsActive": "%1$d الأعمدة · نشط",
   "settings.kanban.columnWidth": "عرض العمود",
   "settings.kanban.columnWidthHint": "ضبط كثافة اللوحة",
   "settings.kanban.columnWidthValue": "%1$ddp",

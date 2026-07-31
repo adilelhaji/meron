@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Các cài đặt trước màu được chia sẻ với máy tính để bàn",
   "settings.kanban.boardBackgroundHint": "Sử dụng nền bảng tùy chỉnh",
   "settings.kanban.boardColumns": "%1$d cột",
-  "settings.kanban.boardColumnsActive": "%1$d cột · Đang hoạt động",
   "settings.kanban.columnWidth": "Chiều rộng cột",
   "settings.kanban.columnWidthHint": "Điều chỉnh mật độ bảng",
   "settings.kanban.columnWidthValue": "%1$ddp",

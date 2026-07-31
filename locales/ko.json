@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "데스크탑과 공유되는 색상 사전 설정",
   "settings.kanban.boardBackgroundHint": "사용자 정의 보드 배경 사용",
   "settings.kanban.boardColumns": "%1$d 열",
-  "settings.kanban.boardColumnsActive": "%1$d 열 · 활성",
   "settings.kanban.columnWidth": "열 너비",
   "settings.kanban.columnWidthHint": "보드 밀도 조정",
   "settings.kanban.columnWidthValue": "%1$ddp",

@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Ar darbvirsmu kopīgoti krāsu sākotnējie iestatījumi",
   "settings.kanban.boardBackgroundHint": "Izmantojiet pielāgotu dēļa fonu",
   "settings.kanban.boardColumns": "%1$d kolonnas",
-  "settings.kanban.boardColumnsActive": "%1$d kolonnas · Aktīvs",
   "settings.kanban.columnWidth": "Kolonnas platums",
   "settings.kanban.columnWidthHint": "Pielāgojiet dēļa blīvumu",
   "settings.kanban.columnWidthValue": "%1$ddp",

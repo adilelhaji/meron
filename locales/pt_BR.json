@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Predefinições de cores compartilhadas com a área de trabalho",
   "settings.kanban.boardBackgroundHint": "Use um fundo de quadro personalizado",
   "settings.kanban.boardColumns": "%1$d colunas",
-  "settings.kanban.boardColumnsActive": "Colunas %1$d · Ativas",
   "settings.kanban.columnWidth": "Largura da coluna",
   "settings.kanban.columnWidthHint": "Ajustar a densidade da placa",
   "settings.kanban.columnWidthValue": "%1$ddp",

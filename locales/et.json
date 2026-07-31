@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Töölauaga jagatud värvide eelseadistused",
   "settings.kanban.boardBackgroundHint": "Kasutage kohandatud tahvli tausta",
   "settings.kanban.boardColumns": "%1$d veergu",
-  "settings.kanban.boardColumnsActive": "%1$d veerud · Aktiivne",
   "settings.kanban.columnWidth": "Veeru laius",
   "settings.kanban.columnWidthHint": "Reguleerige tahvli tihedust",
   "settings.kanban.columnWidthValue": "%1$ddp",

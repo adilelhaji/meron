@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Masaüstüyle paylaşılan renk ön ayarları",
   "settings.kanban.boardBackgroundHint": "Özel bir pano arka planı kullanın",
   "settings.kanban.boardColumns": "%1$d sütunlar",
-  "settings.kanban.boardColumnsActive": "%1$d sütunlar · Etkin",
   "settings.kanban.columnWidth": "Sütun Genişliği",
   "settings.kanban.columnWidthHint": "Tahta yoğunluğunu ayarlayın",
   "settings.kanban.columnWidthValue": "%1$ddp",

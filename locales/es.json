@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Ajustes preestablecidos de color compartidos con el escritorio",
   "settings.kanban.boardBackgroundHint": "Utilice un fondo de tablero personalizado",
   "settings.kanban.boardColumns": "%1$d columnas",
-  "settings.kanban.boardColumnsActive": "%1$d columnas · Activo",
   "settings.kanban.columnWidth": "Ancho de columna",
   "settings.kanban.columnWidthHint": "Ajustar la densidad del tablero",
   "settings.kanban.columnWidthValue": "%1$ddp",

@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "デスクトップと共有されるカラープリセット",
   "settings.kanban.boardBackgroundHint": "カスタムボードの背景を使用する",
   "settings.kanban.boardColumns": "%1$d列",
-  "settings.kanban.boardColumnsActive": "%1$d 列 · アクティブ",
   "settings.kanban.columnWidth": "列の幅",
   "settings.kanban.columnWidthHint": "ボードの密度を調整する",
   "settings.kanban.columnWidthValue": "%1$ddp",

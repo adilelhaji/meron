@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1192,11 +1193,17 @@ internal fun KanbanColumnDialog(
                     val visibleFolders =
                         buildList {
                             val seen = mutableSetOf<String>()
+                            val known = folders.associateBy { it.name.lowercase() }
                             (boardFolders + folders.map { it.name }).forEach { name ->
-                                if (seen.add(name.lowercase())) add(FolderSummary(account.id, name, 0))
+                                if (seen.add(name.lowercase())) {
+                                    add(known[name.lowercase()] ?: FolderSummary(account.id, name, 0))
+                                }
                             }
                             if (isEmpty()) add(FolderSummary(account.id, INBOX_FOLDER, 0))
                         }
+                    // Nested folders are indented under their parent, the same
+                    // hierarchy the desktop column picker shows.
+                    val folderRows = flattenFolderTree(buildFolderTree(visibleFolders))
                     item {
                         val collapsed = collapsedAccounts[account.id] == true
                         AccountHeaderDialogRow(
@@ -1215,19 +1222,25 @@ internal fun KanbanColumnDialog(
                         }
                     }
                     if (collapsedAccounts[account.id] != true) {
-                        items(visibleFolders, key = { "${account.id}\n${it.name}" }) { folder ->
-                            val column = KanbanColumnSpec(account.id, folder.name)
+                        itemsIndexed(
+                            folderRows,
+                            key = { index, row -> "${account.id}\n$index\n${row.node.folder?.name ?: row.node.name}" },
+                        ) { _, row ->
+                            val folder = row.node.folder
+                            val column = folder?.let { KanbanColumnSpec(account.id, it.name) }
                             val isRss = accountSummaryIsRss(account)
                             SidebarLikeDialogRow(
-                                selected = selected.contains(kanbanColumnKey(column)),
-                                title = folder.displayName.replaceFirstChar { it.uppercase() },
+                                selected = column != null && selected.contains(kanbanColumnKey(column)),
+                                title = row.node.name.replaceFirstChar { it.uppercase() },
                                 subtitle = null,
-                                onClick = { toggle(column) },
-                                indent = 24.dp,
+                                onClick = { column?.let(::toggle) },
+                                indent = 24.dp + (row.depth * 16).dp,
+                                // Structural nodes (no folder of their own) are labels only.
+                                enabled = column != null,
                                 leadingIcon =
                                     when {
                                         isRss -> Icons.Filled.RssFeed
-                                        folder.name.equals(INBOX_FOLDER, ignoreCase = true) -> Icons.Filled.Inbox
+                                        row.node.name.equals(INBOX_FOLDER, ignoreCase = true) -> Icons.Filled.Inbox
                                         else -> Icons.Outlined.FolderOpen
                                     },
                             )
@@ -1367,13 +1380,14 @@ internal fun SidebarLikeDialogRow(
     onClick: () -> Unit,
     leadingIcon: ImageVector? = null,
     indent: Dp = 0.dp,
+    enabled: Boolean = true,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
-            .clickable(onClick = onClick)
+            .clickable(enabled = enabled, onClick = onClick)
             .padding(start = 10.dp + indent, end = 10.dp, top = 9.dp, bottom = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -1390,6 +1404,12 @@ internal fun SidebarLikeDialogRow(
             Text(
                 title,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                color =
+                    if (enabled) {
+                        MaterialTheme.colorScheme.onSurface
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )

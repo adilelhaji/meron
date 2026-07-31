@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Mit dem Desktop geteilte Farbvoreinstellungen",
   "settings.kanban.boardBackgroundHint": "Verwenden Sie einen benutzerdefinierten Board-Hintergrund",
   "settings.kanban.boardColumns": "%1$d Spalten",
-  "settings.kanban.boardColumnsActive": "%1$d Spalten · Aktiv",
   "settings.kanban.columnWidth": "Spaltenbreite",
   "settings.kanban.columnWidthHint": "Passen Sie die Plattendichte an",
   "settings.kanban.columnWidthValue": "%1$ddp",

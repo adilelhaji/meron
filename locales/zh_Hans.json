@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "与桌面共享的颜色预设",
   "settings.kanban.boardBackgroundHint": "使用自定义板背景",
   "settings.kanban.boardColumns": "%1$d 列",
-  "settings.kanban.boardColumnsActive": "%1$d 列 · 活跃",
   "settings.kanban.columnWidth": "列宽",
   "settings.kanban.columnWidthHint": "调整板密度",
   "settings.kanban.columnWidthValue": "%1$ddp",

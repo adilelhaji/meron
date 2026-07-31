@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Préréglages de couleurs partagés avec le bureau",
   "settings.kanban.boardBackgroundHint": "Utiliser un arrière-plan de tableau personnalisé",
   "settings.kanban.boardColumns": "Colonnes %1$d",
-  "settings.kanban.boardColumnsActive": "Colonnes %1$d · Actif",
   "settings.kanban.columnWidth": "Largeur de colonne",
   "settings.kanban.columnWidthHint": "Ajuster la densité des planches",
   "settings.kanban.columnWidthValue": "%1$ddp",

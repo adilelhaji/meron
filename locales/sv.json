@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Färgförinställningar delas med skrivbordet",
   "settings.kanban.boardBackgroundHint": "Använd en anpassad tavlabakgrund",
   "settings.kanban.boardColumns": "%1$d kolumner",
-  "settings.kanban.boardColumnsActive": "%1$d kolumner · Aktiv",
   "settings.kanban.columnWidth": "Kolumnbredd",
   "settings.kanban.columnWidthHint": "Justera bräddensiteten",
   "settings.kanban.columnWidthValue": "%1$ddp",

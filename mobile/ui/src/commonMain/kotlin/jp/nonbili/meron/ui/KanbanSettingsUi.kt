@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.dp
 @Composable
 internal fun SettingsKanbanBoardDetailPage(
     board: KanbanBoardSpec,
-    active: Boolean,
     onSave: (
         name: String,
         avatarUrl: String,
@@ -96,11 +95,7 @@ internal fun SettingsKanbanBoardDetailPage(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        if (active) {
-                            trf("settings.kanban.boardColumnsActive", board.columns.size)
-                        } else {
-                            trf("settings.kanban.boardColumns", board.columns.size)
-                        },
+                        trf("settings.kanban.boardColumns", board.columns.size),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

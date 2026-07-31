@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Preimpostazioni colore condivise con il desktop",
   "settings.kanban.boardBackgroundHint": "Utilizza uno sfondo personalizzato per la bacheca",
   "settings.kanban.boardColumns": "%1$d colonne",
-  "settings.kanban.boardColumnsActive": "%1$d colonne · Attivo",
   "settings.kanban.columnWidth": "Larghezza colonna",
   "settings.kanban.columnWidthHint": "Regola la densità della tavola",
   "settings.kanban.columnWidthValue": "%1$ddp",

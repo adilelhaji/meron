@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Wstępne ustawienia kolorów udostępnione komputerowi",
   "settings.kanban.boardBackgroundHint": "Użyj niestandardowego tła tablicy",
   "settings.kanban.boardColumns": "%1$d kolumny",
-  "settings.kanban.boardColumnsActive": "%1$d kolumny · Aktywne",
   "settings.kanban.columnWidth": "Szerokość kolumny",
   "settings.kanban.columnWidthHint": "Dostosuj gęstość płyty",
   "settings.kanban.columnWidthValue": "%1$ddp",

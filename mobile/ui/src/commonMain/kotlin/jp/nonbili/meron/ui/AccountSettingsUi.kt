@@ -511,23 +511,28 @@ internal fun AccountAvatarEditor(
         }
     }
     Box(
-        modifier =
-            modifier
-                .size(64.dp)
-                .clip(CircleShape)
-                .then(if (onPick != null) Modifier.clickable(onClick = onPick) else Modifier),
+        modifier = modifier.size(64.dp),
         contentAlignment = Alignment.Center,
     ) {
-        val bmp = image
-        if (bmp != null) {
-            Image(
-                bitmap = bmp,
-                contentDescription = tr("avatar.edit"),
-                modifier = Modifier.size(64.dp).clip(CircleShape),
-                contentScale = ContentScale.Crop,
-            )
-        } else {
-            Avatar(name, 64.dp, fallbackIcon)
+        Box(
+            modifier =
+                Modifier
+                    .size(64.dp)
+                    .clip(CircleShape)
+                    .then(if (onPick != null) Modifier.clickable(onClick = onPick) else Modifier),
+            contentAlignment = Alignment.Center,
+        ) {
+            val bmp = image
+            if (bmp != null) {
+                Image(
+                    bitmap = bmp,
+                    contentDescription = tr("avatar.edit"),
+                    modifier = Modifier.size(64.dp).clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Avatar(name, 64.dp, fallbackIcon)
+            }
         }
         if (onPick != null) {
             Box(

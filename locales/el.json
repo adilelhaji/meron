@@ -741,7 +741,6 @@
   "settings.generalThemeHint": "Κοινόχρηστες προεπιλογές χρωμάτων στην επιφάνεια εργασίας",
   "settings.kanban.boardBackgroundHint": "Χρησιμοποιήστε ένα προσαρμοσμένο φόντο πίνακα",
   "settings.kanban.boardColumns": "%1$d στήλες",
-  "settings.kanban.boardColumnsActive": "%1$d στήλες · Ενεργό",
   "settings.kanban.columnWidth": "Πλάτος στήλης",
   "settings.kanban.columnWidthHint": "Ρυθμίστε την πυκνότητα της σανίδας",
   "settings.kanban.columnWidthValue": "%1$ddp",

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -13,6 +14,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
 @Composable
@@ -188,6 +190,9 @@ internal fun KanbanCreateFolderDialog(
                 onValueChange = onNameChange,
                 label = { Text(tr("folders.namePlaceholder")) },
                 supportingText = { Text(tr("folders.subfolderHint", mapOf("delimiter" to delimiter))) },
+                singleLine = true,
+                keyboardOptions = nativeTextKeyboardOptions.copy(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onCreate() }),
                 modifier = Modifier.fillMaxWidth(),
             )
         },
