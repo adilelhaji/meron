@@ -231,6 +231,7 @@ internal class MeronMobileState(
             }
         }
     var errorBanner by mutableStateOf<String?>(null)
+    var syncError by mutableStateOf<MobileSyncError?>(null)
     var addSection by mutableStateOf(0)
     var notificationPermissionGranted by mutableStateOf(mobileHost.notificationsEnabled())
     var notificationBannerDismissed by mutableStateOf(loadAppBoolean(prefs, NOTIFICATION_BANNER_DISMISSED_PREF, false))
@@ -238,6 +239,8 @@ internal class MeronMobileState(
     var mailboxMenuOpen by mutableStateOf(false)
     var mailSelectionMenuOpen by mutableStateOf(false)
     var accountSettingsTargetId by mutableStateOf<String?>(null)
+    var accountSettingsProxyTargetId by mutableStateOf<String?>(null)
+    var settingsGeneralTarget by mutableStateOf(false)
     var showAddFeedDialog by mutableStateOf(false)
     var addFeedUrl by mutableStateOf("")
     var addFeedError by mutableStateOf("")

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -86,6 +87,7 @@ internal fun SettingsAccountDetailPage(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
+    focusProxy: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isRss = accountSummaryIsRss(account)
@@ -157,7 +159,8 @@ internal fun SettingsAccountDetailPage(
             },
         )
     }
-    LazyColumn(modifier) {
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (focusProxy && !isRss) 9 else 0)
+    LazyColumn(modifier, state = listState) {
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),

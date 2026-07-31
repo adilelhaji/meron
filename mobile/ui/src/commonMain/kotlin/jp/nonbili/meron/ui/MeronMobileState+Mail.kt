@@ -446,6 +446,7 @@ internal fun MeronMobileState.syncCoreThreads(
             syncing = false
             initialThreadsLoaded = true
             errorBanner = null
+            syncError = null
             if (scrollToTopOnSuccess) {
                 mailListScrollToTopRequest += 1
             }
@@ -480,7 +481,13 @@ internal fun MeronMobileState.syncCoreThreads(
             blockingMailboxLoadSlow = false
             syncing = false
             initialThreadsLoaded = true
-            errorBanner = it.message ?: "Sync failed"
+            val contextual = it as? AccountSyncException
+            val failedAccountId =
+                contextual?.accountId
+                    ?: accountId.takeUnless { candidate -> candidate == UNIFIED_ACCOUNT_ID }
+            val message = contextual?.cause?.message ?: it.message ?: "Sync failed"
+            syncError = MobileSyncError(failedAccountId, message)
+            errorBanner = null
             status = "Sync failed: ${it.message}"
             Log.w("MailLoad", "sync failed account=$accountId folder=$requestedFolder initialThreadsLoaded=$initialThreadsLoaded syncing=$syncing", it)
         }

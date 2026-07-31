@@ -1043,6 +1043,63 @@ internal fun MailRouteContent(
                             )
                         }
 
+                        syncError != null -> {
+                            val failure = syncError!!
+                            val failedAccount = failure.accountId?.let { id -> coreAccounts.firstOrNull { it.id == id } }
+                            val accountLabel = mobileConnectivityAccountLabel(failure.accountId, coreAccounts)
+                            val proxyEndpoint = mobileProxyEndpointFromSyncError(failure.message)
+                            val authLike = isAuthError(failure.message)
+                            StatusBanner(
+                                message =
+                                    when {
+                                        proxyEndpoint != null && accountLabel != null -> {
+                                            tr(
+                                                "connectivity.proxyFailedAccount",
+                                                mapOf("proxy" to proxyEndpoint, "account" to accountLabel),
+                                            )
+                                        }
+
+                                        accountLabel != null -> {
+                                            tr("connectivity.syncFailedAccount", mapOf("account" to accountLabel))
+                                        }
+
+                                        else -> {
+                                            tr("connectivity.syncFailed")
+                                        }
+                                    },
+                                isError = true,
+                                actionLabel =
+                                    when {
+                                        proxyEndpoint != null -> tr("settings.network.proxy")
+                                        authLike && failedAccount != null -> "Reconnect"
+                                        else -> tr("connectivity.retry")
+                                    },
+                                onAction = {
+                                    when {
+                                        proxyEndpoint != null -> {
+                                            previousTopScreen = Screen.Mail
+                                            val customAccountProxy =
+                                                failedAccount?.proxy?.mode == "http" ||
+                                                    failedAccount?.proxy?.mode == "socks5"
+                                            accountSettingsTargetId = failedAccount?.id?.takeIf { customAccountProxy }
+                                            accountSettingsProxyTargetId = accountSettingsTargetId
+                                            settingsGeneralTarget = !customAccountProxy
+                                            screen = Screen.Settings
+                                        }
+
+                                        authLike && failedAccount != null -> {
+                                            reconnectAccount(failedAccount)
+                                        }
+
+                                        else -> {
+                                            syncCoreThreads()
+                                        }
+                                    }
+                                },
+                                onDismiss = { syncError = null },
+                            )
+                        }
+
                         errorBanner != null -> {
                             val authLike = isAuthError(errorBanner!!)
                             StatusBanner(

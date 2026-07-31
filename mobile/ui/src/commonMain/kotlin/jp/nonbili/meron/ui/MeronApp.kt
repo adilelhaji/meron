@@ -1020,8 +1020,16 @@ private fun MeronMobileScreenContent(
                 LaunchedEffect(Unit) { loadStorageUsage() }
                 SettingsScreen(
                     onBack = popAppBack,
+                    initialGeneral = settingsGeneralTarget,
+                    onConsumeInitialGeneral = { settingsGeneralTarget = false },
                     initialAccountId = accountSettingsTargetId,
-                    onConsumeInitialAccount = { accountSettingsTargetId = null },
+                    initialAccountProxy =
+                        accountSettingsTargetId != null &&
+                            accountSettingsTargetId == accountSettingsProxyTargetId,
+                    onConsumeInitialAccount = {
+                        accountSettingsTargetId = null
+                        accountSettingsProxyTargetId = null
+                    },
                     initialKanbanBoardId = kanbanSettingsTargetId,
                     onConsumeInitialKanbanBoard = { kanbanSettingsTargetId = null },
                     accounts = coreAccounts,

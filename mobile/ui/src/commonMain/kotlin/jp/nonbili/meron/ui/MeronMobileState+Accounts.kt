@@ -1207,26 +1207,30 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
 ): MailboxLoadResult {
     if (syncFirst) {
         accounts.forEach { account ->
-            if (accountSummaryIsRss(account)) {
-                client.syncRss(SyncRssParams(accountId = account.id))
-            } else {
-                withManagedGoogleAuth(client, account.id) {
-                    client.sync(
-                        SyncMailParams(
-                            accountId = account.id,
-                            folderId = INBOX_FOLDER,
-                            limit = syncLimit,
-                            folders = true,
-                            deferTail = true,
-                        ),
-                    )
+            withSyncAccountContext(account.id) {
+                if (accountSummaryIsRss(account)) {
+                    client.syncRss(SyncRssParams(accountId = account.id))
+                } else {
+                    withManagedGoogleAuth(client, account.id) {
+                        client.sync(
+                            SyncMailParams(
+                                accountId = account.id,
+                                folderId = INBOX_FOLDER,
+                                limit = syncLimit,
+                                folders = true,
+                                deferTail = true,
+                            ),
+                        )
+                    }
                 }
             }
         }
     }
     val folders =
         accounts.flatMap { account ->
-            parseFolderListResponse(client.listFolders(FolderListParams(accountId = account.id)))
+            withSyncAccountContext(account.id) {
+                parseFolderListResponse(client.listFolders(FolderListParams(accountId = account.id)))
+            }
         }
     if (query.isNotBlank() && refreshSearch) {
         // Unified live search fans out inside one core call and falls back per

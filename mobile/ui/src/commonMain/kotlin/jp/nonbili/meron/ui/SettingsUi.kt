@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -74,7 +75,10 @@ import jp.nonbili.meron.shared.accountSummaryIsRss
 @Composable
 internal fun SettingsScreen(
     onBack: () -> Unit,
+    initialGeneral: Boolean,
+    onConsumeInitialGeneral: () -> Unit,
     initialAccountId: String?,
+    initialAccountProxy: Boolean,
     onConsumeInitialAccount: () -> Unit,
     initialKanbanBoardId: String?,
     onConsumeInitialKanbanBoard: () -> Unit,
@@ -158,6 +162,7 @@ internal fun SettingsScreen(
     val settingsBackStackEntry by settingsNavController.currentBackStackEntryAsState()
     var selectedSettingsAccountId by remember { mutableStateOf<String?>(null) }
     var selectedSettingsBoardId by remember { mutableStateOf<String?>(null) }
+    var focusAccountProxy by remember { mutableStateOf(false) }
     var directOpenRoute by remember { mutableStateOf<String?>(null) }
     val page =
         when (settingsBackStackEntry?.destination?.route ?: SettingsRoutes.Root) {
@@ -169,9 +174,19 @@ internal fun SettingsScreen(
             SettingsRoutes.SyncLog -> SettingsPage.SyncLog
             else -> SettingsPage.Root
         }
+    LaunchedEffect(initialGeneral) {
+        if (initialGeneral) {
+            directOpenRoute = SettingsRoutes.General
+            settingsNavController.navigate(SettingsRoutes.General) {
+                launchSingleTop = true
+            }
+            onConsumeInitialGeneral()
+        }
+    }
     LaunchedEffect(initialAccountId) {
         if (!initialAccountId.isNullOrBlank()) {
             selectedSettingsAccountId = initialAccountId
+            focusAccountProxy = initialAccountProxy
             directOpenRoute = SettingsRoutes.Account
             settingsNavController.navigate(SettingsRoutes.Account) {
                 launchSingleTop = true
@@ -289,6 +304,7 @@ internal fun SettingsScreen(
                     storageClearConfirming = storageClearConfirming,
                     onRefreshStorage = onRefreshStorage,
                     onClearStorageCache = onClearStorageCache,
+                    focusProxy = directOpenRoute == SettingsRoutes.General,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -344,6 +360,7 @@ internal fun SettingsScreen(
                         onMoveUp = { onMoveAccountUp(account) },
                         onMoveDown = { onMoveAccountDown(account) },
                         onRemove = { onRemoveAccount(account) },
+                        focusProxy = focusAccountProxy && directOpenRoute == SettingsRoutes.Account,
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -621,9 +638,11 @@ internal fun SettingsGeneralPage(
     storageClearConfirming: Boolean,
     onRefreshStorage: () -> Unit,
     onClearStorageCache: () -> Unit,
+    focusProxy: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    LazyColumn(modifier) {
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (focusProxy) 12 else 0)
+    LazyColumn(modifier, state = listState) {
         item { SettingsSectionLabel(tr("settings.pages.appearance")) }
         item {
             val displayedAppearanceMode =
