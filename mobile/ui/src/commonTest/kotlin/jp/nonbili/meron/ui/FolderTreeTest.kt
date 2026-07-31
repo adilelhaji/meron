@@ -35,6 +35,22 @@ class FolderTreeTest {
     }
 
     @Test
+    fun labelsNodesWithTheDecodedNameAndKeepsWirePathsForIdentity() {
+        val encoded = FolderSummary(accountId = "acc1", name = "Work/gds-&AOQA5A--envoy&AOk-s", displayName = "Work/gds-ää-envoyés")
+
+        val work = buildFolderTree(listOf(folder("Work"), encoded)).single()
+
+        assertEquals(listOf("gds-ää-envoyés"), work.children.map { it.name })
+        assertEquals(
+            "Work/gds-&AOQA5A--envoy&AOk-s",
+            work.children
+                .single()
+                .folder
+                ?.name,
+        )
+    }
+
+    @Test
     fun keepsMissingIntermediatesAsStructuralNodes() {
         val tree = buildFolderTree(listOf(folder("Work/Clients/Acme")))
 

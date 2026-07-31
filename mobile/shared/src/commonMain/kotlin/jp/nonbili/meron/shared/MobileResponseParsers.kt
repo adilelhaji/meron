@@ -153,6 +153,9 @@ fun parseFolderListResponse(responseJson: String): List<FolderSummary> {
             name = name,
             unread = item.findJsonLongProperty("unread")?.toInt() ?: 0,
             role = item.findJsonStringProperty("role") ?: "folder",
+            // Absent for RSS folders and older cores; the wire name is then the
+            // best label available.
+            displayName = item.findJsonStringProperty("display_name")?.takeIf { it.isNotBlank() } ?: name,
         )
     }
 }

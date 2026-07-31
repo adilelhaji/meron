@@ -18,6 +18,13 @@ func foldersJSON(accountID string, raw any) any {
 		if name == "" {
 			continue
 		}
+		// The core decodes modified UTF-7 for us: `name` addresses the mailbox
+		// (SELECT, cached rows, saved Kanban columns), `display_name` is what the
+		// user reads. Older cores omit it, so fall back to the wire name.
+		label, _ := folderObject["display_name"].(string)
+		if label == "" {
+			label = name
+		}
 		delimiter, _ := folderObject["delimiter"].(string)
 		role, _ := folderObject["role"].(string)
 		if role == "" {
@@ -29,7 +36,7 @@ func foldersJSON(accountID string, raw any) any {
 			}
 		}
 		unread := uint32(jsonNumber(folderObject["unread"]))
-		folders = append(folders, Folder{ID: name, AccountID: accountID, Name: name, Role: role, Delimiter: delimiter, Unread: unread})
+		folders = append(folders, Folder{ID: name, AccountID: accountID, Name: label, Role: role, Delimiter: delimiter, Unread: unread})
 	}
 	return map[string]any{"folders": folders}
 }

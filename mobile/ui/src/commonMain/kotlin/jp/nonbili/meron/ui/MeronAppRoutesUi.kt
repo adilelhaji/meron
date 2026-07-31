@@ -543,7 +543,7 @@ internal fun KanbanRouteContent(
                             EmptyFolderTarget(
                                 accountId = folder.accountId,
                                 folderId = folder.name,
-                                folderName = folder.name,
+                                folderName = folder.displayName,
                                 role = folder.role,
                                 column = column,
                             )
@@ -553,7 +553,7 @@ internal fun KanbanRouteContent(
                             DeleteFolderTarget(
                                 accountId = folder.accountId,
                                 folderId = folder.name,
-                                folderName = folder.name,
+                                folderName = folder.displayName,
                                 column = column,
                             )
                     },
@@ -907,7 +907,7 @@ internal fun MailRouteContent(
                                                         EmptyFolderTarget(
                                                             accountId = folder.accountId,
                                                             folderId = folder.name,
-                                                            folderName = folder.name,
+                                                            folderName = folder.displayName,
                                                             role = folder.role,
                                                         )
                                                 },
@@ -934,7 +934,7 @@ internal fun MailRouteContent(
                                                         DeleteFolderTarget(
                                                             accountId = folder.accountId,
                                                             folderId = folder.name,
-                                                            folderName = folder.name,
+                                                            folderName = folder.displayName,
                                                         )
                                                 },
                                             )

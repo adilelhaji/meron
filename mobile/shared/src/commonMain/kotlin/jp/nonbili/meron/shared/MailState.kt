@@ -71,9 +71,12 @@ data class SendIdentity(
 
 data class FolderSummary(
     val accountId: String,
+    /** Wire name: what SELECT, sync and cached rows address the mailbox by. */
     val name: String,
     val unread: Int = 0,
     val role: String = "folder",
+    /** `name` decoded from modified UTF-7; equal to `name` for ASCII folders. */
+    val displayName: String = name,
 )
 
 data class ThreadSummary(

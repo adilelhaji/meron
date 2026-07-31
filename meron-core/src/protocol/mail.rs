@@ -426,10 +426,19 @@ pub(crate) fn list_mobile_folders(data_dir: &str, params: &Value) -> Result<Valu
             .into_iter()
             .map(|folder| {
                 let role = folder.role.clone();
+                // `name` stays the wire name — mobile addresses mailboxes by it
+                // (SELECT, sync, cached rows) — and `display_name` carries the
+                // modified-UTF-7-decoded label for rendering.
+                let display_name = if folder.display_name.is_empty() {
+                    folder.name.clone()
+                } else {
+                    folder.display_name.clone()
+                };
                 json!({
                     "id": folder.name,
                     "account_id": account_id,
                     "name": folder.name,
+                    "display_name": display_name,
                     "role": role,
                     "delimiter": folder.delimiter.unwrap_or_default(),
                     "unread": folder.unread,
@@ -442,10 +451,12 @@ pub(crate) fn list_mobile_folders(data_dir: &str, params: &Value) -> Result<Valu
 
 pub(crate) fn create_mobile_folder(data_dir: &str, params: &Value) -> Result<Value, String> {
     let account_id = req_str(params, "account_id")?;
-    let name = req_str(params, "name")?.trim().to_string();
-    if name.is_empty() {
+    let display_name = req_str(params, "name")?.trim().to_string();
+    if display_name.is_empty() {
         return Err("Folder name is required".to_string());
     }
+    // Servers without UTF8=ACCEPT address mailboxes in modified UTF-7.
+    let name = crate::utf7::encode(&display_name);
     let engine = crate::ffi::engine_for(data_dir)?;
     with_mobile_db(data_dir, |conn| {
         if is_rss_account(&conn, &account_id)? {

@@ -64,13 +64,21 @@ internal fun buildFolderTree(folders: List<FolderSummary>): List<FolderTreeNode>
                 .split(delimiter)
                 .filter { it.isNotEmpty() }
                 .ifEmpty { listOf(folder.name) }
+        // Paths stay on the wire name (folder identity); labels come from the
+        // decoded one. A decoded segment can itself contain the delimiter, so
+        // only use the decoded split when it lines up segment for segment.
+        val displaySegments =
+            folder.displayName
+                .split(delimiter)
+                .filter { it.isNotEmpty() }
+                .takeIf { it.size == segments.size }
         var siblings = roots
         var path = ""
         segments.forEachIndexed { index, segment ->
             path = if (path.isEmpty()) segment else "$path$delimiter$segment"
             val node =
                 byPath.getOrPut(path) {
-                    MutableFolderTreeNode(segment).also { siblings.add(it) }
+                    MutableFolderTreeNode(displaySegments?.get(index) ?: segment).also { siblings.add(it) }
                 }
             // The final segment is the real folder; intermediates may be structural.
             if (index == segments.lastIndex) node.folder = folder

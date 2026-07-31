@@ -151,6 +151,7 @@ pub fn get_folders(conn: &Connection, account: &str) -> Result<Vec<Folder>> {
         let special_use = row.get::<_, Option<String>>(2)?;
         Ok(Folder {
             role: classify_folder_role(&name, special_use.as_deref()).to_string(),
+            display_name: crate::utf7::decode(&name),
             name,
             delimiter: row.get(1)?,
             special_use,

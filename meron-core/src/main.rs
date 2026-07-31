@@ -1117,10 +1117,13 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if is_rss(engine, &account)? {
                 return Err(anyhow::anyhow!("RSS accounts do not support folders"));
             }
-            let name = req_str(p, "name")?.trim().to_string();
-            if name.is_empty() {
+            let display_name = req_str(p, "name")?.trim().to_string();
+            if display_name.is_empty() {
                 return Err(anyhow::anyhow!("Folder name is required"));
             }
+            // The user types UTF-8; servers without UTF8=ACCEPT want modified
+            // UTF-7, and the wire form is what we store and address it by.
+            let name = meron_core::utf7::encode(&display_name);
 
             engine
                 .with_write_session(&account, |session| {
@@ -1131,6 +1134,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
             let folder = imap::Folder {
                 name,
+                display_name,
                 delimiter: None,
                 ..Default::default()
             };

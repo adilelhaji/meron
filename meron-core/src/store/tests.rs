@@ -1927,6 +1927,7 @@ fn collapse_thread_draft_headers_keeps_newest_draft_only() {
         "acct",
         &[crate::imap::Folder {
             name: "Drafts".into(),
+            display_name: "Drafts".into(),
             delimiter: None,
             special_use: Some("drafts".into()),
             role: "drafts".into(),

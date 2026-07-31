@@ -1220,7 +1220,7 @@ internal fun KanbanColumnDialog(
                             val isRss = accountSummaryIsRss(account)
                             SidebarLikeDialogRow(
                                 selected = selected.contains(kanbanColumnKey(column)),
-                                title = folder.name.replaceFirstChar { it.uppercase() },
+                                title = folder.displayName.replaceFirstChar { it.uppercase() },
                                 subtitle = null,
                                 onClick = { toggle(column) },
                                 indent = 24.dp,

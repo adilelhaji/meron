@@ -179,7 +179,7 @@ internal fun FolderDestinationAction(
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            folder.name.replaceFirstChar { it.uppercase() },
+            folder.displayName.replaceFirstChar { it.uppercase() },
             modifier = Modifier.weight(1f),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,

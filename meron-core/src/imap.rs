@@ -110,7 +110,13 @@ impl Creds {
 
 #[derive(serde::Serialize, Default)]
 pub struct Folder {
+    /// Canonical wire name, modified UTF-7 when the server speaks it. Everything
+    /// that addresses the mailbox — SELECT, cached message rows, saved Kanban
+    /// columns — uses this; only `display_name` is decoded for humans.
     pub name: String,
+    /// `name` decoded from modified UTF-7. Equal to `name` for ASCII folders.
+    #[serde(default)]
+    pub display_name: String,
     pub delimiter: Option<String>,
     /// Count of unseen messages cached for this folder. Populated by
     /// `store::get_folders`; the IMAP LIST path leaves it at 0.
@@ -459,6 +465,7 @@ pub async fn list_folders(session: &mut Session) -> Result<Vec<Folder>> {
             .map(str::to_string)
         });
         out.push(Folder {
+            display_name: crate::utf7::decode(name.name()),
             name: name.name().to_string(),
             delimiter: name.delimiter().map(|d| d.to_string()),
             unread: 0,
