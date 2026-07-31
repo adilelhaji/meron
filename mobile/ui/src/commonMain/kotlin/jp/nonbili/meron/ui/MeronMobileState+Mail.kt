@@ -1956,9 +1956,10 @@ internal fun MeronMobileState.createFolderAndMoveThread(
                     client.createFolder(FolderCreateParams(accountId = thread.accountId, name = trimmed))
                 }
                 val folders = loadAccountFolders(client, account)
-                val created = folders.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }?.name ?: trimmed
+                val createdFolder = folders.folderCreatedAs(trimmed)
+                val created = createdFolder?.name ?: trimmed
                 if (created.equals(thread.folder, ignoreCase = true)) {
-                    throw IllegalStateException("Already in $created.")
+                    throw IllegalStateException("Already in ${createdFolder?.displayName ?: trimmed}.")
                 }
                 withManagedGoogleAuth(client, thread.accountId) {
                     client.move(MoveThreadParams(threadId = thread.id, targetFolderId = created))

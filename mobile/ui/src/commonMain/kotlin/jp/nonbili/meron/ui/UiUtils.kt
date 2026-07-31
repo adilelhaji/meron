@@ -174,6 +174,14 @@ internal fun folderUnread(
         }?.unread ?: 0
 }
 
+/**
+ * Find a just-created folder in a fresh LIST. The user types UTF-8, so the match
+ * runs against the decoded label, while callers address the mailbox by the wire
+ * name (modified UTF-7 on servers without UTF8=ACCEPT). `displayName` falls back
+ * to `name`, so ASCII folders match either way.
+ */
+internal fun List<FolderSummary>.folderCreatedAs(typedName: String): FolderSummary? = firstOrNull { it.displayName.equals(typedName, ignoreCase = true) }
+
 /** IMAP requires INBOX to be case-insensitive; other mailbox names retain their casing. */
 internal fun kanbanFolderIdsEqual(
     first: String,

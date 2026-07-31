@@ -1499,7 +1499,7 @@ internal fun MeronMobileState.createFolderForKanban(
             }
         }.onSuccess { folders ->
             foldersByAccount = foldersByAccount + (account.id to folders)
-            val created = folders.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }?.name ?: trimmed
+            val created = folders.folderCreatedAs(trimmed)?.name ?: trimmed
             addKanbanColumn(KanbanColumnSpec(account.id, created))
             showKanbanCreateFolderDialog = null
             kanbanFolderNameInput = ""
