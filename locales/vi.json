@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Đóng",
   "connectivity.retry": "Thử lại",
   "connectivity.retryFailed": "Thử lại thất bại",
+  "connectivity.proxyFailedAccount": "Không thể kết nối với proxy {proxy} cho {account}. Hãy kiểm tra hoặc tắt proxy, rồi thử lại.",
   "connectivity.syncFailed": "Không thể kết nối với máy chủ thư. Đang thử lại trong lần đồng bộ tiếp theo...",
   "connectivity.syncFailedAccount": "Không thể kết nối với máy chủ thư của {account}. Đang thử lại trong lần đồng bộ tiếp theo...",
   "connectivity.syncedAccount": "{account} đã đồng bộ",

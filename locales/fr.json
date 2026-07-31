@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Fermer",
   "connectivity.retry": "Réessayer",
   "connectivity.retryFailed": "Nouvelle tentative échouée",
+  "connectivity.proxyFailedAccount": "Impossible de se connecter au proxy {proxy} pour {account}. Vérifiez ou désactivez le proxy, puis réessayez.",
   "connectivity.syncFailed": "Impossible de contacter le serveur de messagerie. Nouvel essai lors de la prochaine synchronisation...",
   "connectivity.syncFailedAccount": "Impossible de contacter le serveur de messagerie pour {account}. Nouvel essai lors de la prochaine synchronisation...",
   "connectivity.syncedAccount": "{account} synchronisé",

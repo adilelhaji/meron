@@ -219,6 +219,7 @@
   "connectivity.dismiss": "إغلاق",
   "connectivity.retry": "إعادة المحاولة",
   "connectivity.retryFailed": "فشلت إعادة المحاولة",
+  "connectivity.proxyFailedAccount": "تعذر الاتصال بالخادم الوكيل {proxy} للحساب {account}. تحقق من الخادم الوكيل أو عطّله، ثم أعد المحاولة.",
   "connectivity.syncFailed": "تعذر الاتصال بخادم البريد. سيتم إعادة المحاولة في المزامنة التالية...",
   "connectivity.syncFailedAccount": "تعذر الاتصال بخادم البريد لـ {account}. سيتم إعادة المحاولة في المزامنة التالية...",
   "connectivity.syncedAccount": "تمت مزامنة {account}",

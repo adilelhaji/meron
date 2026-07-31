@@ -6,7 +6,8 @@ import { invoke } from '../../lib/bridge'
 import { accounts$ } from '../../states/accounts'
 import { connectivity$, clearSyncErrorFor, dismissSyncError } from '../../states/connectivity'
 import { syncMail } from '../../states/mail'
-import { showToast } from '../../states/ui'
+import { showToast, ui$ } from '../../states/ui'
+import { connectivityAccountLabel, proxyEndpointFromSyncError } from './connectivityBannerHelpers'
 
 // Thin banner shown across the top when the last sync failed. State is driven by
 // sidecar `error` / `mail.synced` events wired up in useAppEffects; this just
@@ -20,8 +21,8 @@ export function ConnectivityBanner() {
 
   if (!error) return null
 
-  const account = accountId ? accounts.find((acc) => acc.id === accountId) : null
-  const accountLabel = account ? account.display_name || account.email : accountId
+  const accountLabel = connectivityAccountLabel(accountId, accounts)
+  const proxyEndpoint = proxyEndpointFromSyncError(error)
 
   const retry = async () => {
     if (retrying) return
@@ -45,8 +46,24 @@ export function ConnectivityBanner() {
     <div className="flex shrink-0 items-center justify-center gap-2 border-b border-rose-500/20 bg-rose-500/10 px-3 py-1.5 text-xs font-medium text-rose-600 dark:text-rose-400">
       <AlertCircle size={13} className="shrink-0" />
       <span className="min-w-0 truncate">
-        {accountLabel ? t('connectivity.syncFailedAccount', { account: accountLabel }) : t('connectivity.syncFailed')}
+        {proxyEndpoint && accountLabel
+          ? t('connectivity.proxyFailedAccount', { proxy: proxyEndpoint, account: accountLabel })
+          : accountLabel
+            ? t('connectivity.syncFailedAccount', { account: accountLabel })
+            : t('connectivity.syncFailed')}
       </span>
+      {proxyEndpoint && (
+        <button
+          type="button"
+          onClick={() => {
+            ui$.accountSettingsId.set('')
+            ui$.settingsOpen.set(true)
+          }}
+          className="inline-flex h-6 shrink-0 items-center rounded-lg px-2 font-semibold text-rose-700 hover:bg-rose-500/10 dark:text-rose-300"
+        >
+          {t('settings.network.proxy')}
+        </button>
+      )}
       <button
         type="button"
         onClick={retry}

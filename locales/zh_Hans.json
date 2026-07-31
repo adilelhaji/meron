@@ -219,6 +219,7 @@
   "connectivity.dismiss": "关闭",
   "connectivity.retry": "重试",
   "connectivity.retryFailed": "重试失败",
+  "connectivity.proxyFailedAccount": "无法连接到 {account} 的代理 {proxy}。请检查或禁用代理，然后重试。",
   "connectivity.syncFailed": "无法连接到邮件服务器。将在下次同步时重试…",
   "connectivity.syncFailedAccount": "无法连接到 {account} 的邮件服务器。将在下次同步时重试…",
   "connectivity.syncedAccount": "{account} 已同步",

@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Κλείσιμο",
   "connectivity.retry": "Επαναδοκιμή",
   "connectivity.retryFailed": "Η επαναδοκιμή απέτυχε",
+  "connectivity.proxyFailedAccount": "Δεν ήταν δυνατή η σύνδεση στον διακομιστή μεσολάβησης {proxy} για το {account}. Ελέγξτε ή απενεργοποιήστε τον και δοκιμάστε ξανά.",
   "connectivity.syncFailed": "Δεν ήταν δυνατή η σύνδεση με τον διακομιστή αλληλογραφίας. Επανάληψη στην επόμενη σύνδεση...",
   "connectivity.syncFailedAccount": "Δεν ήταν δυνατή η σύνδεση με τον διακομιστή αλληλογραφίας για {account}. Επανάληψη στην επόμενη σύνδεση...",
   "connectivity.syncedAccount": "Το {account} συγχρονίστηκε",

@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Zamknij",
   "connectivity.retry": "Spróbuj ponownie",
   "connectivity.retryFailed": "Ponowna próba nie powiodła się",
+  "connectivity.proxyFailedAccount": "Nie udało się połączyć z serwerem proxy {proxy} dla {account}. Sprawdź lub wyłącz proxy i spróbuj ponownie.",
   "connectivity.syncFailed": "Nie udało się połączyć z serwerem poczty. Ponowna próba przy następnej synchronizacji...",
   "connectivity.syncFailedAccount": "Nie udało się połączyć z serwerem poczty dla {account}. Ponowna próba przy następnej synchronizacji...",
   "connectivity.syncedAccount": "{account} zsynchronizowano",

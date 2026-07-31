@@ -215,6 +215,7 @@
   "connectivity.dismiss": "Dismiss",
   "connectivity.retry": "Retry",
   "connectivity.retryFailed": "Retry failed",
+  "connectivity.proxyFailedAccount": "Unable to connect to proxy {proxy} for {account}. Check or disable the proxy, then retry.",
   "connectivity.syncFailed": "Unable to connect to the mail server. Retrying on the next sync…",
   "connectivity.syncFailedAccount": "Unable to connect to the mail server for {account}. Retrying on the next sync…",
   "connectivity.syncedAccount": "{account} synced",

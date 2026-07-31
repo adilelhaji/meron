@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Stäng",
   "connectivity.retry": "Försök igen",
   "connectivity.retryFailed": "Försöket misslyckades",
+  "connectivity.proxyFailedAccount": "Kunde inte ansluta till proxyn {proxy} för {account}. Kontrollera eller inaktivera proxyn och försök igen.",
   "connectivity.syncFailed": "Kunde inte nå e-postservern. Försöker igen vid nästa synkronisering...",
   "connectivity.syncFailedAccount": "Kunde inte nå e-postservern för {account}. Försöker igen vid nästa synkronisering...",
   "connectivity.syncedAccount": "{account} synkroniserat",

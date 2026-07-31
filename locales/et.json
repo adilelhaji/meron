@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Sulge",
   "connectivity.retry": "Proovi uuesti",
   "connectivity.retryFailed": "Uuesti proovimine nurjus",
+  "connectivity.proxyFailedAccount": "Kontoga {account} ei saanud puhverserveriga {proxy} ühendust. Kontrolli või keela puhverserver ja proovi uuesti.",
   "connectivity.syncFailed": "E-posti serveriga ei saadud ühendust. Uus katse järgmisel sünkroonimisel...",
   "connectivity.syncFailedAccount": "{account} e-posti serveriga ei saadud ühendust. Uus katse järgmisel sünkroonimisel...",
   "connectivity.syncedAccount": "{account} sünkroonitud",

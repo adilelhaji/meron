@@ -219,6 +219,7 @@
   "connectivity.dismiss": "閉じる",
   "connectivity.retry": "再試行",
   "connectivity.retryFailed": "再試行に失敗しました",
+  "connectivity.proxyFailedAccount": "{account} のプロキシ {proxy} に接続できませんでした。プロキシを確認または無効にして、再試行してください。",
   "connectivity.syncFailed": "メールサーバーに接続できませんでした。次の同期時に再試行します…",
   "connectivity.syncFailedAccount": "{account} のメールサーバーに接続できませんでした。次の同期時に再試行します…",
   "connectivity.syncedAccount": "{account} を同期しました",

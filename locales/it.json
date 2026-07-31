@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Chiudi",
   "connectivity.retry": "Riprova",
   "connectivity.retryFailed": "Riprova non riuscito",
+  "connectivity.proxyFailedAccount": "Impossibile connettersi al proxy {proxy} per {account}. Controlla o disattiva il proxy, quindi riprova.",
   "connectivity.syncFailed": "Impossibile raggiungere il server di posta. Nuovo tentativo al prossimo rilevamento...",
   "connectivity.syncFailedAccount": "Impossibile raggiungere il server di posta per {account}. Nuovo tentativo alla prossima sincronizzazione...",
   "connectivity.syncedAccount": "{account} sincronizzato",

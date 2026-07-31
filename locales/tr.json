@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Kapat",
   "connectivity.retry": "Yeniden dene",
   "connectivity.retryFailed": "Yeniden deneme başarısız",
+  "connectivity.proxyFailedAccount": "{account} için {proxy} proxy sunucusuna bağlanılamadı. Proxy ayarını kontrol edin veya devre dışı bırakın, ardından yeniden deneyin.",
   "connectivity.syncFailed": "E-posta sunucusuna erişilemedi. Bir sonraki eşitlemede tekrar denenecek...",
   "connectivity.syncFailedAccount": "{account} için e-posta sunucusuna erişilemedi. Bir sonraki eşitlemede tekrar denenecek...",
   "connectivity.syncedAccount": "{account} eşitlendi",

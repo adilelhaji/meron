@@ -219,6 +219,7 @@
   "connectivity.dismiss": "Fechar",
   "connectivity.retry": "Tentar novamente",
   "connectivity.retryFailed": "Falha ao tentar novamente",
+  "connectivity.proxyFailedAccount": "Não foi possível conectar ao proxy {proxy} para {account}. Verifique ou desative o proxy e tente novamente.",
   "connectivity.syncFailed": "Não foi possível conectar ao servidor de e-mail. Tentando novamente na próxima sincronização...",
   "connectivity.syncFailedAccount": "Não foi possível conectar ao servidor de e-mail de {account}. Tentando novamente na próxima sincronização...",
   "connectivity.syncedAccount": "{account} sincronizado",

@@ -219,6 +219,7 @@
   "connectivity.dismiss": "닫기",
   "connectivity.retry": "재시도",
   "connectivity.retryFailed": "재시도 실패",
+  "connectivity.proxyFailedAccount": "{account}의 프록시 {proxy}에 연결할 수 없습니다. 프록시를 확인하거나 비활성화한 후 다시 시도하세요.",
   "connectivity.syncFailed": "메일 서버에 연결할 수 없습니다. 다음 동기화 시 다시 시도합니다…",
   "connectivity.syncFailedAccount": "{account}의 메일 서버에 연결할 수 없습니다. 다음 동기화 시 다시 시도합니다…",
   "connectivity.syncedAccount": "{account} 동기화됨",
