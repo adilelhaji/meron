@@ -338,6 +338,43 @@ describe('thread read state', () => {
     expect(kanban$.unreadCounts.get()[columnKey]).toBe(0)
     expect(mail$.readThreads.get()['acc:inbox:thread:1']).toBe(true)
   })
+
+  // A failed mutation must undo its own optimistic edit and nothing else: a folder
+  // LIST for another account, or another column's page, can land while the call is
+  // in flight, and restoring whole caches would silently throw those away.
+  it('rolls back only the keys it touched when the backend rejects', async () => {
+    const columnKey = 'acc inbox'
+    const otherColumnKey = 'acc archive'
+    const otherCard = thread({ id: 'acc:archive:thread:9#1', thread_id: 'acc:archive:thread:9' })
+    kanban$.threads.set({ [columnKey]: [thread({ unread: true, unread_count: 2 })], [otherColumnKey]: [] })
+    kanban$.unreadCounts.set({ [columnKey]: 2, [otherColumnKey]: 0 })
+    mail$.foldersByAccount.set({
+      acc: [{ id: 'inbox', account_id: 'acc', name: 'Inbox', role: 'inbox', unread: 2 }],
+      other: [{ id: 'inbox', account_id: 'other', name: 'Inbox', role: 'inbox', unread: 5 }],
+    })
+
+    await loadThread('acc:inbox:thread:1')
+    const invoke = (window as any).go.main.App.Invoke
+    ;(window as any).go.main.App.Invoke = async (command: string, payload: unknown) => {
+      if (command !== 'mail.markRead') return invoke(command, payload)
+      // Writes that land while the mutation is in flight.
+      mail$.foldersByAccount.other.set([{ id: 'inbox', account_id: 'other', name: 'Inbox', role: 'inbox', unread: 9 }])
+      kanban$.threads[otherColumnKey].set([otherCard])
+      kanban$.unreadCounts[otherColumnKey].set(4)
+      throw new Error('offline')
+    }
+
+    await expect(markMessagesRead('acc:inbox:thread:1', ['acc:inbox:thread:1#101'])).rejects.toThrow('offline')
+
+    // Untouched keys keep what landed mid-flight.
+    expect(mail$.foldersByAccount.get().other[0].unread).toBe(9)
+    expect(kanban$.threads.get()[otherColumnKey]).toEqual([otherCard])
+    expect(kanban$.unreadCounts.get()[otherColumnKey]).toBe(4)
+    // The column the mutation edited is back to its pre-call state.
+    expect(kanban$.threads.get()[columnKey][0].unread_count).toBe(2)
+    expect(kanban$.unreadCounts.get()[columnKey]).toBe(2)
+    expect(mail$.messages.get().every((message) => message.unread)).toBe(true)
+  })
 })
 
 describe('deleteThread', () => {

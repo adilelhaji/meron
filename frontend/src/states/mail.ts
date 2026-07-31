@@ -41,6 +41,55 @@ export const mail$ = observable({
   readThreads: {} as Record<string, boolean>,
 })
 
+// Optimistic rollback for the keyed caches, key by key. Two reasons not to keep a
+// whole `.get()` and restore that: Legend-State mutates a record's raw object in
+// place when a *child* node is set (`kanban$.threads[key]`,
+// `mail$.foldersByAccount[accountId]`), so the "previous state" keeps changing
+// under us; and even a true whole-record snapshot would undo writes that landed
+// for *other* keys while the mutation was in flight — a folder LIST for another
+// account, another column's page. So each flow captures only the keys it is about
+// to touch and puts back exactly those. Plain arrays (`mail$.threads`,
+// `mail$.messages`, `mail$.folders`) are always replaced whole, so a bare `.get()`
+// is already a snapshot there.
+type KeyEntries<T> = [key: string, value: T | undefined][]
+
+function captureKeys<T>(record: Record<string, T>, keys: string[]): KeyEntries<T> {
+  return keys.map((key) => [key, record[key]])
+}
+
+/** Kanban columns holding a card for this thread: all `updateKanbanThread` and
+ * `removeKanbanThread` can touch, so all a rollback has to put back. */
+function kanbanKeysWithThread(threadId: string): string[] {
+  return Object.entries(kanban$.threads.get())
+    .filter(([, threads]) => threads.some((thread) => thread.thread_id === threadId))
+    .map(([key]) => key)
+}
+
+function restoreAccountFolders(entries: KeyEntries<Folder[]>) {
+  for (const [accountId, folders] of entries) {
+    if (folders === undefined) mail$.foldersByAccount[accountId].delete()
+    else mail$.foldersByAccount[accountId].set(folders)
+  }
+}
+
+function restoreKanbanColumns(threads: KeyEntries<Message[]>, unreadCounts: KeyEntries<number> = []) {
+  for (const [key, columnThreads] of threads) {
+    if (columnThreads === undefined) kanban$.threads[key].delete()
+    else kanban$.threads[key].set(columnThreads)
+  }
+  for (const [key, count] of unreadCounts) {
+    if (count === undefined) kanban$.unreadCounts[key].delete()
+    else kanban$.unreadCounts[key].set(count)
+  }
+}
+
+// The one record a flow does restore whole: `loadThreads` owns the entire cursor
+// set for the query it is loading, and clears it outright, so there are no other
+// keys to preserve.
+function snapshotRecord<T>(record: Record<string, T>): Record<string, T> {
+  return { ...record }
+}
+
 function updateKanbanThread(threadId: string, update: (thread: Message) => Message) {
   const columns = kanban$.threads.get()
   const unreadCounts = kanban$.unreadCounts.get()
@@ -668,7 +717,7 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
   const currentSelected = ui$.selectedThread.get()
   const currentSelectedItem = ui$.selectedStarredItem.get()
   const previousThreadsCursor = mail$.threadsCursor.get()
-  const previousAccountCursors = mail$.threadAccountCursors.get()
+  const previousAccountCursors = snapshotRecord(mail$.threadAccountCursors.get())
   const userInitiated = refresh || searchStage === 'cache'
 
   // A background refresh (a sync, not a user-initiated account/folder/query/filter
@@ -971,12 +1020,10 @@ export async function markThreadRead(threadId: string) {
   const previousThreads = mail$.threads.get()
   const previousMessages = mail$.messages.get()
   const previousFolders = mail$.folders.get()
-  const previousFoldersByAccount = mail$.foldersByAccount.get()
-  const previousKanbanThreads = kanban$.threads.get()
   const hasUnread =
     previousThreads.some((thread) => thread.thread_id === threadId && thread.unread) ||
     previousMessages.some((message) => message.thread_id === threadId && message.unread) ||
-    Object.values(previousKanbanThreads).some((threads) =>
+    Object.values(kanban$.threads.get()).some((threads) =>
       threads.some((thread) => thread.thread_id === threadId && thread.unread),
     )
   if (!hasUnread) return
@@ -987,6 +1034,10 @@ export async function markThreadRead(threadId: string) {
   const unreadCount = Math.max(1, localThread?.unread_count ?? localMessageUnread)
   const accountId = localThread?.account_id || localMessages[0]?.account_id
   const folderId = localThread?.folder_id || localMessages[0]?.folder_id
+  const kanbanKeys = kanbanKeysWithThread(threadId)
+  const previousAccountFolders = captureKeys(mail$.foldersByAccount.get(), accountId ? [accountId] : [])
+  const previousKanbanThreads = captureKeys(kanban$.threads.get(), kanbanKeys)
+  const previousKanbanUnreadCounts = captureKeys(kanban$.unreadCounts.get(), kanbanKeys)
 
   mail$.readThreads[threadId].set(true)
   mail$.threads.set(
@@ -1007,8 +1058,8 @@ export async function markThreadRead(threadId: string) {
     mail$.threads.set(previousThreads)
     mail$.messages.set(previousMessages)
     mail$.folders.set(previousFolders)
-    mail$.foldersByAccount.set(previousFoldersByAccount)
-    kanban$.threads.set(previousKanbanThreads)
+    restoreAccountFolders(previousAccountFolders)
+    restoreKanbanColumns(previousKanbanThreads, previousKanbanUnreadCounts)
     throw error
   } finally {
     refreshFoldersAfterFlagChange(findLocalThread(threadId)?.account_id)
@@ -1099,7 +1150,7 @@ function kanbanNeighbourThreadId(threadId: string): string {
 function removeThreadLocally(threadId: string) {
   const previousThreads = mail$.threads.get()
   const previousMessages = mail$.messages.get()
-  const previousKanbanThreads = kanban$.threads.get()
+  const previousKanbanThreads = captureKeys(kanban$.threads.get(), kanbanKeysWithThread(threadId))
   const previousSelected = ui$.selectedThread.get()
   const previousPaneThreadId = kanban$.paneThreadId.get()
   const previousStarredItem = ui$.selectedStarredItem.get()
@@ -1149,7 +1200,7 @@ function removeThreadLocally(threadId: string) {
     rollback: () => {
       mail$.threads.set(previousThreads)
       mail$.messages.set(previousMessages)
-      kanban$.threads.set(previousKanbanThreads)
+      restoreKanbanColumns(previousKanbanThreads)
       ui$.selectedThread.set(previousSelected)
       ui$.selectedStarredItem.set(previousStarredItem)
       if (previousPaneThreadId === threadId) {
@@ -1650,9 +1701,6 @@ export async function markMessagesRead(threadId: string, messageIds: string[]) {
   const previousThreads = mail$.threads.get()
   const previousMessages = mail$.messages.get()
   const previousFolders = mail$.folders.get()
-  const previousFoldersByAccount = mail$.foldersByAccount.get()
-  const previousKanbanThreads = kanban$.threads.get()
-  const previousKanbanUnreadCounts = kanban$.unreadCounts.get()
   const previousReadThread = mail$.readThreads[threadId].get()
   const unreadIds = new Set(
     previousMessages
@@ -1663,6 +1711,11 @@ export async function markMessagesRead(threadId: string, messageIds: string[]) {
 
   const localThread = findLocalThread(threadId)
   const localMessage = previousMessages.find((message) => unreadIds.has(message.id))
+  const unreadAccountId = localThread?.account_id || localMessage?.account_id
+  const kanbanKeys = kanbanKeysWithThread(threadId)
+  const previousAccountFolders = captureKeys(mail$.foldersByAccount.get(), unreadAccountId ? [unreadAccountId] : [])
+  const previousKanbanThreads = captureKeys(kanban$.threads.get(), kanbanKeys)
+  const previousKanbanUnreadCounts = captureKeys(kanban$.unreadCounts.get(), kanbanKeys)
 
   mail$.messages.set(
     previousMessages.map((message) => (unreadIds.has(message.id) ? { ...message, unread: false } : message)),
@@ -1685,11 +1738,7 @@ export async function markMessagesRead(threadId: string, messageIds: string[]) {
       threads.some((thread) => thread.thread_id === threadId && thread.unread),
     )
   if (!stillUnread) mail$.readThreads[threadId].set(true)
-  decrementFolderUnread(
-    localThread?.account_id || localMessage?.account_id,
-    localThread?.folder_id || localMessage?.folder_id,
-    unreadIds.size,
-  )
+  decrementFolderUnread(unreadAccountId, localThread?.folder_id || localMessage?.folder_id, unreadIds.size)
 
   const accountId = findLocalThread(threadId)?.account_id
   try {
@@ -1698,9 +1747,8 @@ export async function markMessagesRead(threadId: string, messageIds: string[]) {
     mail$.threads.set(previousThreads)
     mail$.messages.set(previousMessages)
     mail$.folders.set(previousFolders)
-    mail$.foldersByAccount.set(previousFoldersByAccount)
-    kanban$.threads.set(previousKanbanThreads)
-    kanban$.unreadCounts.set(previousKanbanUnreadCounts)
+    restoreAccountFolders(previousAccountFolders)
+    restoreKanbanColumns(previousKanbanThreads, previousKanbanUnreadCounts)
     if (previousReadThread === undefined) {
       mail$.readThreads[threadId].delete()
     } else {
@@ -1718,7 +1766,9 @@ export async function markMessageReadState(message: Message, seen: boolean) {
 
   const previousThreads = mail$.threads.get()
   const previousMessages = mail$.messages.get()
-  const previousKanbanThreads = kanban$.threads.get()
+  const kanbanKeys = kanbanKeysWithThread(message.thread_id)
+  const previousKanbanThreads = captureKeys(kanban$.threads.get(), kanbanKeys)
+  const previousKanbanUnreadCounts = captureKeys(kanban$.unreadCounts.get(), kanbanKeys)
   const delta = seen ? -1 : 1
 
   mail$.messages.set(previousMessages.map((item) => (item.id === message.id ? { ...item, unread: !seen } : item)))
@@ -1739,7 +1789,7 @@ export async function markMessageReadState(message: Message, seen: boolean) {
   } catch (error) {
     mail$.threads.set(previousThreads)
     mail$.messages.set(previousMessages)
-    kanban$.threads.set(previousKanbanThreads)
+    restoreKanbanColumns(previousKanbanThreads, previousKanbanUnreadCounts)
     throw error
   } finally {
     refreshFoldersAfterFlagChange(message.account_id)
