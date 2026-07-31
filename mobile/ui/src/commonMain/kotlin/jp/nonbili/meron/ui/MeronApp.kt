@@ -1367,6 +1367,7 @@ private fun MeronMobileScreenContent(
         showKanbanCreateFolderDialog?.let { account ->
             KanbanCreateFolderDialog(
                 name = kanbanFolderNameInput,
+                delimiter = folderTreeDelimiter(foldersByAccount[account.id].orEmpty()),
                 onNameChange = { kanbanFolderNameInput = it },
                 onCreate = { createFolderForKanban(account, kanbanFolderNameInput) },
                 onDismiss = { showKanbanCreateFolderDialog = null },

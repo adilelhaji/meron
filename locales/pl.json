@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Brak innych folderów.",
   "folders.noneAvailable": "Brak dostępnych folderów",
   "folders.searchPlaceholder": "Szukaj folderów...",
+  "folders.subfolderHint": "Użyj {delimiter}, aby zagnieździć, np. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Dodaj tablicę Kanban",
   "kanban.actions.addBoardShort": "Dodaj tablicę",
   "kanban.actions.addColumn": "Dodaj kolumnę",

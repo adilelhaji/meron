@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "没有其他可用的文件夹。",
   "folders.noneAvailable": "无可用文件夹",
   "folders.searchPlaceholder": "搜索文件夹...",
+  "folders.subfolderHint": "使用 {delimiter} 创建子文件夹，例如 Work{delimiter}Reports",
   "kanban.actions.addBoard": "添加看板",
   "kanban.actions.addBoardShort": "添加看板",
   "kanban.actions.addColumn": "添加列",

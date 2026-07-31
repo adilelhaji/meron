@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "No hay otras carpetas disponibles.",
   "folders.noneAvailable": "No hay carpetas disponibles",
   "folders.searchPlaceholder": "Buscar carpetas...",
+  "folders.subfolderHint": "Usa {delimiter} para anidar, p. ej. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Añadir tablero Kanban",
   "kanban.actions.addBoardShort": "Añadir tablero",
   "kanban.actions.addColumn": "Añadir columna",

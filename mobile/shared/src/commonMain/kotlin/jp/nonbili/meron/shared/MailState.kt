@@ -77,6 +77,8 @@ data class FolderSummary(
     val role: String = "folder",
     /** `name` decoded from modified UTF-7; equal to `name` for ASCII folders. */
     val displayName: String = name,
+    /** Hierarchy separator the server reported for this mailbox, if any. */
+    val delimiter: String = "",
 )
 
 data class ThreadSummary(

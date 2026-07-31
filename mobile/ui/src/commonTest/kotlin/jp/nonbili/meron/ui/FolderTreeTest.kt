@@ -35,6 +35,26 @@ class FolderTreeTest {
     }
 
     @Test
+    fun prefersTheServerReportedDelimiterOverInference() {
+        val folders =
+            listOf(
+                FolderSummary(accountId = "acc1", name = "INBOX", delimiter = "."),
+                FolderSummary(accountId = "acc1", name = "INBOX.Work", delimiter = "."),
+            )
+
+        assertEquals(".", folderTreeDelimiter(folders))
+        val inbox = buildFolderTree(folders).single()
+        assertEquals(listOf("Work"), inbox.children.map { it.name })
+    }
+
+    @Test
+    fun infersTheDelimiterWhenTheServerReportsNone() {
+        assertEquals("/", folderTreeDelimiter(listOf(folder("Work/Clients"))))
+        assertEquals(".", folderTreeDelimiter(listOf(folder("INBOX.Work"))))
+        assertEquals("/", folderTreeDelimiter(listOf(folder("INBOX"))))
+    }
+
+    @Test
     fun labelsNodesWithTheDecodedNameAndKeepsWirePathsForIdentity() {
         val encoded = FolderSummary(accountId = "acc1", name = "Work/gds-&AOQA5A--envoy&AOk-s", displayName = "Work/gds-ää-envoyés")
 

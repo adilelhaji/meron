@@ -18,9 +18,10 @@ internal data class FolderTreeRow(
     val depth: Int,
 )
 
-/** Pick the hierarchy delimiter the folder names appear to use. */
+/** Pick the hierarchy delimiter: prefer the server-reported one, else infer. */
 internal fun folderTreeDelimiter(folders: List<FolderSummary>): String =
     when {
+        folders.any { it.delimiter.isNotEmpty() } -> folders.first { it.delimiter.isNotEmpty() }.delimiter
         folders.any { it.name.contains('/') } -> "/"
         folders.any { it.name.contains('.') } -> "."
         else -> "/"

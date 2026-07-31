@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Δεν υπάρχουν άλλοι φάκελοι διαθέσιμοι.",
   "folders.noneAvailable": "Δεν υπάρχουν διαθέσιμοι φάκελοι",
   "folders.searchPlaceholder": "Αναζήτηση φακέλων...",
+  "folders.subfolderHint": "Χρησιμοποιήστε {delimiter} για ένθεση, π.χ. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Προσθήκη πίνακα kanban",
   "kanban.actions.addBoardShort": "Προσθήκη πίνακα",
   "kanban.actions.addColumn": "Προσθήκη στήλης",

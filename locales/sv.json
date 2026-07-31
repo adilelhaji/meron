@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Inga andra mappar tillgängliga.",
   "folders.noneAvailable": "Inga mappar tillgängliga",
   "folders.searchPlaceholder": "Sök mappar...",
+  "folders.subfolderHint": "Använd {delimiter} för att nästla, t.ex. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Lägg till kanban-tavla",
   "kanban.actions.addBoardShort": "Lägg till tavla",
   "kanban.actions.addColumn": "Lägg till kolumn",

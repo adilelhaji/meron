@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Nessun'altra cartella disponibile.",
   "folders.noneAvailable": "Nessuna cartella disponibile",
   "folders.searchPlaceholder": "Cerca cartelle...",
+  "folders.subfolderHint": "Usa {delimiter} per annidare, es. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Aggiungi bacheca kanban",
   "kanban.actions.addBoardShort": "Aggiungi bacheca",
   "kanban.actions.addColumn": "Aggiungi colonna",

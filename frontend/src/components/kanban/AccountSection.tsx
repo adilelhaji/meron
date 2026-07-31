@@ -8,6 +8,7 @@ import { Avatar } from '../avatar/Avatar'
 import { IconButton } from '../button/IconButton'
 import { TextInput } from '../field/Field'
 import { FolderTreeRow } from './FolderTreeRow'
+import { pickDelimiter } from './folderTree'
 import type { AccountGroup, TreeNode } from './folderTree'
 
 // One account's collapsible section in the column picker: an inline "new folder"
@@ -30,6 +31,7 @@ export function AccountSection({
   const [error, setError] = useState('')
   const [creating, setCreating] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const delimiter = pickDelimiter(group.folders)
 
   useEffect(() => {
     if (createOpen) inputRef.current?.focus()
@@ -80,7 +82,7 @@ export function AccountSection({
       <div className="flex items-center gap-1 rounded-lg px-2 pb-1 pt-2 hover:bg-hover">
         <button
           type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left text-[10px] font-bold uppercase tracking-wide text-secondary hover:text-primary"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left text-[10px] font-bold tracking-wide text-secondary hover:text-primary"
           onClick={() => setExpanded((open) => !open)}
           title={expanded ? t('accounts.actions.collapseAccount') : t('accounts.actions.expandAccount')}
         >
@@ -142,7 +144,13 @@ export function AccountSection({
                   disabled={creating}
                 />
               </div>
-              {error && <div className="mt-1.5 px-1 text-[11px] font-medium text-rose-500">{error}</div>}
+              {error ? (
+                <div className="mt-1.5 px-1 text-[11px] font-medium text-rose-500">{error}</div>
+              ) : (
+                <div className="mt-1.5 px-1 text-[11px] text-secondary">
+                  {t('folders.subfolderHint', { delimiter })}
+                </div>
+              )}
             </form>
           )}
           {group.tree.map((node) => (

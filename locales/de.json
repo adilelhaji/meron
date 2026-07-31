@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Keine weiteren Ordner verfügbar.",
   "folders.noneAvailable": "Keine Ordner verfügbar",
   "folders.searchPlaceholder": "Ordner suchen...",
+  "folders.subfolderHint": "Mit {delimiter} verschachteln, z. B. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Kanban-Board hinzufügen",
   "kanban.actions.addBoardShort": "Board hinzufügen",
   "kanban.actions.addColumn": "Spalte hinzufügen",

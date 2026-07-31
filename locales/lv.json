@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Citas mapes nav pieejamas.",
   "folders.noneAvailable": "Nav pieejamu mapju",
   "folders.searchPlaceholder": "Meklēt mapes...",
+  "folders.subfolderHint": "Lieto {delimiter}, lai ligzdotu, piem., Work{delimiter}Reports",
   "kanban.actions.addBoard": "Pievienot Kanban tāfeli",
   "kanban.actions.addBoardShort": "Pievienot tāfeli",
   "kanban.actions.addColumn": "Pievienot kolonnu",

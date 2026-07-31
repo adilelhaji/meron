@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "다른 폴더를 사용할 수 없습니다.",
   "folders.noneAvailable": "사용 가능한 폴더 없음",
   "folders.searchPlaceholder": "폴더 검색...",
+  "folders.subfolderHint": "{delimiter}(으)로 하위 폴더를 만듭니다. 예: Work{delimiter}Reports",
   "kanban.actions.addBoard": "칸반 보드 추가",
   "kanban.actions.addBoardShort": "보드 추가",
   "kanban.actions.addColumn": "열 추가",

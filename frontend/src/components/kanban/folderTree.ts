@@ -19,7 +19,7 @@ export type TreeNode = {
 }
 
 /** Pick the hierarchy delimiter: prefer the server-reported one, else infer. */
-function pickDelimiter(folders: Folder[]): string {
+export function pickDelimiter(folders: Folder[]): string {
   const reported = folders.find((folder) => folder.delimiter)?.delimiter
   if (reported) return reported
   if (folders.some((folder) => folder.name.includes('/'))) return '/'

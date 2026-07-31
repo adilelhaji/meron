@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Không có thư mục nào khác có sẵn.",
   "folders.noneAvailable": "Không có thư mục nào khả dụng",
   "folders.searchPlaceholder": "Tìm thư mục...",
+  "folders.subfolderHint": "Dùng {delimiter} để lồng thư mục, ví dụ Work{delimiter}Reports",
   "kanban.actions.addBoard": "Thêm bảng kanban",
   "kanban.actions.addBoardShort": "Thêm bảng",
   "kanban.actions.addColumn": "Thêm cột",

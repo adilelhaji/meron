@@ -165,6 +165,7 @@ internal fun CrashReportDialog(
 @Composable
 internal fun KanbanCreateFolderDialog(
     name: String,
+    delimiter: String,
     onNameChange: (String) -> Unit,
     onCreate: () -> Unit,
     onDismiss: () -> Unit,
@@ -177,6 +178,7 @@ internal fun KanbanCreateFolderDialog(
                 value = name,
                 onValueChange = onNameChange,
                 label = { Text(tr("folders.namePlaceholder")) },
+                supportingText = { Text(tr("folders.subfolderHint", mapOf("delimiter" to delimiter))) },
                 modifier = Modifier.fillMaxWidth(),
             )
         },

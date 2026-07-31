@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Aucun autre dossier disponible.",
   "folders.noneAvailable": "Aucun dossier disponible",
   "folders.searchPlaceholder": "Rechercher des dossiers...",
+  "folders.subfolderHint": "Utilisez {delimiter} pour imbriquer, ex. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Ajouter un tableau Kanban",
   "kanban.actions.addBoardShort": "Ajouter un tableau",
   "kanban.actions.addColumn": "Ajouter une colonne",

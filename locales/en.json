@@ -280,6 +280,7 @@
   "folders.noneAvailable": "No folders available",
   "folders.noOtherAvailable": "No other folders available.",
   "folders.searchPlaceholder": "Search folders...",
+  "folders.subfolderHint": "Use {delimiter} to nest, e.g. Work{delimiter}Reports",
   "kanban.actions.addBoard": "Add kanban board",
   "kanban.actions.addBoardShort": "Add board",
   "kanban.actions.addColumn": "Add column",

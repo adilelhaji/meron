@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "لا توجد مجلدات أخرى متاحة.",
   "folders.noneAvailable": "لا توجد مجلدات متاحة",
   "folders.searchPlaceholder": "بحث في المجلدات...",
+  "folders.subfolderHint": "استخدم {delimiter} للتداخل، مثل Work{delimiter}Reports",
   "kanban.actions.addBoard": "إضافة لوحة كانبان",
   "kanban.actions.addBoardShort": "إضافة لوحة",
   "kanban.actions.addColumn": "إضافة عمود",

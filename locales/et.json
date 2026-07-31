@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "Muid kaustu pole saadaval.",
   "folders.noneAvailable": "Kaustu pole saadaval",
   "folders.searchPlaceholder": "Otsi kaustu...",
+  "folders.subfolderHint": "Pesastamiseks kasuta {delimiter}, nt Work{delimiter}Reports",
   "kanban.actions.addBoard": "Lisa kanban-stend",
   "kanban.actions.addBoardShort": "Lisa stend",
   "kanban.actions.addColumn": "Lisa veerg",

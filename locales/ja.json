@@ -284,6 +284,7 @@
   "folders.noOtherAvailable": "他に利用可能なフォルダーはありません。",
   "folders.noneAvailable": "利用可能なフォルダーはありません",
   "folders.searchPlaceholder": "フォルダーを検索...",
+  "folders.subfolderHint": "{delimiter} で階層化できます (例: Work{delimiter}Reports)",
   "kanban.actions.addBoard": "カンバンボードを追加",
   "kanban.actions.addBoardShort": "ボードを追加",
   "kanban.actions.addColumn": "列を追加",
