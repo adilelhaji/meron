@@ -1,0 +1,4 @@
+- Support HTTP and SOCKS5 proxies app-wide and per account
+- Support creating, renaming, and deleting folders on the server
+- Support switching Kanban board columns to another folder of the same account
+- Polish Kanban column picker, board settings, and dialog inputs
