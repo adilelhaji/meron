@@ -29,14 +29,14 @@ import { KanbanDragPreview } from './KanbanThreadCard'
 import { useThreadContextMenu } from '../threads/ThreadContextMenu'
 import { SearchScopeDropdown } from './SearchScopeDropdown'
 import { BoardMenu, FilterSwitch } from './KanbanBoardMenu'
-import { isRSSAccount, loadKanbanColumn } from '../../lib/kanbanData'
+import { isRSSAccount, loadKanbanColumn, useFoldersByAccount } from '../../lib/kanbanData'
 import { wallpaperCss } from '../../lib/wallpapers'
 import { useKanbanBoardSync, useKanbanDnd } from './useKanbanBoard'
 
 export function KanbanView({ boardId }: { boardId: string }) {
   const { t } = useTranslation()
   const accounts = useValue(accounts$)
-  const foldersByAccount = useValue(mail$.foldersByAccount)
+  const foldersByAccount = useFoldersByAccount()
   const boards = useValue(settings$.kanbanBoards)
   const globalFilter = useValue(kanban$.globalFilter)
   const searchQuery = useValue(kanban$.searchQuery)

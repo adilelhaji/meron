@@ -16,6 +16,7 @@ import {
   loadKanbanColumn,
   loadMoreKanbanColumn,
   mergeLabelFolders,
+  nextFoldersSnapshot,
   searchScopeColumn,
   searchTargets,
   syncKanbanColumn,
@@ -533,5 +534,38 @@ describe('labels', () => {
     const base = [{ account_id: 'acc1', id: 'f1', name: 'A' } as Folder]
     const byAccount = { acc2: [{ account_id: 'acc2', id: 'f2', name: 'B' } as Folder] }
     expect(mergeLabelFolders(base, byAccount).map((f) => f.id)).toEqual(['f1', 'f2'])
+  })
+})
+
+describe('nextFoldersSnapshot', () => {
+  const folder = (id: string): Folder => ({ account_id: 'acc1', id, name: id }) as Folder
+
+  it('keeps the previous object so memoized derivations stay stable', () => {
+    const current = { acc1: [folder('f1')] }
+    const first = nextFoldersSnapshot({}, current)
+    expect(nextFoldersSnapshot(first, current)).toBe(first)
+  })
+
+  // The bug this exists for: Legend-State replaces one account's array in place on
+  // the *same* record object, so a picker memoized on that object never saw a
+  // folder created in the app until the next restart.
+  it('mints a new object when an account list is replaced in place', () => {
+    const live: Record<string, Folder[]> = { acc1: [folder('f1')] }
+    const first = nextFoldersSnapshot({}, live)
+    live.acc1 = [folder('f1'), folder('created')]
+    const second = nextFoldersSnapshot(first, live)
+    expect(second).not.toBe(first)
+    expect(second.acc1.map((item) => item.id)).toEqual(['f1', 'created'])
+    expect(first.acc1.map((item) => item.id)).toEqual(['f1'])
+  })
+
+  it('mints a new object when an account appears or disappears', () => {
+    const live: Record<string, Folder[]> = { acc1: [folder('f1')] }
+    const first = nextFoldersSnapshot({}, live)
+    live.acc2 = [folder('f2')]
+    const second = nextFoldersSnapshot(first, live)
+    expect(second).not.toBe(first)
+    delete live.acc1
+    expect(nextFoldersSnapshot(second, live)).not.toBe(second)
   })
 })

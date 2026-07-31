@@ -16,6 +16,7 @@ import {
   folderLabel,
   kanbanColumnUnreadCount,
   mergeLabelFolders,
+  useFoldersByAccount,
 } from '../../lib/kanbanData'
 import { Avatar } from '../avatar/Avatar'
 import type { ColumnWrapper } from './KanbanBoardColumn'
@@ -36,7 +37,7 @@ export function KanbanColumnMinimized({
   const boardKey = kanbanBoardColumnKey(boardId, column)
   const accounts = useValue(accounts$)
   const folders = useValue(mail$.folders)
-  const foldersByAccount = useValue(mail$.foldersByAccount)
+  const foldersByAccount = useFoldersByAccount()
   const rawThreads = useValue(kanban$.threads)[key] ?? []
   const unreadCount = useValue(kanban$.unreadCounts)[key]
   const loading = useValue(kanban$.loading)[key] ?? false

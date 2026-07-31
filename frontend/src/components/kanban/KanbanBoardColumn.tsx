@@ -41,6 +41,7 @@ import {
   refreshKanbanContextAction,
   isUnifiedStarredColumn,
   kanbanColumnUnreadCount,
+  useFoldersByAccount,
 } from '../../lib/kanbanData'
 import { openThreadTab } from '../../states/compose'
 import { ThreadActionsMenu, ThreadActionsMenuItems } from '../threads/ThreadActionsMenu'
@@ -84,7 +85,7 @@ function KanbanColumnContent({
   const boardKey = kanbanBoardColumnKey(boardId, column)
   const accounts = useValue(accounts$)
   const folders = useValue(mail$.folders)
-  const foldersByAccount = useValue(mail$.foldersByAccount)
+  const foldersByAccount = useFoldersByAccount()
   const allThreads = useValue(kanban$.threads)
   const allUnreadCounts = useValue(kanban$.unreadCounts)
   const allLoading = useValue(kanban$.loading)

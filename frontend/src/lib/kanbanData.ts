@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+import { useValue } from '@legendapp/state/react'
 import { invoke } from './bridge'
 import { accounts$, unifiedAccounts } from '../states/accounts'
 import { getAllKanbanColumns, kanbanColumnKey, kanban$, type KanbanColumn } from '../states/kanban'
@@ -102,6 +104,34 @@ export function searchTargets(columns: KanbanColumn[], scope: string): KanbanCol
 // other than the currently selected one).
 export function mergeLabelFolders(folders: Folder[], foldersByAccount: Record<string, Folder[]>): Folder[] {
   return [...folders, ...Object.values(foldersByAccount).flat()]
+}
+
+// Read the per-account folder cache in a way memoization can trust. Legend-State
+// mutates the raw object in place when a child node is set, so
+// `useValue(mail$.foldersByAccount)` keeps handing back the *same* object
+// reference after one account's list is replaced. The change does bubble up, so
+// the component re-renders — but anything memoized on that reference (the column
+// picker's folder tree, the label lookups) keeps its stale value, which is why a
+// folder created in the app only showed up after a restart. Every write replaces
+// an account's array wholesale, so comparing array identities is enough to know
+// when to mint a fresh object.
+export function useFoldersByAccount(): Record<string, Folder[]> {
+  const byAccount = useValue(mail$.foldersByAccount)
+  const snapshot = useRef<Record<string, Folder[]>>({})
+  snapshot.current = nextFoldersSnapshot(snapshot.current, byAccount)
+  return snapshot.current
+}
+
+// The comparison behind `useFoldersByAccount`, split out so it can be tested
+// without a DOM renderer: a fresh object when any account's list was replaced (or
+// an account came or went), the previous one otherwise so memos still hold.
+export function nextFoldersSnapshot(
+  previous: Record<string, Folder[]>,
+  current: Record<string, Folder[]>,
+): Record<string, Folder[]> {
+  const keys = Object.keys(current)
+  const changed = keys.length !== Object.keys(previous).length || keys.some((key) => previous[key] !== current[key])
+  return changed ? { ...current } : previous
 }
 
 export function accountLabel(accountId: string, accounts: { id: string; email: string; display_name: string }[]) {

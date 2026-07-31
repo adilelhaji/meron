@@ -5,7 +5,7 @@ import { useTranslation } from '../../lib/i18n'
 import { accounts$ } from '../../states/accounts'
 import { mail$ } from '../../states/mail'
 import { kanbanColumnKey, type KanbanColumn } from '../../states/kanban'
-import { accountLabel, folderLabel, mergeLabelFolders } from '../../lib/kanbanData'
+import { accountLabel, folderLabel, mergeLabelFolders, useFoldersByAccount } from '../../lib/kanbanData'
 import { Avatar } from '../avatar/Avatar'
 
 // Custom dropdown component for the search scope selector
@@ -23,7 +23,7 @@ export function SearchScopeDropdown({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const accounts = useValue(accounts$)
   const folderList = useValue(mail$.folders)
-  const foldersByAccount = useValue(mail$.foldersByAccount)
+  const foldersByAccount = useFoldersByAccount()
   const folders = useMemo(() => mergeLabelFolders(folderList, foldersByAccount), [folderList, foldersByAccount])
 
   useEffect(() => {
