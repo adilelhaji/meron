@@ -63,6 +63,16 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.2" date="2026-07-31">
+      <description>
+        <ul>
+          <li>Support HTTP and SOCKS5 proxies (app-wide and per account)</li>
+          <li>Support non-ASCII folder names</li>
+          <li>Support deleting folders together with subfolders</li>
+          <li>Improve folder syncing and creation updates</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-07-30">
       <description>
         <ul>

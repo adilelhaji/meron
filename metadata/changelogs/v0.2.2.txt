@@ -1,0 +1,4 @@
+- Support HTTP and SOCKS5 proxies (app-wide and per account)
+- Support non-ASCII folder names
+- Support deleting folders together with subfolders
+- Improve folder syncing and creation updates
