@@ -1,0 +1,75 @@
+default_platform(:mac)
+
+# The desktop app is built by scripts/build-mas.sh at the repo root, not by
+# fastlane — it is a Wails/Go build, not an Xcode project. This lane only takes
+# the finished .pkg the other way: up to App Store Connect.
+
+platform :mac do
+  private_lane :asc_api_key do
+    key_id = ENV["APP_STORE_KEY_ID"]
+    issuer_id = ENV["APP_STORE_ISSUER_ID"]
+    key_filepath = ENV["APP_STORE_KEY_FILEPATH"]
+    key_content = ENV["APP_STORE_KEY"] || ENV["APP_STORE_KEY_CONTENT"]
+
+    UI.user_error!("Set APP_STORE_KEY_ID") if key_id.to_s.empty?
+    UI.user_error!("Set APP_STORE_ISSUER_ID") if issuer_id.to_s.empty?
+    UI.user_error!("Set APP_STORE_KEY_FILEPATH or APP_STORE_KEY") if key_filepath.to_s.empty? && key_content.to_s.empty?
+
+    app_store_connect_api_key(
+      key_id: key_id,
+      issuer_id: issuer_id,
+      key_filepath: key_filepath,
+      key_content: key_content,
+      is_key_content_base64: ENV["APP_STORE_IS_BASE64"] == "1"
+    )
+  end
+
+  desc "Upload a Mac App Store .pkg to App Store Connect"
+  lane :upload_pkg do |options|
+    api_key = asc_api_key
+    app_identifier = options[:app_identifier] || ENV["MAC_APP_IDENTIFIER"] || "jp.nonbili.meron"
+    pkg_path = options[:pkg] || ENV["PKG_PATH"] || File.expand_path("../../../dist/Meron-mas.pkg", __dir__)
+    skip_binary_upload = ENV["MAC_SKIP_BINARY_UPLOAD"] == "1"
+    submit_for_review = ENV["MAC_SUBMIT_FOR_REVIEW"] == "1"
+    app_version = ENV["MAC_APP_VERSION"]
+    build_number = ENV["MAC_BUILD_NUMBER"]
+    release_notes_path = ENV["MAC_RELEASE_NOTES_PATH"] || File.expand_path("../../fastlane/metadata/mac/en-US/release_notes.txt", __dir__)
+    release_notes = File.exist?(release_notes_path) ? File.read(release_notes_path).strip : nil
+
+    UI.user_error!("PKG not found: #{pkg_path}") if !skip_binary_upload && !File.exist?(pkg_path)
+
+    upload_options = {
+      force: true,
+      api_key: api_key,
+      # 'osx' is what App Store Connect calls the Mac platform; without it
+      # fastlane would look at the iOS version of the same record.
+      platform: "osx",
+      app_identifier: app_identifier,
+      app_version: app_version,
+      metadata_path: File.expand_path("../../fastlane/metadata/mac", __dir__),
+      screenshots_path: File.expand_path("../../fastlane/metadata/mac", __dir__),
+      release_notes: release_notes.to_s.empty? ? nil : { "en-US" => release_notes },
+      skip_metadata: release_notes.to_s.empty?,
+      skip_binary_upload: skip_binary_upload,
+      skip_screenshots: true,
+      ignore_language_directory_validation: true,
+      run_precheck_before_submit: false,
+      reject_if_possible: ENV["MAC_REJECT_IF_POSSIBLE"] == "1",
+      submit_for_review: submit_for_review,
+      automatic_release: ENV["MAC_AUTOMATIC_RELEASE"] == "1",
+      submission_information: {
+        add_id_info_uses_idfa: false,
+        export_compliance_uses_encryption: ENV["MAC_USES_ENCRYPTION"] == "1",
+        export_compliance_encryption_updated: false
+      }
+    }
+
+    if skip_binary_upload
+      upload_options[:build_number] = build_number
+    else
+      upload_options[:pkg] = pkg_path
+    end
+
+    upload_to_app_store(upload_options)
+  end
+end

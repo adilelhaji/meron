@@ -1,2 +1,3 @@
 import "../fastlane-config/android/Fastfile"
 import "../fastlane-config/ios/Fastfile"
+import "../fastlane-config/mac/Fastfile"

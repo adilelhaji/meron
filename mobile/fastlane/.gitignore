@@ -13,5 +13,8 @@ screenshots/
 # artifacts are ignored:
 #  - default.txt (placeholder fallback)
 #  - iOS release_notes.txt (copied from the versionCode changelog at upload)
+#  - Mac release_notes.txt (copied from metadata/changelogs/v<version>.txt, the
+#    desktop changelog, at upload)
 metadata/android/en-US/changelogs/default.txt
 metadata/ios/en-US/release_notes.txt
+metadata/mac/en-US/release_notes.txt

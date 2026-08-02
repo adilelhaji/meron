@@ -11,6 +11,7 @@ import (
 // which asset the updater downloads and how it is applied.
 const (
 	channelDMG      = "dmg"      // macOS .app inside /Applications, shipped as a .dmg
+	channelMAS      = "mas"      // macOS .app installed from the Mac App Store
 	channelAppImage = "appimage" // single-file Linux AppImage
 	channelTarball  = "tarball"  // raw Linux binary from the .tar.gz
 	channelNSIS     = "nsis"     // Windows install from the NSIS installer
@@ -94,6 +95,13 @@ func detectChannelFrom(goos, exe string, getenv func(string) string) (channel up
 		bundle := appBundleRoot(exe)
 		if bundle == "" {
 			return updateChannel{Kind: channelUnknown}
+		}
+		// The App Store wraps every install with a receipt. Those bundles are
+		// owned by the store — replacing one in place would break the signature
+		// and App Review rejects apps that update themselves — so report it as
+		// managed and let the UI say so.
+		if fileExists(filepath.Join(bundle, "Contents", "_MASReceipt", "receipt")) {
+			return updateChannel{Kind: channelMAS, Managed: true}
 		}
 		return updateChannel{Kind: channelDMG, Target: bundle}
 

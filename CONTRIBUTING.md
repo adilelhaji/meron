@@ -36,6 +36,22 @@ bun run build         # build the desktop app
 bun run build:release # full release build (scripts/build.sh)
 ```
 
+### Mac App Store
+
+The store build is sandboxed, universal and signed differently from the DMG:
+it ships the sidecar inside the bundle, drops the entitlements the store
+rejects, and leaves updates to the store. The header comment in
+`scripts/build-mas.sh` covers the required certificates and environment.
+
+```sh
+bun scripts/upload-mac-app-store.ts  # builds, then uploads
+./scripts/build-mas.sh               # build only -> dist/Meron-mas.pkg
+```
+
+Building universal needs both Rust targets, so run it inside `nix-shell`
+(which provides `rustup`); `MAS_ARCHS=arm64` opts out at the cost of Intel
+support.
+
 ### Linux packaging
 
 Package-managed builds should launch Meron with

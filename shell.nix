@@ -1,14 +1,23 @@
 { pkgs ? import <nixpkgs> {} }:
 
-pkgs.mkShell {
+let
+  # On macOS the Apple toolchain has to stay in charge: Go/cgo, Wails, codesign
+  # and altool all break in confusing ways once nix's stdenv C toolchain takes
+  # over, because it hijacks cc, DEVELOPER_DIR/SDKROOT and xcrun. mkShellNoCC
+  # keeps nix out of the compiler's way — this shell is only here for the tools
+  # below, above all rustup, which the universal Mac App Store build needs for
+  # the second Rust target. Linux does want a compiler, for cgo and webkit.
+  mkShell = if pkgs.stdenv.isDarwin then pkgs.mkShellNoCC else pkgs.mkShell;
+in
+mkShell {
   packages = with pkgs; [
     bun
     coreutils
-    gcc
     go
     rustup
     sqlite
   ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+    gcc
     gtk3
     pkg-config
     webkitgtk_4_1

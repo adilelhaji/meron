@@ -151,6 +151,42 @@ func TestDetectChannelFromNSIS(t *testing.T) {
 	}
 }
 
+// An App Store install is told apart from a DMG install by the receipt the
+// store writes into the bundle, so this case needs a real file too.
+func TestDetectChannelFromMAS(t *testing.T) {
+	dir := t.TempDir()
+	bundle := filepath.Join(dir, "Meron.app")
+	exe := filepath.Join(bundle, "Contents", "MacOS", "meron")
+	receipt := filepath.Join(bundle, "Contents", "_MASReceipt", "receipt")
+	for _, path := range []string{exe, receipt} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	channel := detectChannelFrom("darwin", exe, envMap(nil))
+	if channel.Kind != channelMAS {
+		t.Errorf("Kind = %q, want %q", channel.Kind, channelMAS)
+	}
+	if !channel.Managed {
+		t.Error("an App Store install must report as managed")
+	}
+	if channel.SelfUpdatable() {
+		t.Error("an App Store install must not offer in-app updates")
+	}
+
+	// The same bundle without a receipt is an ordinary DMG install.
+	if err := os.Remove(receipt); err != nil {
+		t.Fatal(err)
+	}
+	if channel := detectChannelFrom("darwin", exe, envMap(nil)); channel.Kind != channelDMG {
+		t.Errorf("Kind = %q, want %q", channel.Kind, channelDMG)
+	}
+}
+
 func TestSelfUpdatable(t *testing.T) {
 	cases := []struct {
 		channel updateChannel

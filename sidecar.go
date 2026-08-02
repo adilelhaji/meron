@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -206,8 +207,11 @@ func (s *Sidecar) readLoop(ctx context.Context, stdout io.Reader) {
 // once and caching the result. Resolution order:
 //
 //  1. MERON_CORE_SERVER env var (explicit override; used in dev and custom installs)
-//  2. the embedded sidecar, extracted to the cache dir (release builds)
-//  3. the freshly built debug binary relative to the repo root (plain `wails dev`)
+//  2. a meron-core sitting beside the running executable (App Store builds, which
+//     ship it inside the bundle because a sandboxed app may not exec a binary it
+//     wrote outside its own bundle)
+//  3. the embedded sidecar, extracted to the cache dir (release builds)
+//  4. the freshly built debug binary relative to the repo root (plain `wails dev`)
 //
 // Resolving relative to the working directory was the cause of the release
 // binary showing the setup screen: launched outside the repo, it never found
@@ -224,9 +228,21 @@ var (
 	mailServerResolved string
 )
 
+// sidecarBinaryName is what the sidecar is called when it ships beside the
+// executable rather than embedded.
+var sidecarBinaryName = func() string {
+	if runtime.GOOS == "windows" {
+		return "meron-core.exe"
+	}
+	return "meron-core"
+}()
+
 func resolveMailServerPath() string {
 	if value := os.Getenv("MERON_CORE_SERVER"); value != "" {
 		return value
+	}
+	if path := bundledSidecarPath(); path != "" {
+		return path
 	}
 	if len(embeddedSidecar) > 0 {
 		if path, err := extractEmbeddedSidecar(); err == nil {
@@ -236,6 +252,34 @@ func resolveMailServerPath() string {
 		}
 	}
 	return "meron-core/target/debug/meron-core"
+}
+
+// bundledSidecarPath returns the sidecar shipped next to the running executable,
+// or "" when there isn't one. The App Store build puts it at
+// Meron.app/Contents/MacOS/meron-core and signs it as part of the bundle: a
+// sandboxed app is not allowed to exec a binary it extracted to its cache dir,
+// and App Review rejects executable code delivered outside the bundle anyway.
+func bundledSidecarPath() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = resolved
+	}
+	return bundledSidecarPathIn(filepath.Dir(exe))
+}
+
+// bundledSidecarPathIn is the testable core of bundledSidecarPath: it takes the
+// directory holding the running executable and returns "" when no sidecar sits
+// beside it.
+func bundledSidecarPathIn(dir string) string {
+	path := filepath.Join(dir, sidecarBinaryName)
+	info, err := os.Stat(path)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return path
 }
 
 // extractEmbeddedSidecar writes the embedded sidecar to the cache dir under a

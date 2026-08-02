@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -36,6 +37,35 @@ func TestJSONHelpersCoerceExpectedTypes(t *testing.T) {
 		if got := jsonNumber(tt.value); got != tt.want {
 			t.Fatalf("jsonNumber(%#v) = %d, want %d", tt.value, got, tt.want)
 		}
+	}
+}
+
+// The App Store build ships the sidecar at Meron.app/Contents/MacOS/meron-core
+// and relies on this lookup to find it: the sandbox forbids exec'ing the copy
+// the other builds extract to the cache dir.
+func TestBundledSidecarPathIn(t *testing.T) {
+	dir := t.TempDir()
+	if got := bundledSidecarPathIn(dir); got != "" {
+		t.Fatalf("empty dir = %q, want no sidecar", got)
+	}
+
+	// A directory of that name is not a sidecar.
+	path := filepath.Join(dir, sidecarBinaryName)
+	if err := os.Mkdir(path, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := bundledSidecarPathIn(dir); got != "" {
+		t.Fatalf("directory = %q, want no sidecar", got)
+	}
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := bundledSidecarPathIn(dir); got != path {
+		t.Fatalf("bundledSidecarPathIn = %q, want %q", got, path)
 	}
 }
 

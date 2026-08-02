@@ -174,10 +174,13 @@ func safeFilename(name string) string {
 }
 
 func openSystemFile(path string) error {
+	// macOS goes through NSWorkspace rather than `open`, because the App Store
+	// build is sandboxed and the sandbox denies exec'ing it.
+	if runtime.GOOS == "darwin" {
+		return openSystemFileDarwin(path)
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("open", path)
 	case "windows":
 		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", path)
 	default:

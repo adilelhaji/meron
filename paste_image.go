@@ -47,6 +47,9 @@ func readClipboardImage() ([]byte, string, string, error) {
 		if len(data) == 0 || err != nil {
 			return data, "", ext, err
 		}
+		if ext == "jpg" {
+			return data, "image/jpeg", ext, nil
+		}
 		return data, "image/png", ext, nil
 	}
 
@@ -102,50 +105,6 @@ func readClipboardImage() ([]byte, string, string, error) {
 
 	log.Printf("[composer-paste] native no clipboard image helper found or no image available")
 	return nil, "", "", nil
-}
-
-func readClipboardImageDarwin() ([]byte, string, error) {
-	log.Printf("[composer-paste] native darwin osascript clipboard image read")
-	f, err := os.CreateTemp("", "meron-pbpaste-*.png")
-	if err != nil {
-		return nil, "", err
-	}
-	path := f.Name()
-	_ = f.Close()
-	defer os.Remove(path)
-
-	script := `try
-  set imgData to the clipboard as «class PNGf»
-  set fp to open for access POSIX file "` + path + `" with write permission
-  set eof fp to 0
-  write imgData to fp
-  close access fp
-  return "ok"
-on error
-  return "none"
-end try`
-
-	cmd := exec.Command("osascript", "-")
-	cmd.Stdin = strings.NewReader(script)
-	out, err := cmd.Output()
-	if err != nil {
-		log.Printf("[composer-paste] native osascript failed: %v", err)
-		return nil, "", nil
-	}
-	if strings.TrimSpace(string(out)) != "ok" {
-		log.Printf("[composer-paste] native osascript found no PNG image, output=%q", strings.TrimSpace(string(out)))
-		return nil, "", nil
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, "", err
-	}
-	if len(data) == 0 {
-		log.Printf("[composer-paste] native osascript wrote empty image")
-		return nil, "", nil
-	}
-	log.Printf("[composer-paste] native osascript image bytes=%d", len(data))
-	return data, "png", nil
 }
 
 func hasClipboardType(types []string, want string) bool {
@@ -217,9 +176,9 @@ func imageMimeForPath(path string) string {
 // copyImage puts an attachment stored under the media dir onto the system
 // clipboard as an image. The webview's native "Copy Image" is inert in the
 // Wails webview, so the gallery's custom context menu calls this instead. It
-// mirrors readClipboardImage in reverse — shelling out to wl-copy / xclip /
-// osascript rather than the webview clipboard, which can't reliably carry
-// images here.
+// mirrors readClipboardImage in reverse — going through NSPasteboard on macOS
+// and wl-copy / xclip elsewhere rather than the webview clipboard, which can't
+// reliably carry images here.
 func (a *App) copyImage(payload map[string]any) (any, error) {
 	key, _ := payload["key"].(string)
 	src, err := resolveMediaPath(key)
@@ -259,20 +218,6 @@ func copyImageToClipboard(path string) error {
 		return nil
 	}
 	return errors.New("no clipboard helper found (install wl-clipboard or xclip)")
-}
-
-func copyImageToClipboardDarwin(path, mime string) error {
-	klass := "«class PNGf»"
-	if mime == "image/jpeg" || mime == "image/jpg" {
-		klass = "«class JPEG»"
-	}
-	script := `set the clipboard to (read POSIX file "` + path + `" as ` + klass + `)`
-	cmd := exec.Command("osascript", "-")
-	cmd.Stdin = strings.NewReader(script)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("osascript: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
 }
 
 func (a *App) writeMediaFile(payload map[string]any) (any, error) {

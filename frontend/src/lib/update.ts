@@ -6,6 +6,7 @@ export type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'r
 /** How this copy of Meron was installed (see update_channel.go). */
 export type UpdateChannel =
   | 'dmg'
+  | 'mas'
   | 'appimage'
   | 'tarball'
   | 'nsis'
@@ -18,7 +19,7 @@ export type UpdateChannel =
 export interface UpdateStatus {
   state: UpdateState
   channel: UpdateChannel
-  /** A store (Snap, Flathub, Microsoft Store) owns updates for this build. */
+  /** A store (Mac App Store, Snap, Flathub, Microsoft Store) owns updates for this build. */
   managed: boolean
   /** Whether in-app updates work here at all. False for managed and dev builds. */
   supported: boolean

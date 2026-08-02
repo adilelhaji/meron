@@ -9,8 +9,14 @@
         <string>{{.OutputFilename}}</string>
         <key>CFBundleIdentifier</key>
         <string>jp.nonbili.{{.Name}}</string>
+        <!-- The build number, independent of the marketing version below the way
+             CURRENT_PROJECT_VERSION is of MARKETING_VERSION on iOS. App Store
+             Connect dedupes uploads on it, so bump it for every upload, including
+             a re-upload of a version already there. It does not live in
+             wails.json: the wails CLI rewrites that file from a Go struct with no
+             field for it (`wails dev`), which would drop it without a word. -->
         <key>CFBundleVersion</key>
-        <string>{{.Info.ProductVersion}}</string>
+        <string>1</string>
         <key>CFBundleGetInfoString</key>
         <string>{{.Info.Comments}}</string>
         <key>CFBundleShortVersionString</key>
@@ -23,6 +29,16 @@
         <string>true</string>
         <key>NSHumanReadableCopyright</key>
         <string>{{.Info.Copyright}}</string>
+        <!-- Required by the App Store; harmless for the DMG build, where it just
+             sets the Finder category. -->
+        <key>LSApplicationCategoryType</key>
+        <string>public.app-category.productivity</string>
+        <!-- The app's only cryptography is TLS and the SQLCipher local store,
+             both exempt under category 5D992, so App Store Connect can skip the
+             export-compliance prompt on every upload. Matches the iOS answer in
+             fastlane-config/ios/Fastfile. -->
+        <key>ITSAppUsesNonExemptEncryption</key>
+        <false/>
         {{if .Info.FileAssociations}}
         <key>CFBundleDocumentTypes</key>
         <array>

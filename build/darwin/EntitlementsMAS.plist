@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements for the Mac App Store build. Deliberately a smaller set than
+  Entitlements.plist (the Developer ID / DMG build): the App Store requires the
+  sandbox and rejects both cs.disable-library-validation and
+  cs.allow-unsigned-executable-memory, neither of which the app actually needs
+  once WebKit runs out of process.
+-->
+<plist version="1.0">
+<dict>
+    <!-- Mandatory for the App Store. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+
+    <!-- IMAP, SMTP, RSS and OAuth all talk outbound. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- The OAuth flow hands the browser a loopback redirect URI and listens on
+         an ephemeral port for the code (see serveOAuthRedirect). -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <!-- Saving an attachment and attaching a file both go through NSSavePanel /
+         NSOpenPanel, which grants access only to what the user picks. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+
+    <!-- "Save attachment" defaults to Downloads. -->
+    <key>com.apple.security.files.downloads.read-write</key>
+    <true/>
+</dict>
+</plist>
