@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useValue } from '@legendapp/state/react'
-import { Check, ChevronDown, ChevronRight, Folder as FolderIcon } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { folderIcon } from '../../lib/folderIcon'
 import { useTranslation } from '../../lib/i18n'
 import { clsx } from '../../lib/utils'
 import { ensureAccountFolders, mail$ } from '../../states/mail'
@@ -32,6 +33,7 @@ function FolderNodeRow({
   const current = !!node.folder && node.folder.id === currentFolderId
   const taken = !!node.folder && !current && !!takenFolderIds?.includes(node.folder.id)
   const selectable = !!node.folder && !current && !taken
+  const Icon = folderIcon(node.folder)
 
   return (
     <div>
@@ -63,7 +65,7 @@ function FolderNodeRow({
           {current ? (
             <Check size={13} className="shrink-0 text-accent" />
           ) : (
-            <FolderIcon size={13} className="shrink-0 text-secondary" />
+            <Icon size={13} className="shrink-0 text-secondary" />
           )}
           <span className="min-w-0 truncate">{node.name}</span>
         </button>
@@ -154,7 +156,9 @@ export function ColumnFolderSwitcher({
     <>
       <button
         type="button"
-        className={clsx('flex min-w-0 items-center gap-1 rounded px-1 -mx-1 hover:bg-hover', labelClassName)}
+        // Sized well past the label's own line box: the header is 48px tall, so a
+        // text-height hit target left most of it dead.
+        className={clsx('flex h-8 min-w-0 items-center gap-1 rounded px-2 -mx-2 hover:bg-hover', labelClassName)}
         title={t('kanban.actions.switchFolder')}
         onClick={open}
         // The header is a drag handle; keep the pointer gesture to ourselves.

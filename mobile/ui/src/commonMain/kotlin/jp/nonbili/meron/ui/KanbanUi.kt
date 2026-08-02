@@ -71,7 +71,6 @@ import androidx.compose.material.icons.filled.ViewKanban
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Drafts
-import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -898,8 +897,8 @@ internal fun KanbanColumnHeader(
                                 Icon(
                                     when {
                                         current -> Icons.Filled.Check
-                                        row.node.name.equals(INBOX_FOLDER, ignoreCase = true) -> Icons.Filled.Inbox
-                                        else -> Icons.Outlined.FolderOpen
+                                        folder != null -> folderIcon(folder)
+                                        else -> folderIcon(row.node.name)
                                     },
                                     contentDescription = null,
                                     tint =
@@ -1240,8 +1239,8 @@ internal fun KanbanColumnDialog(
                                 leadingIcon =
                                     when {
                                         isRss -> Icons.Filled.RssFeed
-                                        row.node.name.equals(INBOX_FOLDER, ignoreCase = true) -> Icons.Filled.Inbox
-                                        else -> Icons.Outlined.FolderOpen
+                                        folder != null -> folderIcon(folder)
+                                        else -> folderIcon(row.node.name)
                                     },
                             )
                         }

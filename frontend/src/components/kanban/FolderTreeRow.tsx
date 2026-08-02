@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronRight, Folder as FolderIcon } from 'lucide-react'
+import { ChevronRight, Rss } from 'lucide-react'
+import { folderIcon } from '../../lib/folderIcon'
 import { kanbanColumnKey } from '../../states/kanban'
 import { Checkbox } from '../field/Checkbox'
 import { selectableFolderIds, type TreeNode } from './folderTree'
@@ -38,12 +39,10 @@ export function FolderTreeRow({
     if (checkboxRef.current) checkboxRef.current.indeterminate = someChecked
   }, [someChecked])
 
-  const displayName =
-    node.folder && (node.folder.id.toLowerCase() === 'inbox' || node.folder.name.toLowerCase() === 'inbox')
-      ? isRSS
-        ? 'Feed'
-        : 'Inbox'
-      : node.name
+  const isInbox =
+    !!node.folder && (node.folder.id.toLowerCase() === 'inbox' || node.folder.name.toLowerCase() === 'inbox')
+  const displayName = isInbox ? (isRSS ? 'Feed' : 'Inbox') : node.name
+  const Icon = isRSS && isInbox ? Rss : folderIcon(node.folder)
 
   return (
     <div>
@@ -68,7 +67,7 @@ export function FolderTreeRow({
             disabled={controlledKeys.length === 0}
             onChange={(event) => onToggle(controlledKeys, event.target.checked)}
           />
-          <FolderIcon size={14} className="shrink-0 text-secondary" />
+          <Icon size={14} className="shrink-0 text-secondary" />
           <span className="truncate text-xs font-semibold text-primary">{displayName}</span>
         </label>
       </div>

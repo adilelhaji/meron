@@ -6,9 +6,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.StickyNote2
+import androidx.compose.material.icons.filled.AllInbox
 import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.filled.Outbox
+import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewKanban
 import androidx.compose.material.icons.outlined.Drafts
@@ -99,14 +103,48 @@ internal fun isOutgoing(
     return from.contains(acct)
 }
 
-internal fun folderIcon(name: String): ImageVector =
-    when (name.lowercase()) {
+/**
+ * Icon for a folder: its RFC 6154 special-use role when the server advertises
+ * one, otherwise a guess from the folder's own name.
+ */
+internal fun folderIcon(folder: FolderSummary): ImageVector =
+    when (folder.role.lowercase()) {
         "inbox" -> Icons.Filled.Inbox
+
         "sent" -> Icons.AutoMirrored.Filled.Send
+
         "drafts" -> Icons.Outlined.Drafts
+
+        "trash" -> Icons.Filled.Delete
+
+        "junk" -> Icons.Filled.Report
+
         "archive" -> Icons.Filled.Archive
-        "trash", "deleted" -> Icons.Filled.Delete
-        "starred" -> Icons.Filled.Star
+
+        "all" -> Icons.Filled.AllInbox
+
+        // Hierarchical names arrive as full paths ("INBOX.Sent"); only the leaf
+        // carries the meaning.
+        else -> folderIcon(folder.displayName.split('/', '.').last())
+    }
+
+/**
+ * Icon guessed from a folder name alone, for servers that don't advertise
+ * special-use. Kept to exact well-known names: a user folder called "Archives"
+ * or "Notebook" stays a plain folder.
+ */
+internal fun folderIcon(name: String): ImageVector =
+    when (name.trim().lowercase()) {
+        "inbox" -> Icons.Filled.Inbox
+        "sent", "sent mail", "sent items", "sent messages" -> Icons.AutoMirrored.Filled.Send
+        "drafts", "draft" -> Icons.Outlined.Drafts
+        "outbox" -> Icons.Filled.Outbox
+        "archive" -> Icons.Filled.Archive
+        "all mail" -> Icons.Filled.AllInbox
+        "trash", "bin", "deleted", "deleted items", "deleted messages" -> Icons.Filled.Delete
+        "junk", "spam", "junk e-mail", "junk email", "bulk mail" -> Icons.Filled.Report
+        "notes" -> Icons.AutoMirrored.Outlined.StickyNote2
+        "starred", "flagged" -> Icons.Filled.Star
         else -> Icons.Outlined.FolderOpen
     }
 

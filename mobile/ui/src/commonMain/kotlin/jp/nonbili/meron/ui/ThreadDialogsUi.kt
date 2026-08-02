@@ -169,7 +169,7 @@ internal fun FolderDestinationAction(
     folder: FolderSummary,
     onClick: () -> Unit,
 ) {
-    val icon = folderIcon(folder.name)
+    val icon = folderIcon(folder)
     TextButton(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Icon(
             icon,
