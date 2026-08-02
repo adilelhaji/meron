@@ -405,7 +405,7 @@ function KanbanColumnContent({
       {headerContextMenu}
       <div
         data-thread-list
-        className="flex-1 space-y-1 overflow-y-auto p-1"
+        className="flex-1 space-y-1 overflow-y-auto p-1 pr-0"
         onScroll={(event) => {
           if (searchActive || !hasMore || loadingMore) return
           const el = event.currentTarget

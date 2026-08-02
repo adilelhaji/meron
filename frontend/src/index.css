@@ -292,24 +292,42 @@ textarea,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.2);
-  border: 2px solid transparent;
+  background-color: rgba(100, 116, 139, 0.2);
+  border: 3px solid transparent;
   background-clip: padding-box;
   border-radius: 999px;
-  transition: background 0.15s ease;
+  transition: background-color 0.15s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.45);
-  border: 0px solid transparent;
+  background-color: rgba(100, 116, 139, 0.45);
+  border: 2px solid transparent;
 }
 
 .dark ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.15);
+  background-color: rgba(255, 255, 255, 0.15);
 }
 
 .dark ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.35);
+  background-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Thread lists have no right padding: the scrollbar gutter provides it, so the
+   4px between a card and the thumb matches the 4px padding on the left. */
+[data-thread-list] {
+  scrollbar-gutter: stable;
+}
+
+[data-thread-list]::-webkit-scrollbar {
+  width: 12px;
+}
+
+[data-thread-list]::-webkit-scrollbar-thumb {
+  border-width: 4px;
+}
+
+[data-thread-list]::-webkit-scrollbar-thumb:hover {
+  border-width: 3px;
 }
 
 /* Custom patterns */
