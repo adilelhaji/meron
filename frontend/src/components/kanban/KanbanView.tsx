@@ -126,8 +126,17 @@ export function KanbanView({ boardId }: { boardId: string }) {
     setDialogOpen(true)
   }
 
+  // Matches are drawn in the column body, so scoping a search to a collapsed
+  // column would hide the very results it just loaded behind the strip.
+  function expandSearchScope(scope: string) {
+    const column = visibleColumns.find((item) => kanbanColumnKey(item) === scope)
+    if (!column) return
+    settings$.kanbanMinimizedColumns[kanbanBoardColumnKey(boardId, column)].set(false)
+  }
+
   function searchColumn(column: KanbanColumn) {
     kanban$.searchScope.set(kanbanColumnKey(column))
+    expandSearchScope(kanbanColumnKey(column))
     setSearchOpen(true)
     requestAnimationFrame(() => {
       searchInputRef.current?.focus()
@@ -236,7 +245,10 @@ export function KanbanView({ boardId }: { boardId: string }) {
             </div>
             <SearchScopeDropdown
               value={searchScope}
-              onChange={(val) => kanban$.searchScope.set(val)}
+              onChange={(val) => {
+                kanban$.searchScope.set(val)
+                expandSearchScope(val)
+              }}
               visibleColumns={visibleColumns}
             />
           </div>

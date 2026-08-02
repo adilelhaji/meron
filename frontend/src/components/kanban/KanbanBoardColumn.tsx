@@ -214,14 +214,69 @@ function KanbanColumnContent({
     void loadKanbanColumn(column, true)
   }, [column.accountId, column.folderId, filterMode])
 
-  const openHeaderMenu = (event: ReactMouseEvent<HTMLDivElement>) => {
+  const openHeaderMenu = (event: ReactMouseEvent<HTMLElement>) => {
     event.preventDefault()
     event.stopPropagation()
     setHeaderMenu({ x: event.clientX, y: event.clientY })
   }
 
+  // Same actions whether the column is expanded or collapsed to a strip, so the
+  // menu is built once and rendered next to either body.
+  const headerContextMenu = headerMenu && (
+    <FloatingContextMenu
+      x={headerMenu.x}
+      y={headerMenu.y}
+      offset={4}
+      onClose={() => setHeaderMenu(null)}
+      overlay
+      className="fixed z-50 min-w-[176px] rounded-xl border border-border bg-chats p-1 shadow-2xl animate-fade-in text-primary"
+      onContextMenu={(event) => {
+        event.preventDefault()
+        event.stopPropagation()
+      }}
+    >
+      <ThreadActionsMenuItems
+        filterMode={filterMode}
+        onFilterChange={(mode) => {
+          mail$.readThreads.set({})
+          kanban$.filters[key].set(mode)
+        }}
+        hasUnread={hasUnread}
+        onMarkAllRead={() => void markColumnAllRead(column)}
+        onEmptyFolder={emptiableTarget ? () => void emptyColumnFolder() : undefined}
+        emptyFolderLabel={
+          emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
+        }
+        onDeleteFolder={deletableTarget ? deleteColumnFolder : undefined}
+        onSync={async () => {
+          setSyncing(true)
+          try {
+            await syncKanbanColumn(column)
+          } finally {
+            setSyncing(false)
+          }
+        }}
+        syncing={syncing}
+        syncLabel={isRss ? t('feeds.actions.syncFeeds') : undefined}
+        syncingLabel={isRss ? t('feeds.actions.syncingFeeds') : undefined}
+        onRemove={() => removeKanbanColumn(boardId, column)}
+        onSearch={() => onSearchColumn(column)}
+        searchLabel={t('kanban.actions.search', { defaultValue: 'Search' })}
+        // A collapsed column shows no thread list, so filtering it has nothing to
+        // act on until it expands.
+        hideFilters={minimized}
+        closeMenu={() => setHeaderMenu(null)}
+      />
+    </FloatingContextMenu>
+  )
+
   if (minimized) {
-    return <KanbanColumnMinimized boardId={boardId} column={column} wrapper={wrapper} />
+    return (
+      <>
+        <KanbanColumnMinimized boardId={boardId} column={column} wrapper={wrapper} onContextMenu={openHeaderMenu} />
+        {headerContextMenu}
+      </>
+    )
   }
 
   return (
@@ -347,50 +402,7 @@ function KanbanColumnContent({
           </div>
         </div>
       )}
-      {headerMenu && (
-        <FloatingContextMenu
-          x={headerMenu.x}
-          y={headerMenu.y}
-          offset={4}
-          onClose={() => setHeaderMenu(null)}
-          overlay
-          className="fixed z-50 min-w-[176px] rounded-xl border border-border bg-chats p-1 shadow-2xl animate-fade-in text-primary"
-          onContextMenu={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-          }}
-        >
-          <ThreadActionsMenuItems
-            filterMode={filterMode}
-            onFilterChange={(mode) => {
-              mail$.readThreads.set({})
-              kanban$.filters[key].set(mode)
-            }}
-            hasUnread={hasUnread}
-            onMarkAllRead={() => void markColumnAllRead(column)}
-            onEmptyFolder={emptiableTarget ? () => void emptyColumnFolder() : undefined}
-            emptyFolderLabel={
-              emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
-            }
-            onDeleteFolder={deletableTarget ? deleteColumnFolder : undefined}
-            onSync={async () => {
-              setSyncing(true)
-              try {
-                await syncKanbanColumn(column)
-              } finally {
-                setSyncing(false)
-              }
-            }}
-            syncing={syncing}
-            syncLabel={isRss ? t('feeds.actions.syncFeeds') : undefined}
-            syncingLabel={isRss ? t('feeds.actions.syncingFeeds') : undefined}
-            onRemove={() => removeKanbanColumn(boardId, column)}
-            onSearch={() => onSearchColumn(column)}
-            searchLabel={t('kanban.actions.search', { defaultValue: 'Search' })}
-            closeMenu={() => setHeaderMenu(null)}
-          />
-        </FloatingContextMenu>
-      )}
+      {headerContextMenu}
       <div
         data-thread-list
         className="flex-1 space-y-1 overflow-y-auto p-1"

@@ -1,4 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import type { MouseEvent as ReactMouseEvent } from 'react'
 import { Loader2, Pause } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
@@ -27,10 +28,12 @@ export function KanbanColumnMinimized({
   boardId,
   column,
   wrapper,
+  onContextMenu,
 }: {
   boardId: string
   column: KanbanColumn
   wrapper: ColumnWrapper
+  onContextMenu?: (event: ReactMouseEvent<HTMLElement>) => void
 }) {
   const { t } = useTranslation()
   const key = kanbanColumnKey(column)
@@ -90,6 +93,7 @@ export function KanbanColumnMinimized({
       )}
       title={t('kanban.actions.expand')}
       {...wrapper.dragHandle}
+      onContextMenu={onContextMenu}
       onClick={() => {
         settings$.kanbanMinimizedColumns[boardKey].set(false)
         requestAnimationFrame(wrapper.scrollIntoView)

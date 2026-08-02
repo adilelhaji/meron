@@ -25,6 +25,8 @@ export type ThreadActionsMenuItemsProps = {
   onRemove?: () => void
   onSearch?: () => void
   searchLabel?: string
+  /** Set where the filtered list isn't on screen (a collapsed kanban column). */
+  hideFilters?: boolean
   closeMenu: () => void
 }
 
@@ -44,6 +46,7 @@ export function ThreadActionsMenuItems({
   onRemove,
   onSearch,
   searchLabel,
+  hideFilters = false,
   closeMenu,
 }: ThreadActionsMenuItemsProps) {
   const { t } = useTranslation()
@@ -65,10 +68,14 @@ export function ThreadActionsMenuItems({
 
   return (
     <>
-      {filterItem('all', allLabel ?? t('filters.all'), <Inbox size={13} className="text-secondary shrink-0" />)}
-      {filterItem('unread', t('filters.unread'), <Mail size={13} className="text-secondary shrink-0" />)}
-      {filterItem('starred', t('filters.starred'), <Star size={13} className="text-secondary shrink-0" />)}
-      <div className="my-1 border-t border-border" />
+      {!hideFilters && (
+        <>
+          {filterItem('all', allLabel ?? t('filters.all'), <Inbox size={13} className="text-secondary shrink-0" />)}
+          {filterItem('unread', t('filters.unread'), <Mail size={13} className="text-secondary shrink-0" />)}
+          {filterItem('starred', t('filters.starred'), <Star size={13} className="text-secondary shrink-0" />)}
+          <div className="my-1 border-t border-border" />
+        </>
+      )}
       <MenuItem
         className="flex-nowrap disabled:cursor-not-allowed disabled:opacity-50"
         disabled={!hasUnread}
