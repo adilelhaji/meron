@@ -1422,11 +1422,11 @@ internal fun MeronMobileState.switchKanbanColumnFolder(
 }
 
 /**
- * Fetch an account's folder list for the column folder picker when only the
- * bootstrap inbox is cached, so the picker isn't limited to what a sync happened
- * to surface.
+ * Fetch an account's folder list for a folder picker (a kanban column's or the
+ * mail list's) when only the bootstrap inbox is cached, so the picker isn't
+ * limited to what a sync happened to surface.
  */
-internal fun MeronMobileState.ensureKanbanColumnFolders(accountId: String) {
+internal fun MeronMobileState.ensureAccountFolders(accountId: String) {
     if (!coreLoaded || accountId == UNIFIED_ACCOUNT_ID) return
     val account = coreAccounts.firstOrNull { it.id == accountId } ?: return
     if (accountSummaryIsRss(account)) return

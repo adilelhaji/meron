@@ -1,13 +1,16 @@
 package jp.nonbili.meron.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -55,6 +58,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import jp.nonbili.meron.shared.AccountSummary
 import jp.nonbili.meron.shared.FolderSummary
 import jp.nonbili.meron.shared.MobileMailCommandClient
@@ -583,7 +587,7 @@ internal fun KanbanRouteContent(
                         persistKanbanSearchScope(kanbanColumnKey(column))
                         if (kanbanSearch.isNotBlank()) loadKanbanBoard(refresh = true)
                     },
-                    onRequestColumnFolders = { column -> ensureKanbanColumnFolders(column.accountId) },
+                    onRequestColumnFolders = { column -> ensureAccountFolders(column.accountId) },
                     onSwitchColumnFolder = ::switchKanbanColumnFolder,
                     onAddColumn = { showKanbanColumnDialog = true },
                     showSenderImages = showSenderImages,
@@ -704,17 +708,53 @@ internal fun MailRouteContent(
                             if (mailSelectionActive) {
                                 MailSelectionTitle(selectedMailThreads.size, height = 44.dp)
                             } else {
-                                MailHeaderSearchField(
-                                    search = mailSearch,
-                                    placeholder =
-                                        if (selectedAccountIsRss) {
-                                            tr("threads.searchFeeds")
-                                        } else {
-                                            null
-                                        },
-                                    onSearchChange = { mailSearch = it },
-                                    onSearchSubmit = { syncCoreThreads(syncFirst = false) },
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    // Only a per-account mailbox can be repointed: the
+                                    // unified inbox spans accounts and an RSS account
+                                    // has no folders to choose between.
+                                    if (selectedCoreAccountId != UNIFIED_ACCOUNT_ID && !selectedAccountIsRss) {
+                                        FolderSwitcher(
+                                            label =
+                                                folderTitle(
+                                                    selectedCoreAccountId,
+                                                    selectedCoreFolder,
+                                                    coreAccounts,
+                                                    foldersByAccount,
+                                                ),
+                                            folders = foldersByAccount[selectedCoreAccountId].orEmpty(),
+                                            currentFolderId = selectedCoreFolder,
+                                            onRequestFolders = { ensureAccountFolders(selectedCoreAccountId) },
+                                            onSelectFolder = { folder ->
+                                                selectCoreMailbox(selectedCoreAccountId, folder)
+                                                syncCoreThreads(
+                                                    accountOverride = selectedCoreAccountId,
+                                                    folderOverride = folder,
+                                                    syncFirst = false,
+                                                )
+                                            },
+                                            // Capped so a deep folder name can't crowd
+                                            // out the search field next to it.
+                                            modifier = Modifier.widthIn(max = 120.dp),
+                                            fontSize = 14.sp,
+                                        )
+                                    }
+                                    Box(Modifier.weight(1f)) {
+                                        MailHeaderSearchField(
+                                            search = mailSearch,
+                                            placeholder =
+                                                if (selectedAccountIsRss) {
+                                                    tr("threads.searchFeeds")
+                                                } else {
+                                                    null
+                                                },
+                                            onSearchChange = { mailSearch = it },
+                                            onSearchSubmit = { syncCoreThreads(syncFirst = false) },
+                                        )
+                                    }
+                                }
                             }
                         },
                         navigationIcon = {

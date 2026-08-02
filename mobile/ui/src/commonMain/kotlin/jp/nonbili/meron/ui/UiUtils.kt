@@ -246,16 +246,24 @@ internal fun columnTitle(
     column: KanbanColumnSpec,
     accounts: List<AccountSummary>,
     foldersByAccount: Map<String, List<FolderSummary>>,
+): String = folderTitle(column.accountId, column.folderId, accounts, foldersByAccount)
+
+/** The display name of a mailbox, as a kanban column or the mail list shows it. */
+internal fun folderTitle(
+    accountId: String,
+    folderId: String,
+    accounts: List<AccountSummary>,
+    foldersByAccount: Map<String, List<FolderSummary>>,
 ): String {
-    if (column.accountId == UNIFIED_ACCOUNT_ID) {
-        return if (column.folderId.equals(STARRED_FOLDER, ignoreCase = true)) "Unified starred" else "Unified inbox"
+    if (accountId == UNIFIED_ACCOUNT_ID) {
+        return if (folderId.equals(STARRED_FOLDER, ignoreCase = true)) "Unified starred" else "Unified inbox"
     }
-    val account = accounts.firstOrNull { it.id == column.accountId }
+    val account = accounts.firstOrNull { it.id == accountId }
     val folder =
-        foldersByAccount[column.accountId]
-            ?.firstOrNull { it.name.equals(column.folderId, ignoreCase = true) }
+        foldersByAccount[accountId]
+            ?.firstOrNull { it.name.equals(folderId, ignoreCase = true) }
             ?.name
-            ?: column.folderId
+            ?: folderId
     val folderLabel =
         if (folder.equals(INBOX_FOLDER, ignoreCase = true)) {
             if (account?.let(::accountSummaryIsRss) == true) "Feed" else "Inbox"

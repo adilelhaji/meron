@@ -803,7 +803,6 @@ internal fun KanbanColumnHeader(
     onSwitchFolder: (String) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
-    var folderMenuOpen by remember { mutableStateOf(false) }
     val account = accounts.firstOrNull { it.id == column.accountId }
     // Only a per-account mail column can be repointed: unified columns span
     // accounts and an RSS account has no folders to choose between.
@@ -842,83 +841,16 @@ internal fun KanbanColumnHeader(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             val canSwitchFolder = column.accountId != UNIFIED_ACCOUNT_ID && account != null && !accountSummaryIsRss(account)
-            Box(Modifier.weight(1f, fill = false)) {
-                Row(
-                    Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable(enabled = canSwitchFolder) {
-                            onRequestFolders()
-                            folderMenuOpen = true
-                        }.padding(horizontal = 2.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        columnTitle(column, accounts, foldersByAccount),
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 12.sp,
-                        modifier = Modifier.weight(1f, fill = false),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (canSwitchFolder) {
-                        Icon(
-                            Icons.Filled.KeyboardArrowDown,
-                            contentDescription = tr("kanban.actions.switchFolder"),
-                            modifier = Modifier.size(15.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                }
-                DropdownMenu(expanded = folderMenuOpen, onDismissRequest = { folderMenuOpen = false }) {
-                    if (switchableFolders.isEmpty()) {
-                        DropdownMenuItem(text = { Text(tr("folders.loading")) }, onClick = {}, enabled = false)
-                    }
-                    // Nested folders are indented under their parent, the same
-                    // hierarchy the add-column dialog shows.
-                    val folderRows = remember(switchableFolders) { flattenFolderTree(buildFolderTree(switchableFolders)) }
-                    folderRows.forEach { row ->
-                        val folder = row.node.folder
-                        val current = folder != null && kanbanFolderIdsEqual(folder.name, column.folderId)
-                        val taken =
-                            folder != null &&
-                                !current &&
-                                otherColumnFolderIds.any { kanbanFolderIdsEqual(folder.name, it) }
-                        DropdownMenuItem(
-                            modifier = Modifier.padding(start = (row.depth * 14).dp),
-                            text = {
-                                Text(
-                                    row.node.name.replaceFirstChar { it.uppercase() },
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    when {
-                                        current -> Icons.Filled.Check
-                                        folder != null -> folderIcon(folder)
-                                        else -> folderIcon(row.node.name)
-                                    },
-                                    contentDescription = null,
-                                    tint =
-                                        if (current) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                )
-                            },
-                            // Structural nodes (no folder of their own) are labels only.
-                            enabled = folder != null && !taken && !current,
-                            onClick = {
-                                folderMenuOpen = false
-                                folder?.let { onSwitchFolder(it.name) }
-                            },
-                        )
-                    }
-                }
-            }
+            FolderSwitcher(
+                label = columnTitle(column, accounts, foldersByAccount),
+                folders = switchableFolders,
+                currentFolderId = column.folderId,
+                onRequestFolders = onRequestFolders,
+                onSelectFolder = onSwitchFolder,
+                modifier = Modifier.weight(1f, fill = false),
+                enabled = canSwitchFolder,
+                takenFolderIds = otherColumnFolderIds,
+            )
             if (unread > 0) {
                 KanbanUnreadBadge(unread)
             }
