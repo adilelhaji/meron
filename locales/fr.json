@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Synchronisation...",
   "threads.actions.title": "Actions sur le fil",
   "threads.actions.unstarThread": "Ne plus suivre le fil",
-  "threads.backToInbox": "Retour à la boîte de réception",
   "threads.copyConversation": "Copier la conversation",
   "threads.emptyFolder.confirmButton": "Tout supprimer",
   "threads.emptyFolder.confirmMessage": "Tous les messages de {folder} seront définitivement supprimés. Cette action est irréversible.",

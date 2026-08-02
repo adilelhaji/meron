@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, PointerEventHandler } from 'react'
-import { Search, X, Plus, ChevronLeft, SquarePen, MoreHorizontal } from 'lucide-react'
+import { Search, X, Plus, SquarePen, MoreHorizontal } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { openAddFeed, RSS_FEED_DRAG_TYPE } from '../../states/feeds'
@@ -37,9 +37,11 @@ import {
   loadThreads,
 } from '../../states/mail'
 import { isRssAccount } from '../../lib/threadActions'
+import { folderLabel } from '../../lib/kanbanData'
 import { EmptyState } from '../empty-state/EmptyState'
 import { IconButton } from '../button/IconButton'
 import { QuickSettingsMenu } from '../sidenav/QuickSettingsMenu'
+import { FolderSwitcher } from '../menu/FolderSwitcher'
 import { type MessageContextMenuState } from '../chat/MessageContextMenu'
 import { StarredItemMenu } from './StarredItemMenu'
 import { ThreadActionsMenu } from './ThreadActionsMenu'
@@ -132,6 +134,33 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
   // cursor (feeds, starred) there is nothing more to load.
   const canLoadMore = !!threadsCursor && (!!query.trim() || filterMode === 'all')
   const feedRowsDraggable = !isStarredView && isRSSAccount
+  // The folder switcher only makes sense where a single account's real folders
+  // back the list: the unified and starred views are stitched together from many
+  // accounts, and an RSS account's "inbox" is its whole feed set.
+  const showFolderSwitcher =
+    !isStarredView && !isRSSAccount && !!activeAccount && selectedAccount !== 'unified' && !!selectedFolder
+  // Empty-state copy, which the folder switcher made it possible to land on for
+  // any folder: "your inbox is empty" only holds in the inbox, and neither
+  // wording holds while a search or filter is hiding the threads that are there.
+  const inboxFolder = folders.find((folder) => folder.role === 'inbox' || folder.id === 'inbox')
+  const inInbox = selectedFolder === (inboxFolder?.id ?? 'inbox')
+  const narrowed = !!query.trim() || filterMode !== 'all'
+  const emptyStateTitle = narrowed
+    ? t('empty.noMatchingMail')
+    : isRSSAccount
+      ? t('empty.noFeeds')
+      : inInbox
+        ? t('empty.noChats')
+        : t('empty.nothingHereYet')
+  const emptyStateText = narrowed
+    ? t('empty.adjustSearchFilter')
+    : isRSSAccount
+      ? t('empty.addFeedToStart')
+      : inArchive
+        ? t('empty.noArchivedThreads')
+        : inInbox
+          ? t('empty.inboxEmpty')
+          : t('empty.pullLatestMessages')
   const desktopBulk = isWailsDesktopRuntime() || !!system
   const bulkItems = selectedBulkItems()
   const bulkGroupKey = isStarredView ? 'starred' : `thread-list:${selectedAccount}:${selectedFolder}`
@@ -208,9 +237,23 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
       {bulkInThisList ? (
         <BulkActionBar items={bulkItems} allItems={filteredThreads.map(bulkItemFor)} className="min-h-16" />
       ) : (
-        <div className="flex h-16 shrink-0 flex-row items-center gap-3 px-4 border-b border-border bg-white dark:bg-[#0f172a]/40">
+        // Less padding on the right than the left: the trailing icon buttons carry
+        // their own, so px-4 on both sides left the row lopsided.
+        <div className="flex h-16 shrink-0 flex-row items-center gap-3 pl-4 pr-2 border-b border-border bg-white dark:bg-[#0f172a]/40">
           <div className="flex items-center gap-2 w-full">
-            <div className="relative flex-1">
+            {/* Current folder, doubling as a picker: switching here retargets the
+              list the same way it retargets a kanban column. Capped so a deep
+              folder name can't crowd out the search box. */}
+            {showFolderSwitcher && (
+              <FolderSwitcher
+                accountId={selectedAccount}
+                folderId={selectedFolder}
+                label={folderLabel({ accountId: selectedAccount, folderId: selectedFolder }, folders, accounts)}
+                labelClassName="-ml-2 max-w-[40%] shrink-0 text-xs font-bold"
+                onSelect={(nextFolderId) => ui$.selectedFolder.set(nextFolderId)}
+              />
+            )}
+            <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" size={15} />
               <input
                 ref={searchInputRef}
@@ -327,33 +370,13 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
           }
         }}
       >
-        {/* Back to Inbox row if inside archive */}
-        {inArchive ? (
-          <button
-            onClick={() => ui$.selectedFolder.set('inbox')}
-            className="w-full flex items-center gap-2 px-2 py-3 bg-accent/10 hover:bg-accent/15 dark:bg-accent/15 dark:hover:bg-accent/20 text-accent transition-colors font-semibold text-xs cursor-pointer border-b border-border/50"
-          >
-            <ChevronLeft size={16} />
-            <span>{t('threads.backToInbox')}</span>
-          </button>
-        ) : null}
-
         {accounts.length === 0 ? (
           <EmptyState title={t('empty.welcomeTitle')} text={t('empty.mailSetupText')} />
         ) : filteredThreads.length === 0 ? (
           isStarredView ? (
             <EmptyState title={t('empty.noStarredItems')} text={t('empty.noStarredItemsText')} />
           ) : (
-            <EmptyState
-              title={isRSSAccount ? t('empty.noFeeds') : t('empty.noChats')}
-              text={
-                isRSSAccount
-                  ? t('empty.addFeedToStart')
-                  : inArchive
-                    ? t('empty.noArchivedThreads')
-                    : t('empty.inboxEmpty')
-              }
-            />
+            <EmptyState title={emptyStateTitle} text={emptyStateText} />
           )
         ) : (
           <>

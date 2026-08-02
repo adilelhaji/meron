@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Synkroniserar...",
   "threads.actions.title": "Trådåtgärder",
   "threads.actions.unstarThread": "Ta bort stjärnmarkering för tråd",
-  "threads.backToInbox": "Tillbaka till inkorgen",
   "threads.copyConversation": "Kopiera konversation",
   "threads.emptyFolder.confirmButton": "Radera alla",
   "threads.emptyFolder.confirmMessage": "Alla meddelanden i {folder} raderas permanent. Detta kan inte ångras.",

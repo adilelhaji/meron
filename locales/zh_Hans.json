@@ -861,7 +861,6 @@
   "threads.actions.syncing": "正在同步...",
   "threads.actions.title": "会话操作",
   "threads.actions.unstarThread": "取消星标会话",
-  "threads.backToInbox": "返回收件箱",
   "threads.copyConversation": "复制对话",
   "threads.emptyFolder.confirmButton": "全部删除",
   "threads.emptyFolder.confirmMessage": "{folder} 中的所有邮件将被永久删除，此操作无法撤销。",

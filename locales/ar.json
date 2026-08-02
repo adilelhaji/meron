@@ -861,7 +861,6 @@
   "threads.actions.syncing": "جاري المزامنة...",
   "threads.actions.title": "إجراءات سلسلة الرسائل",
   "threads.actions.unstarThread": "إزالة النجمة عن سلسلة الرسائل",
-  "threads.backToInbox": "الرجوع إلى البريد الوارد",
   "threads.copyConversation": "نسخ المحادثة",
   "threads.emptyFolder.confirmButton": "حذف الكل",
   "threads.emptyFolder.confirmMessage": "سيتم حذف جميع الرسائل في {folder} نهائيًا. لا يمكن التراجع عن هذا الإجراء.",

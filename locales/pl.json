@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Synchronizowanie...",
   "threads.actions.title": "Działania na wątku",
   "threads.actions.unstarThread": "Usuń gwiazdkę z wątku",
-  "threads.backToInbox": "Powrót do skrzynki odbiorczej",
   "threads.copyConversation": "Skopiuj rozmowę",
   "threads.emptyFolder.confirmButton": "Usuń wszystko",
   "threads.emptyFolder.confirmMessage": "Wszystkie wiadomości w folderze {folder} zostaną trwale usunięte. Tej operacji nie można cofnąć.",

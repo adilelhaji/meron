@@ -5,9 +5,8 @@ import { folderIcon } from '../../lib/folderIcon'
 import { useTranslation } from '../../lib/i18n'
 import { clsx } from '../../lib/utils'
 import { ensureAccountFolders, mail$ } from '../../states/mail'
-import type { Folder } from '../../types'
-import { FloatingContextMenu } from '../menu/FloatingContextMenu'
-import { menuItemBase } from '../menu/menuStyles'
+import { FloatingContextMenu } from './FloatingContextMenu'
+import { menuItemBase } from './menuStyles'
 import { buildFolderTree, type TreeNode } from '../../lib/folderTree'
 
 const FILTER_THRESHOLD = 8
@@ -88,10 +87,10 @@ function FolderNodeRow({
   )
 }
 
-// The column header's folder name, doubling as a picker: clicking it lists the
-// other folders of the same account so the column can be pointed elsewhere
-// without removing and re-adding it.
-export function ColumnFolderSwitcher({
+// A folder name that doubles as a picker: clicking it lists the other folders of
+// the same account so the surface showing it (a kanban column, the thread list)
+// can be pointed elsewhere without being torn down and rebuilt.
+export function FolderSwitcher({
   accountId,
   folderId,
   label,
@@ -103,7 +102,7 @@ export function ColumnFolderSwitcher({
   folderId: string
   label: string
   labelClassName?: string
-  /** Folders that already have their own column and so can't be switched to. */
+  /** Folders already shown elsewhere (e.g. another column) and so not offered. */
   takenFolderIds?: string[]
   onSelect: (folderId: string) => void
 }) {
@@ -156,12 +155,14 @@ export function ColumnFolderSwitcher({
     <>
       <button
         type="button"
-        // Sized well past the label's own line box: the header is 48px tall, so a
-        // text-height hit target left most of it dead.
-        className={clsx('flex h-8 min-w-0 items-center gap-1 rounded px-2 -mx-2 hover:bg-hover', labelClassName)}
+        // Sized well past the label's own line box: the headers hosting this are
+        // 48px+ tall, so a text-height hit target left most of it dead. The padding
+        // is the caller's to pull back with a negative margin if it wants the label
+        // flush with the rest of the header.
+        className={clsx('flex h-8 min-w-0 items-center gap-1 rounded px-2 hover:bg-hover', labelClassName)}
         title={t('kanban.actions.switchFolder')}
         onClick={open}
-        // The header is a drag handle; keep the pointer gesture to ourselves.
+        // A kanban column header is a drag handle; keep the pointer gesture to ourselves.
         onPointerDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}
       >

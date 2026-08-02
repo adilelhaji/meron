@@ -861,7 +861,6 @@
   "threads.actions.syncing": "同期中...",
   "threads.actions.title": "スレッドのアクション",
   "threads.actions.unstarThread": "スレッドのスターを外す",
-  "threads.backToInbox": "受信トレイに戻る",
   "threads.copyConversation": "会話をコピー",
   "threads.emptyFolder.confirmButton": "すべて削除",
   "threads.emptyFolder.confirmMessage": "{folder} 内のすべてのメールが完全に削除されます。元に戻すことはできません。",

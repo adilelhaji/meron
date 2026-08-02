@@ -861,7 +861,6 @@
   "threads.actions.syncing": "동기화 중...",
   "threads.actions.title": "스레드 작업",
   "threads.actions.unstarThread": "스레드 별표 제거",
-  "threads.backToInbox": "받은 편지함으로 돌아가기",
   "threads.copyConversation": "대화 복사",
   "threads.emptyFolder.confirmButton": "모두 삭제",
   "threads.emptyFolder.confirmMessage": "{folder}의 모든 메일이 영구적으로 삭제됩니다. 되돌릴 수 없습니다.",

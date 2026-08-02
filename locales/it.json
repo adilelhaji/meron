@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Sincronizzazione in corso...",
   "threads.actions.title": "Azioni thread",
   "threads.actions.unstarThread": "Rimuovi stella da thread",
-  "threads.backToInbox": "Torna a Posta in arrivo",
   "threads.copyConversation": "Copia conversazione",
   "threads.emptyFolder.confirmButton": "Elimina tutto",
   "threads.emptyFolder.confirmMessage": "Tutti i messaggi in {folder} verranno eliminati definitivamente. L’operazione non può essere annullata.",

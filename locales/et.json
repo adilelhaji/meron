@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Sünkroonimine...",
   "threads.actions.title": "Lõime toimingud",
   "threads.actions.unstarThread": "Eemalda lõimelt tärn",
-  "threads.backToInbox": "Tagasi postkasti",
   "threads.copyConversation": "Kopeeri vestlus",
   "threads.emptyFolder.confirmButton": "Kustuta kõik",
   "threads.emptyFolder.confirmMessage": "Kõik sõnumid kaustas {folder} kustutatakse jäädavalt. Seda ei saa tagasi võtta.",

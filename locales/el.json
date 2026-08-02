@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Συγχρονισμός...",
   "threads.actions.title": "Ενέργειες νήματος",
   "threads.actions.unstarThread": "Κατάργηση αστεριού από το νήμα",
-  "threads.backToInbox": "Επιστροφή στα Εισερχόμενα",
   "threads.copyConversation": "Αντιγραφή συνομιλίας",
   "threads.emptyFolder.confirmButton": "Διαγραφή όλων",
   "threads.emptyFolder.confirmMessage": "Όλα τα μηνύματα στο {folder} θα διαγραφούν οριστικά. Αυτή η ενέργεια δεν αναιρείται.",

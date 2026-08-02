@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Sinhronizē...",
   "threads.actions.title": "Pavediena darbības",
   "threads.actions.unstarThread": "Noņemt zvaigznīti pavedienam",
-  "threads.backToInbox": "Atpakaļ uz iesūtni",
   "threads.copyConversation": "Kopēt sarunu",
   "threads.emptyFolder.confirmButton": "Dzēst visu",
   "threads.emptyFolder.confirmMessage": "Visas ziņas mapē {folder} tiks neatgriezeniski dzēstas. Šo darbību nevar atsaukt.",

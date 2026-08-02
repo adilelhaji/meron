@@ -312,22 +312,18 @@ textarea,
   background-color: rgba(255, 255, 255, 0.35);
 }
 
-/* Thread lists have no right padding: the scrollbar gutter provides it, so the
-   4px between a card and the thumb matches the 4px padding on the left. */
-[data-thread-list] {
-  scrollbar-gutter: stable;
-}
-
+/* Thread lists keep symmetric padding, so the gutter is kept as narrow as the
+   thumb to limit how much extra space the scrollbar adds on the right. */
 [data-thread-list]::-webkit-scrollbar {
-  width: 12px;
+  width: 6px;
 }
 
 [data-thread-list]::-webkit-scrollbar-thumb {
-  border-width: 4px;
+  border-width: 1px;
 }
 
 [data-thread-list]::-webkit-scrollbar-thumb:hover {
-  border-width: 3px;
+  border-width: 0;
 }
 
 /* Custom patterns */

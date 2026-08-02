@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Senkronize ediliyor...",
   "threads.actions.title": "İleti dizisi eylemleri",
   "threads.actions.unstarThread": "İleti dizisinden yıldızı kaldır",
-  "threads.backToInbox": "Gelen Kutusu'na Dön",
   "threads.copyConversation": "Görüşmeyi kopyala",
   "threads.emptyFolder.confirmButton": "Tümünü sil",
   "threads.emptyFolder.confirmMessage": "{folder} içindeki tüm iletiler kalıcı olarak silinecek. Bu işlem geri alınamaz.",

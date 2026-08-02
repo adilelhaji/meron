@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Sincronizando...",
   "threads.actions.title": "Ações da conversa",
   "threads.actions.unstarThread": "Remover estrela da conversa",
-  "threads.backToInbox": "Voltar para Caixa de Entrada",
   "threads.copyConversation": "Copiar conversa",
   "threads.emptyFolder.confirmButton": "Excluir tudo",
   "threads.emptyFolder.confirmMessage": "Todas as mensagens em {folder} serão excluídas permanentemente. Isso não pode ser desfeito.",

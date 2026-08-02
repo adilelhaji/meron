@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Syncing...",
   "threads.actions.title": "Thread actions",
   "threads.actions.unstarThread": "Unstar thread",
-  "threads.backToInbox": "Back to Inbox",
   "threads.copyConversation": "Copy conversation",
   "threads.emptyFolder.confirmButton": "Delete all",
   "threads.emptyFolder.confirmMessage": "Every message in {folder} will be permanently deleted. This cannot be undone.",

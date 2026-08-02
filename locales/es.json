@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Sincronizando...",
   "threads.actions.title": "Acciones de hilos",
   "threads.actions.unstarThread": "Quitar destacado del hilo",
-  "threads.backToInbox": "Volver a la bandeja de entrada",
   "threads.copyConversation": "Copiar conversación",
   "threads.emptyFolder.confirmButton": "Eliminar todo",
   "threads.emptyFolder.confirmMessage": "Todos los mensajes de {folder} se eliminarán permanentemente. Esta acción no se puede deshacer.",

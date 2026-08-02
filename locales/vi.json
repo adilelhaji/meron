@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Đang đồng bộ...",
   "threads.actions.title": "Hành động trên luồng",
   "threads.actions.unstarThread": "Bỏ gắn sao luồng",
-  "threads.backToInbox": "Quay lại Hộp thư đến",
   "threads.copyConversation": "Sao chép cuộc trò chuyện",
   "threads.emptyFolder.confirmButton": "Xóa tất cả",
   "threads.emptyFolder.confirmMessage": "Mọi thư trong {folder} sẽ bị xóa vĩnh viễn. Không thể hoàn tác.",

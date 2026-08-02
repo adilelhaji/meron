@@ -49,7 +49,7 @@ import { ThreadContextMenu, type ThreadContextMenuController } from '../threads/
 import { Avatar } from '../avatar/Avatar'
 import { IconButton } from '../button/IconButton'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
-import { ColumnFolderSwitcher } from './ColumnFolderSwitcher'
+import { FolderSwitcher } from '../menu/FolderSwitcher'
 import { KanbanThreadCard } from './KanbanThreadCard'
 import { KanbanColumnMinimized } from './KanbanColumnMinimized'
 import { BulkActionBar } from '../threads/BulkActionBar'
@@ -327,10 +327,11 @@ function KanbanColumnContent({
               {column.accountId === 'unified' || isRss ? (
                 <span className="truncate">{folderLabel(column, labelFolders, accounts)}</span>
               ) : (
-                <ColumnFolderSwitcher
+                <FolderSwitcher
                   accountId={column.accountId}
                   folderId={column.folderId}
                   label={folderLabel(column, labelFolders, accounts)}
+                  labelClassName="-mx-2"
                   // Folders already open as their own column on this board can't
                   // be switched to — the board would end up with duplicates.
                   takenFolderIds={boardColumns
@@ -405,7 +406,7 @@ function KanbanColumnContent({
       {headerContextMenu}
       <div
         data-thread-list
-        className="flex-1 space-y-1 overflow-y-auto p-1 pr-0"
+        className="flex-1 space-y-1 overflow-y-auto p-1"
         onScroll={(event) => {
           if (searchActive || !hasMore || loadingMore) return
           const el = event.currentTarget

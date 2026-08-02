@@ -861,7 +861,6 @@
   "threads.actions.syncing": "Synchronisierung...",
   "threads.actions.title": "Thread-Aktionen",
   "threads.actions.unstarThread": "Markierung aufheben",
-  "threads.backToInbox": "Zurück zum Posteingang",
   "threads.copyConversation": "Konversation kopieren",
   "threads.emptyFolder.confirmButton": "Alle löschen",
   "threads.emptyFolder.confirmMessage": "Alle Nachrichten in {folder} werden endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.",
