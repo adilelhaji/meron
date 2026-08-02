@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { Folder } from '../../types'
+import type { Folder } from '../types'
 import { buildFolderTree, selectableFolderIds, type TreeNode } from './folderTree'
 
 const folder = (id: string): Folder => ({

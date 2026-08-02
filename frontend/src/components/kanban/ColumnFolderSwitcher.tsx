@@ -8,7 +8,7 @@ import { ensureAccountFolders, mail$ } from '../../states/mail'
 import type { Folder } from '../../types'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
 import { menuItemBase } from '../menu/menuStyles'
-import { buildFolderTree, type TreeNode } from './folderTree'
+import { buildFolderTree, type TreeNode } from '../../lib/folderTree'
 
 const FILTER_THRESHOLD = 8
 

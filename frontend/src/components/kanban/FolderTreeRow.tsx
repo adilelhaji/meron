@@ -3,7 +3,7 @@ import { ChevronRight, Rss } from 'lucide-react'
 import { folderIcon } from '../../lib/folderIcon'
 import { kanbanColumnKey } from '../../states/kanban'
 import { Checkbox } from '../field/Checkbox'
-import { selectableFolderIds, type TreeNode } from './folderTree'
+import { selectableFolderIds, type TreeNode } from '../../lib/folderTree'
 
 // One folder node in the column picker tree: an expander, a checkbox for the
 // folder itself, and its children, rendered recursively. A structural node

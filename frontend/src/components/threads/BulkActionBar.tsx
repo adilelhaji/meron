@@ -31,6 +31,7 @@ import {
 } from '../../states/mail'
 import { IconButton } from '../button/IconButton'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
+import { FolderMenuTree } from '../menu/FolderMenuTree'
 import { MenuItem } from '../menu/MenuItem'
 
 export function BulkActionBar({
@@ -142,9 +143,8 @@ export function BulkActionBar({
 
   if (items.length === 0) return null
 
-  const moveFolders = singleAccountId
-    ? (foldersByAccount[singleAccountId] ?? []).filter((folder) => !selectedFolders.has(folder.id))
-    : []
+  const moveFolders = singleAccountId ? (foldersByAccount[singleAccountId] ?? []) : []
+  const hasMoveTarget = moveFolders.some((folder) => !selectedFolders.has(folder.id))
   const copyAccountGroups = mailAccounts.map((account) => ({
     account,
     folders: foldersByAccount[account.id] ?? [],
@@ -279,21 +279,18 @@ export function BulkActionBar({
                 y={moveFlyoutPosition.y}
                 className="fixed z-[51] max-h-[calc(100vh-1rem)] min-w-[190px] overflow-y-auto rounded-xl border border-border bg-chats p-1 shadow-xl animate-fade-in"
               >
-                {moveFolders.length === 0 && (
+                {!hasMoveTarget && (
                   <div className="px-3 py-2 text-xs font-semibold text-secondary">{t('folders.noneAvailable')}</div>
                 )}
-                {moveFolders.map((folder) => (
-                  <MenuItem
-                    key={folder.id}
-                    icon={<FolderInput size={13} className="shrink-0 text-secondary" />}
-                    label={<span className="min-w-0 truncate">{folder.name}</span>}
-                    onClick={() => {
-                      setMenu(null)
-                      setMoveOpen(false)
-                      void bulkMoveSelectedToFolder(mailItems, folder.id)
-                    }}
-                  />
-                ))}
+                <FolderMenuTree
+                  folders={moveFolders}
+                  excludedFolderIds={selectedFolders}
+                  onPick={(folder) => {
+                    setMenu(null)
+                    setMoveOpen(false)
+                    void bulkMoveSelectedToFolder(mailItems, folder.id)
+                  }}
+                />
               </FloatingContextMenu>
             )}
           </div>
@@ -334,18 +331,14 @@ export function BulkActionBar({
                         {copyLoading ? t('folders.loading') : t('folders.noneAvailable')}
                       </div>
                     )}
-                    {folders.map((folder) => (
-                      <MenuItem
-                        key={`${account.id}:${folder.id}`}
-                        icon={<Copy size={13} className="shrink-0 text-secondary" />}
-                        label={<span className="min-w-0 truncate">{folder.name}</span>}
-                        onClick={() => {
-                          setMenu(null)
-                          setCopyOpen(false)
-                          void bulkCopySelectedToFolder(mailItems, account.id, folder.id)
-                        }}
-                      />
-                    ))}
+                    <FolderMenuTree
+                      folders={folders}
+                      onPick={(folder) => {
+                        setMenu(null)
+                        setCopyOpen(false)
+                        void bulkCopySelectedToFolder(mailItems, account.id, folder.id)
+                      }}
+                    />
                   </div>
                 ))}
               </FloatingContextMenu>

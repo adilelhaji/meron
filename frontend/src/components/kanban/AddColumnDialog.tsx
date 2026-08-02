@@ -6,9 +6,9 @@ import { Button } from '../button/Button'
 import { IconButton } from '../button/IconButton'
 import { Checkbox } from '../field/Checkbox'
 import { AccountSection } from './AccountSection'
-import { buildFolderTree, type AccountGroup } from './folderTree'
+import { buildFolderTree, type AccountGroup } from '../../lib/folderTree'
 
-export type { AccountGroup } from './folderTree'
+export type { AccountGroup } from '../../lib/folderTree'
 
 export function AddColumnDialog({
   groups,

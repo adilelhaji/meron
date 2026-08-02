@@ -8,8 +8,8 @@ import { Avatar } from '../avatar/Avatar'
 import { IconButton } from '../button/IconButton'
 import { TextInput } from '../field/Field'
 import { FolderTreeRow } from './FolderTreeRow'
-import { pickDelimiter } from './folderTree'
-import type { AccountGroup, TreeNode } from './folderTree'
+import { pickDelimiter } from '../../lib/folderTree'
+import type { AccountGroup, TreeNode } from '../../lib/folderTree'
 
 // One account's collapsible section in the column picker: an inline "new folder"
 // form (for non-RSS accounts) and its folder tree.
