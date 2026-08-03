@@ -72,7 +72,7 @@ export function ThreadListItem({
               ? 'bg-accent/[0.13] text-primary'
               : 'bg-chats hover:bg-hover text-primary'
             : isActive
-              ? 'bg-accent/10 dark:bg-accent/15 text-primary'
+              ? 'bg-accent/20 dark:bg-accent/30 text-primary'
               : unread
                 ? 'bg-accent/[0.07] hover:bg-accent/[0.12] text-primary'
                 : 'bg-chats hover:bg-hover text-primary',
@@ -81,6 +81,9 @@ export function ThreadListItem({
         onContextMenu={onContextMenu}
         title={threadTitle}
       >
+        {!bulkSelectable && isActive && (
+          <span aria-hidden="true" className="absolute inset-y-0 left-0 w-[3px] bg-accent" />
+        )}
         {bulkSelectable ? (
           <span aria-hidden="true" className="flex h-10 w-10 shrink-0 items-center justify-center">
             <span
