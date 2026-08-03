@@ -63,6 +63,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.3" date="2026-08-03">
+      <description>
+        <ul>
+          <li>Support switching folders from thread list headers and Kanban columns</li>
+          <li>Render move/copy folder menus as a tree</li>
+          <li>Add context menu to collapsed Kanban columns</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.2" date="2026-07-31">
       <description>
         <ul>

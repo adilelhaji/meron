@@ -1,0 +1,3 @@
+- Support switching folders from thread list headers and Kanban columns
+- Render move/copy folder menus as a tree
+- Add context menu to collapsed Kanban columns
