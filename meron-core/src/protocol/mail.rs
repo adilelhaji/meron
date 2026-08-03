@@ -687,14 +687,37 @@ fn list_mobile_unified_threads(data_dir: &str, params: &Value) -> Result<Value, 
     .filter(|account| account_cursors.is_empty() || account_cursors.contains_key(account))
     .collect::<Vec<_>>();
 
+    // Resolve the requested role to each account's own mailbox; accounts whose
+    // server has no such folder drop out silently rather than reporting a
+    // failure the view would render as a permanent error. Mirrors the desktop
+    // "messages.unifiedRecent" fan-out.
+    let role = params
+        .get("folder_role")
+        .and_then(Value::as_str)
+        .unwrap_or("inbox")
+        .to_string();
+    let folders = with_mobile_db(data_dir, |conn| {
+        let mut resolved = Vec::new();
+        for account_id in &accounts {
+            match store::folder_for_role(&conn, account_id, &role) {
+                Ok(Some(folder)) => resolved.push((account_id.clone(), folder)),
+                Ok(None) => {}
+                Err(err) => return Err(err.to_string()),
+            }
+        }
+        Ok(json!(resolved))
+    })?;
+    let folders = serde_json::from_value::<Vec<(String, String)>>(folders)
+        .map_err(|err| format!("{err:#}"))?;
+
     let mut pages = Vec::new();
-    for account_id in accounts {
+    for (account_id, folder) in folders {
         let mut account_params = params.clone();
         let object = account_params
             .as_object_mut()
             .ok_or_else(|| "params must be an object".to_string())?;
         object.insert("account_id".to_string(), Value::String(account_id.clone()));
-        object.insert("folder_id".to_string(), Value::String("INBOX".to_string()));
+        object.insert("folder_id".to_string(), Value::String(folder));
         match account_cursors.get(&account_id) {
             Some(cursor) => {
                 object.insert("before_cursor".to_string(), Value::String(cursor.clone()));
@@ -853,12 +876,8 @@ pub(crate) fn read_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
 pub(crate) fn list_mobile_starred_items(data_dir: &str, params: &Value) -> Result<Value, String> {
     let limit = opt_u32(params, "limit").unwrap_or(200);
     with_mobile_db(data_dir, |conn| {
-        let mut items = store::get_starred_all_accounts(&conn, 2_000)
-            .map_err(|err| err.to_string())?
-            .into_iter()
-            .map(|(account, header)| crate::mail_model::starred_item_json(&conn, &account, &header))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|err| err.to_string())?;
+        let mut items = crate::mail_model::starred_thread_cards(&conn, 2_000)
+            .map_err(|err| format!("{err:#}"))?;
         items.extend(rss::starred_items(&conn, 2_000).map_err(|err| format!("{err:#}"))?);
         Ok(crate::mail_model::starred_page(
             items,

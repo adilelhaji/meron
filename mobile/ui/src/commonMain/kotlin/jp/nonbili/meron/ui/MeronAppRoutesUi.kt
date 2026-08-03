@@ -712,10 +712,12 @@ internal fun MailRouteContent(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
-                                    // Only a per-account mailbox can be repointed: the
-                                    // unified inbox spans accounts and an RSS account
-                                    // has no folders to choose between.
-                                    if (selectedCoreAccountId != UNIFIED_ACCOUNT_ID && !selectedAccountIsRss) {
+                                    // An RSS account has no folders to choose between.
+                                    // The unified view picks by role instead of by
+                                    // mailbox name — each entry means "every account's
+                                    // own Sent/Archive/…".
+                                    val unifiedMailbox = selectedCoreAccountId == UNIFIED_ACCOUNT_ID
+                                    if (!selectedAccountIsRss) {
                                         FolderSwitcher(
                                             label =
                                                 folderTitle(
@@ -724,9 +726,16 @@ internal fun MailRouteContent(
                                                     coreAccounts,
                                                     foldersByAccount,
                                                 ),
-                                            folders = foldersByAccount[selectedCoreAccountId].orEmpty(),
+                                            folders =
+                                                if (unifiedMailbox) {
+                                                    unifiedFolders()
+                                                } else {
+                                                    foldersByAccount[selectedCoreAccountId].orEmpty()
+                                                },
                                             currentFolderId = selectedCoreFolder,
-                                            onRequestFolders = { ensureAccountFolders(selectedCoreAccountId) },
+                                            onRequestFolders = {
+                                                if (!unifiedMailbox) ensureAccountFolders(selectedCoreAccountId)
+                                            },
                                             onSelectFolder = { folder ->
                                                 selectCoreMailbox(selectedCoreAccountId, folder)
                                                 syncCoreThreads(

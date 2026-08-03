@@ -33,6 +33,7 @@ export function SideNav() {
   const foldersByAccount = useValue(mail$.foldersByAccount)
   const activeBoardId = useValue(kanban$.activeBoardId)
   const selectedAccount = useValue(ui$.selectedAccount)
+  const selectedFolder = useValue(ui$.selectedFolder)
   // Right-click context menu anchored at the cursor for one account.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const menuAccount = menu ? accounts.find((acc) => acc.id === menu.id) : null
@@ -44,8 +45,10 @@ export function SideNav() {
   // Bottom "more" menu holding the view switcher and theme settings.
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null)
 
-  const isUnifiedActive = !activeBoardId && selectedAccount === 'unified'
-  const isStarredActive = !activeBoardId && selectedAccount === 'starred'
+  // Starred is a folder of the unified view, so the rail's two buttons differ by
+  // which unified folder they point at rather than by account.
+  const isUnifiedActive = !activeBoardId && selectedAccount === 'unified' && selectedFolder !== 'starred'
+  const isStarredActive = !activeBoardId && selectedAccount === 'unified' && selectedFolder === 'starred'
   const unifiedUnread = showUnreadBadge
     ? accounts.reduce(
         (sum, account) =>
@@ -124,10 +127,10 @@ export function SideNav() {
     }
   }
 
-  const selectAccount = (id: string) => {
+  const selectAccount = (id: string, folderId = 'inbox') => {
     closeKanbanBoard()
     ui$.selectedAccount.set(id)
-    ui$.selectedFolder.set('inbox')
+    ui$.selectedFolder.set(folderId)
   }
 
   return (
@@ -184,7 +187,7 @@ export function SideNav() {
                   ? 'bg-accent text-white shadow-lg shadow-accent/25'
                   : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:scale-105'
               }`}
-              onClick={() => selectAccount('starred')}
+              onClick={() => selectAccount('unified', 'starred')}
               onContextMenu={(event) => {
                 event.preventDefault()
                 event.stopPropagation()

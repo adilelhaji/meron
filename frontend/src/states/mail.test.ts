@@ -970,7 +970,7 @@ describe('bulk thread actions', () => {
     const second = thread({ id: 'm2', thread_id: 'acc#inbox#t.MQ', unread: false })
     mail$.threads.set([first, second])
 
-    await bulkMarkSelectedUnread([bulkItem(first, { messageId: 'm1' }), bulkItem(second, { messageId: 'm2' })])
+    await bulkMarkSelectedUnread([bulkItem(first), bulkItem(second)])
 
     expect(calls.filter((call) => call.command === 'mail.markRead').map((call) => call.payload)).toEqual([
       { thread_id: 'acc#inbox#t.MQ', seen: false },

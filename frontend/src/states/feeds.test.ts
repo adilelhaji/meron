@@ -50,7 +50,6 @@ describe('removeFeed', () => {
     ui$.selectedAccount.set('rss-account')
     ui$.selectedFolder.set('rss')
     ui$.selectedThread.set('rss-account#rss#feed-1')
-    ui$.selectedStarredItem.set('')
     ui$.query.set('')
     ui$.filterMode.set('all')
     ui$.editFeed.set({ threadId: 'rss-account#rss#feed-1', name: 'Example Feed' })

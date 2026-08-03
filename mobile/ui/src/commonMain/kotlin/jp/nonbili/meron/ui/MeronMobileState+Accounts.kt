@@ -253,10 +253,11 @@ internal fun MeronMobileState.applyAccounts(
     // initialAccountsLoaded=false.
     initialAccountsLoaded = true
     accountsLoading = false
+    val previousAccountId = selectedCoreAccountId
     selectedCoreAccountId = preferEmail?.let { wanted -> parsed.firstOrNull { it.email == wanted }?.id }
         ?: selectedCoreAccountId.takeIf { sel -> sel == UNIFIED_ACCOUNT_ID || parsed.any { it.id == sel } }
         ?: UNIFIED_ACCOUNT_ID
-    if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID) {
+    if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID && previousAccountId != UNIFIED_ACCOUNT_ID) {
         selectedCoreFolder = INBOX_FOLDER
     }
     saveLastMailLocation(prefs, selectedCoreAccountId, selectedCoreFolder)
@@ -1209,23 +1210,56 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
     syncLimit: Int = MAILBOX_SYNC_LIMIT,
     listLimit: Int = MAILBOX_PAGE_SIZE,
     refreshSearch: Boolean = true,
+    /**
+     * Which special-use folder the view is on. The unified view addresses
+     * mailboxes by role: the core resolves each account's own Sent/Archive/…
+     * and leaves out accounts whose server has none.
+     */
+    folderRole: String = INBOX_FOLDER,
 ): MailboxLoadResult {
+    val role = unifiedFolderRole(folderRole)
     if (syncFirst) {
         accounts.forEach { account ->
             withSyncAccountContext(account.id) {
                 if (accountSummaryIsRss(account)) {
-                    client.syncRss(SyncRssParams(accountId = account.id))
+                    if (role == INBOX_FOLDER) {
+                        client.syncRss(SyncRssParams(accountId = account.id))
+                    }
                 } else {
                     withManagedGoogleAuth(client, account.id) {
-                        client.sync(
-                            SyncMailParams(
-                                accountId = account.id,
-                                folderId = INBOX_FOLDER,
-                                limit = syncLimit,
-                                folders = true,
-                                deferTail = true,
-                            ),
-                        )
+                        var accountFolders =
+                            parseFolderListResponse(client.listFolders(FolderListParams(accountId = account.id)))
+                        var targetFolder = unifiedAccountFolder(accountFolders, role)
+                        // A cold cache cannot resolve a provider-specific Sent /
+                        // Archive name. Refresh folder metadata through Inbox,
+                        // then resolve the role again before syncing its mailbox.
+                        if (targetFolder == null) {
+                            client.sync(
+                                SyncMailParams(
+                                    accountId = account.id,
+                                    folderId = INBOX_FOLDER,
+                                    limit = syncLimit,
+                                    folders = true,
+                                    deferTail = true,
+                                ),
+                            )
+                            accountFolders =
+                                parseFolderListResponse(client.listFolders(FolderListParams(accountId = account.id)))
+                            targetFolder = unifiedAccountFolder(accountFolders, role)
+                        }
+                        if (targetFolder != null) {
+                            client.sync(
+                                SyncMailParams(
+                                    accountId = account.id,
+                                    folderId = targetFolder,
+                                    limit = syncLimit,
+                                    folders = true,
+                                    deferTail = true,
+                                ),
+                            )
+                        } else {
+                            "{}"
+                        }
                     }
                 }
             }
@@ -1249,7 +1283,8 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
             client.listThreads(
                 ThreadListParams(
                     accountId = UNIFIED_ACCOUNT_ID,
-                    folderId = INBOX_FOLDER,
+                    folderId = role,
+                    folderRole = role,
                     query = query.trim(),
                     filter = filter.protocolValue(),
                     beforeCursor = beforeCursor,
@@ -1263,9 +1298,11 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
         )
     return MailboxLoadResult(
         folders = folders,
-        folder = INBOX_FOLDER,
+        folder = role,
         threads = page.threads,
-        unreadCount = page.folderUnread,
+        // Only the inbox rolls up into the drawer's unread badge; the other
+        // unified folders have no badge to keep in sync.
+        unreadCount = page.folderUnread.takeIf { role == INBOX_FOLDER },
         nextCursor = page.nextCursor,
         folderSynced = page.folderSynced,
     )

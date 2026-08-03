@@ -43,20 +43,21 @@ export function KanbanThreadCard({
   bulkItem?: BulkSelectionItem
 }) {
   const accounts = useValue(accounts$)
-  const selectedStarredItem = useValue(ui$.selectedStarredItem)
   // Highlight is keyed off the open pane, not ui$.selectedThread, so a card can
   // never read as "selected" while its conversation pane is closed.
   const paneThreadId = useValue(kanban$.paneThreadId)
   const movingThread = useValue(kanban$.movingThread)
   const selectedItemRef = useRef<HTMLDivElement | null>(null)
   const starredColumn = isUnifiedStarredColumn(column)
-  const draggableId = starredColumn ? thread.id : thread.thread_id
+  const account = accounts.find((item) => item.id === thread.account_id)
+  const starredFeed = starredColumn && isRssAccount(account, thread.account_id)
+  const draggableId = starredFeed ? thread.id : thread.thread_id
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
     id: draggableId,
     data: { type: 'thread', threadId: thread.thread_id, source: column },
     disabled: column.accountId === 'unified',
   })
-  const active = starredColumn ? thread.id === selectedStarredItem : thread.thread_id === paneThreadId
+  const active = thread.thread_id === paneThreadId
 
   useEffect(() => {
     if (active) selectedItemRef.current?.scrollIntoView({ block: 'nearest' })
@@ -73,7 +74,7 @@ export function KanbanThreadCard({
       <ThreadListItem
         thread={thread}
         accounts={accounts}
-        selectedAccount={starredColumn ? 'starred' : column.accountId}
+        selectedAccount={column.accountId}
         selectedThread={paneThreadId}
         active={starredColumn ? active : undefined}
         rootRef={active ? selectedItemRef : undefined}
@@ -96,7 +97,7 @@ export function KanbanThreadCard({
           }
           onBulkPlainSelect?.()
           // Draft replies open in context; standalone drafts resume in composer.
-          if (!starredColumn && isDraftFolder(thread.folder_id, thread.account_id)) {
+          if (isDraftFolder(thread.folder_id, thread.account_id)) {
             ui$.selectedThread.set(thread.thread_id)
             kanban$.paneThreadId.set(thread.thread_id)
             kanban$.paneColumnKey.set(kanbanBoardColumnKey(boardId, column))
@@ -105,8 +106,8 @@ export function KanbanThreadCard({
             return
           }
           if (starredColumn) {
-            ui$.selectedStarredItem.set(thread.id)
-            const account = accounts.find((acc) => acc.id === thread.account_id)
+            // Feed rows carry their full body: open the item in a reader tab.
+            // Mail rows are ordinary threads and open like any other card.
             if (isRssAccount(account, thread.account_id)) {
               openMessageTab(thread)
               kanban$.paneThreadId.set(thread.thread_id)
@@ -114,7 +115,6 @@ export function KanbanThreadCard({
               ui$.mobilePane.set('conversation')
               return
             }
-            thread$.pendingScrollMessageId.set(thread.id)
           }
           ui$.selectedFolder.set(thread.folder_id)
           // Leave any open compose/reader/thread tab first so the selectedThread

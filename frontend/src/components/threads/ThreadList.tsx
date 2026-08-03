@@ -38,12 +38,11 @@ import {
 } from '../../states/mail'
 import { isRssAccount } from '../../lib/threadActions'
 import { folderLabel } from '../../lib/kanbanData'
+import { isUnifiedStarred } from '../../lib/unifiedFolders'
 import { EmptyState } from '../empty-state/EmptyState'
 import { IconButton } from '../button/IconButton'
 import { QuickSettingsMenu } from '../sidenav/QuickSettingsMenu'
 import { FolderSwitcher } from '../menu/FolderSwitcher'
-import { type MessageContextMenuState } from '../chat/MessageContextMenu'
-import { StarredItemMenu } from './StarredItemMenu'
 import { ThreadActionsMenu } from './ThreadActionsMenu'
 import { ThreadContextMenu, useThreadContextMenu } from './ThreadContextMenu'
 import { ThreadListItem } from './ThreadListItem'
@@ -62,7 +61,6 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
   const selectedAccount = useValue(ui$.selectedAccount)
   const selectedFolder = useValue(ui$.selectedFolder)
   const selectedThread = useValue(ui$.selectedThread)
-  const selectedStarredItem = useValue(ui$.selectedStarredItem)
   const bulkSelection = useValue(ui$.bulkSelection)
   const accounts = useValue(accounts$)
   const folders = useValue(mail$.folders)
@@ -72,10 +70,10 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
   const threadsCursor = useValue(mail$.threadsCursor)
   const threadsLoadingMore = useValue(mail$.threadsLoadingMore)
   const threadMenu = useThreadContextMenu(accounts)
-  // The starred view lists individual messages/feed items, so right-clicks get
-  // the per-message menu instead of the thread one.
-  const isStarredView = selectedAccount === 'starred'
-  const [starredMenu, setStarredMenu] = useState<MessageContextMenuState | null>(null)
+  // Starred is a folder of the unified view whose rows span every account. It
+  // lists ordinary threads, so it shares this list's selection, context menu and
+  // bulk selection; only the cross-account chrome below differs.
+  const isStarredView = isUnifiedStarred(selectedAccount, selectedFolder)
   // Quick-settings (view + theme) anchor for the narrow-window header button.
   // The side navigation that normally hosts these controls is hidden at this width.
   const [quickMenu, setQuickMenu] = useState<{ x: number; y: number } | null>(null)
@@ -101,7 +99,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
       restoreFocusAfterDeleteRef.current = false
       selectedItem?.querySelector('button')?.focus()
     }
-  }, [selectedThread, selectedStarredItem])
+  }, [selectedThread])
 
   const archiveFolder = folders.find((f) => f.role === 'archive' || f.id === 'archive')
   const hasArchive = !!archiveFolder
@@ -134,11 +132,11 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
   // cursor (feeds, starred) there is nothing more to load.
   const canLoadMore = !!threadsCursor && (!!query.trim() || filterMode === 'all')
   const feedRowsDraggable = !isStarredView && isRSSAccount
-  // The folder switcher only makes sense where a single account's real folders
-  // back the list: the unified and starred views are stitched together from many
-  // accounts, and an RSS account's "inbox" is its whole feed set.
-  const showFolderSwitcher =
-    !isStarredView && !isRSSAccount && !!activeAccount && selectedAccount !== 'unified' && !!selectedFolder
+  // The folder switcher needs a folder list to offer. That is an account's real
+  // folders, or — in the unified view — the synthetic per-role list, where each
+  // entry means "every account's own Sent/Archive/…". An RSS account has no
+  // folders at all: its "inbox" is the whole feed set.
+  const showFolderSwitcher = !isRSSAccount && !!selectedFolder && (selectedAccount === 'unified' || !!activeAccount)
   // Empty-state copy, which the folder switcher made it possible to land on for
   // any folder: "your inbox is empty" only holds in the inbox, and neither
   // wording holds while a search or filter is hiding the threads that are there.
@@ -163,30 +161,30 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
           : t('empty.pullLatestMessages')
   const desktopBulk = isWailsDesktopRuntime() || !!system
   const bulkItems = selectedBulkItems()
-  const bulkGroupKey = isStarredView ? 'starred' : `thread-list:${selectedAccount}:${selectedFolder}`
+  const bulkGroupKey = `thread-list:${selectedAccount}:${selectedFolder}`
   const bulkInThisList =
     desktopBulk && bulkItems.length > 0 && bulkItems.every((item) => item.groupKey === bulkGroupKey)
 
   const bulkItemFor = (thread: (typeof filteredThreads)[number]): BulkSelectionItem => {
-    const starredFeed =
-      isStarredView &&
+    // Cross-account lists (unified, starred) mix mail and feed rows, so the kind
+    // comes from the row's own account rather than the selected one.
+    const rowIsFeed =
+      isRSSAccount ||
       isRssAccount(
         accounts.find((acc) => acc.id === thread.account_id),
         thread.account_id,
       )
-    const key = isStarredView ? `starred:${thread.id}` : `thread-list:${thread.thread_id}`
     return {
-      key,
-      groupKey: isStarredView ? 'starred' : `thread-list:${selectedAccount}:${selectedFolder}`,
+      key: `thread-list:${isStarredView && rowIsFeed ? thread.id : thread.thread_id}`,
+      groupKey: bulkGroupKey,
       threadId: thread.thread_id,
-      messageId: isStarredView && !starredFeed ? thread.id : undefined,
       accountId: thread.account_id,
       folderId: thread.folder_id,
-      surface: isStarredView ? 'starred' : 'thread-list',
-      kind: isRSSAccount || starredFeed ? 'feed' : 'mail',
+      surface: 'thread-list',
+      kind: rowIsFeed ? 'feed' : 'mail',
       unread: thread.unread,
       starred: thread.starred,
-      draft: !isStarredView && isDraftFolder(thread.folder_id, thread.account_id),
+      draft: isDraftFolder(thread.folder_id, thread.account_id),
       trash: folders.some((folder) => folder.id === thread.folder_id && folder.role === 'trash'),
     }
   }
@@ -389,12 +387,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                   accounts={accounts}
                   selectedAccount={selectedAccount}
                   selectedThread={selectedThread}
-                  active={isStarredView ? thread.id === selectedStarredItem : undefined}
-                  rootRef={
-                    (isStarredView ? thread.id === selectedStarredItem : thread.thread_id === selectedThread)
-                      ? selectedItemRef
-                      : undefined
-                  }
+                  rootRef={thread.thread_id === selectedThread ? selectedItemRef : undefined}
                   showAccountBadge={isStarredView ? true : undefined}
                   draggable={feedRowsDraggable}
                   onDragStart={(event) => startFeedDrag(event, thread)}
@@ -414,24 +407,21 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                       return
                     }
                     clearBulkSelection()
-                    if (!isStarredView && isDraftFolder(thread.folder_id, thread.account_id)) {
+                    if (isDraftFolder(thread.folder_id, thread.account_id)) {
                       ui$.selectedThread.set(thread.thread_id)
                       ui$.mobilePane.set('conversation')
                       void openDraftConversationOrCompose(thread)
                       return
                     }
                     if (isStarredView) {
-                      ui$.selectedStarredItem.set(thread.id)
-                      // RSS rows carry their full body: open the item directly in a
-                      // reader tab. Mail rows are headers only: open the thread and
-                      // jump to the starred message.
+                      // RSS rows carry their full body: open the item directly in
+                      // a reader tab. Mail rows are ordinary threads.
                       const account = accounts.find((acc) => acc.id === thread.account_id)
                       if (isRssAccount(account, thread.account_id)) {
                         openMessageTab(thread)
                         ui$.mobilePane.set('conversation')
                         return
                       }
-                      thread$.pendingScrollMessageId.set(thread.id)
                     }
                     // Leave any open compose/reader/thread tab first so the
                     // selectedThread retarget is recorded as the Current tab's
@@ -444,11 +434,6 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                     if (bulkInThisList) {
                       event.preventDefault()
                       event.stopPropagation()
-                      return
-                    }
-                    if (isStarredView) {
-                      event.preventDefault()
-                      setStarredMenu({ x: event.clientX, y: event.clientY, message: thread })
                       return
                     }
                     threadMenu.open(event, thread)
@@ -480,15 +465,6 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
           if (thread) openThreadTab(thread)
         }}
       />
-
-      {starredMenu && (
-        <StarredItemMenu
-          state={starredMenu}
-          accounts={accounts}
-          onClose={() => setStarredMenu(null)}
-          onSelect={(message) => toggleBulkSelection(bulkItemFor(message))}
-        />
-      )}
     </section>
   )
 }

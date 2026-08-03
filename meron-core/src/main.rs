@@ -1228,11 +1228,26 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 })
                 .filter(|account| cursors.is_empty() || cursors.contains_key(account))
                 .collect::<Vec<_>>();
-            let mut pages = Vec::with_capacity(accounts.len());
-            for account in accounts {
+            // The unified view switches folders by *role*: each account answers
+            // from its own Sent/Archive/Trash/…, and an account whose server has
+            // no such mailbox drops out of the merge silently. Surfacing that as
+            // a failure would pin a permanent error banner on the view for any
+            // account whose provider simply lacks the folder.
+            let role = req_str(p, "folder_role").unwrap_or_else(|_| "inbox".to_string());
+            let mut folders = Vec::with_capacity(accounts.len());
+            {
+                let db = engine.db.lock().unwrap();
+                for account in accounts {
+                    if let Some(folder) = store::folder_for_role(&db, &account, &role)? {
+                        folders.push((account, folder));
+                    }
+                }
+            }
+            let mut pages = Vec::with_capacity(folders.len());
+            for (account, folder) in folders {
                 let mut params = json!({
                     "account": account.clone(),
-                    "folder": "INBOX",
+                    "folder": folder,
                     "query": req_str(p, "query").unwrap_or_default(),
                     "filter": req_str(p, "filter").unwrap_or_default(),
                     "limit": req_u16(p, "limit").unwrap_or(50),
@@ -1357,10 +1372,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         "starred.items" => {
             let limit = req_u32(p, "limit").unwrap_or(200);
             let db = engine.db.lock().unwrap();
-            let mut items = store::get_starred_all_accounts(&db, 2_000)?
-                .into_iter()
-                .map(|(account, header)| mail_model::starred_item_json(&db, &account, &header))
-                .collect::<anyhow::Result<Vec<_>>>()?;
+            let mut items = mail_model::starred_thread_cards(&db, 2_000)?;
             items.extend(rss::starred_items(&db, 2_000)?);
             Ok(mail_model::starred_page(
                 items,
@@ -2206,29 +2218,40 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         }
 
         "messages.markAllReadUnified" => {
-            let folder =
-                canon_folder(&req_str(p, "folder").unwrap_or_else(|_| "INBOX".to_string()));
-            let accounts = store::list_accounts(&engine.db.lock().unwrap())?
-                .into_iter()
-                .filter(|account| {
-                    account
-                        .get("included_in_unified")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(true)
-                })
-                .filter(|account| account.get("auth_type").and_then(Value::as_str) != Some("rss"))
-                .filter_map(|account| {
-                    account
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .map(str::to_string)
-                })
-                .collect::<Vec<_>>();
+            let role = req_str(p, "folder").unwrap_or_else(|_| "inbox".to_string());
+            let account_folders = {
+                let db = engine.db.lock().unwrap();
+                store::list_accounts(&db)?
+                    .into_iter()
+                    .filter(|account| {
+                        account
+                            .get("included_in_unified")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true)
+                    })
+                    .filter(|account| {
+                        account.get("auth_type").and_then(Value::as_str) != Some("rss")
+                    })
+                    .filter_map(|account| {
+                        account
+                            .get("id")
+                            .and_then(Value::as_str)
+                            .map(str::to_string)
+                    })
+                    .map(|account| {
+                        let folder = store::folder_for_role(&db, &account, &role)?;
+                        Ok(folder.map(|folder| (account, folder)))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+            };
             let mut updated = 0_u64;
             let mut failures = Vec::new();
             let mut folder_unreads = serde_json::Map::new();
             let mut folder_counts = Vec::new();
-            for account in accounts {
+            for (account, folder) in account_folders {
                 let request = Request {
                     id: req.id,
                     method: "messages.markAllRead".to_string(),

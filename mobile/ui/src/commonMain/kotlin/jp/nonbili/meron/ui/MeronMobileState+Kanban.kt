@@ -359,6 +359,7 @@ internal suspend fun MeronMobileState.fetchKanbanColumn(
             filter = kanbanFilter,
             syncFirst = refresh,
             beforeCursor = beforeCursor,
+            folderRole = column.folderId,
         )
     } else {
         val account =

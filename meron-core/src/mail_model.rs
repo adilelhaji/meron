@@ -3,7 +3,7 @@ use crate::store;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::Connection;
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 pub fn canon_folder(folder: &str) -> String {
     if folder.eq_ignore_ascii_case("inbox") {
@@ -106,47 +106,77 @@ pub fn thread_cards_json(
         .collect()
 }
 
-pub fn starred_item_json(
-    conn: &Connection,
-    account_id: &str,
-    header: &MessageHeader,
-) -> anyhow::Result<Value> {
-    let folder = if header.folder.is_empty() {
-        "INBOX"
-    } else {
-        header.folder.as_str()
-    };
-    let folder_role = store::folder_role(conn, account_id, folder)?;
-    let thread_key = if header.thread_key.is_empty() {
-        format!("uid:{}", header.uid)
-    } else {
-        store::card_thread_key(header)
-    };
-    let thread_id = format_thread_id(account_id, folder, &thread_key);
-    Ok(json!({
-        "id": format!("{thread_id}#{}", header.uid),
-        "account_id": account_id,
-        "folder_id": folder,
-        "folder_role": folder_role,
-        "thread_id": thread_id,
-        "from_name": header.from_name.as_str(),
-        "from_addr": header.from_addr.as_str(),
-        "to": "",
-        "reply_to": "",
-        "cc": "",
-        "bcc": "",
-        "message_id": "",
-        "references": "",
-        "subject": header.subject.as_str(),
-        "preview": "",
-        "body": "",
-        "body_html": "",
-        "date": header.date,
-        "unread": !header.seen,
-        "starred": true,
-        "has_attachments": false,
-        "attachments": [],
-    }))
+/// Every starred mail message across all accounts, as ordinary thread cards.
+///
+/// The starred view used to emit one row per starred *message* (`id` was
+/// `{thread_id}#{uid}`), which made it the only list in the app whose rows were
+/// not threads — hence its own row menu, its own bulk-selection surface and a
+/// `selectedStarredItem` selection model running alongside the normal one.
+/// Building the same cards every other mailbox builds collapses all of that:
+/// star is just another folder whose contents happen to span accounts.
+///
+/// Cards are grouped per (account, folder) rather than in one pass, because
+/// [`store::group_thread_cards_with_drafts`] keys on the thread key alone. A
+/// single pass would merge a thread starred in both Inbox and Archive into one
+/// card and pin it to whichever folder happened to sort first.
+pub fn starred_thread_cards(conn: &Connection, limit: u32) -> anyhow::Result<Vec<Value>> {
+    let mut by_location: BTreeMap<(String, String), Vec<MessageHeader>> = BTreeMap::new();
+    for (account, header) in store::get_starred_all_accounts(conn, limit)? {
+        let folder = if header.folder.is_empty() {
+            "INBOX".to_string()
+        } else {
+            header.folder.clone()
+        };
+        by_location
+            .entry((account, folder))
+            .or_default()
+            .push(header);
+    }
+
+    let mut draft_keys_by_account: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut cards = Vec::new();
+    for ((account, folder), starred_headers) in by_location {
+        // A starred hit admits its whole thread into the view. Build the card
+        // from every cached message in that thread so its date, unread count and
+        // sender match the ordinary mailbox card rather than the particular
+        // starred message that happened to admit it.
+        let mut headers = Vec::new();
+        let mut seen_thread_keys = HashSet::new();
+        for header in starred_headers {
+            let thread_key = if header.thread_key.is_empty() {
+                format!("uid:{}", header.uid)
+            } else {
+                header.thread_key
+            };
+            if seen_thread_keys.insert(thread_key.clone()) {
+                headers.extend(store::get_thread_headers(
+                    conn,
+                    &account,
+                    &folder,
+                    &thread_key,
+                )?);
+            }
+        }
+        for header in &mut headers {
+            header.folder = folder.clone();
+        }
+        headers.sort_by(|a, b| b.date.cmp(&a.date).then_with(|| b.uid.cmp(&a.uid)));
+        let draft_thread_keys = match draft_keys_by_account.get(&account) {
+            Some(keys) => keys,
+            None => {
+                let keys = store::draft_thread_keys(conn, &account)?;
+                draft_keys_by_account.entry(account.clone()).or_insert(keys)
+            }
+        };
+        cards.extend(
+            thread_cards_json(conn, &account, &folder, headers, draft_thread_keys)?
+                .into_iter()
+                // Branching can split one root thread by subject. Only branches that
+                // actually contain a starred message belong in the starred view.
+                .filter(|card| card["starred"].as_bool().unwrap_or(false)),
+        );
+    }
+    Ok(cards)
 }
 
 pub fn allocate_message_id(account_id: &str, draft: bool) -> String {

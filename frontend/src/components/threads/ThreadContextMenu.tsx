@@ -35,6 +35,7 @@ import { accounts$, isSendableAccount } from '../../states/accounts'
 import { isRssAccount } from '../../lib/threadActions'
 import type { Account, Message } from '../../types'
 import { targetWithin, useDismissOnOutside } from '../menu/useDismissOnOutside'
+import { MessageContextMenu } from '../chat/MessageContextMenu'
 
 export type ThreadMenuState =
   | {
@@ -47,6 +48,7 @@ export type ThreadMenuState =
       name: string
       url?: string
       unread: boolean
+      message: Message
       // In the kanban view the controller is shared across columns; this marks
       // which column opened the menu so only that column renders it.
       ownerKey?: string
@@ -122,6 +124,7 @@ export function useThreadContextMenu(accounts: Account[]): ThreadContextMenuCont
           name: thread.from_name || thread.subject || 'this feed',
           url: thread.feed_url,
           unread: thread.unread,
+          message: thread,
           ownerKey,
         })
         return
@@ -262,6 +265,12 @@ export function ThreadContextMenu({
   }
 
   if (menu.kind === 'feed') {
+    // Starred RSS results are individual articles: their id includes the item
+    // key while threadId identifies the whole subscription. Keep article
+    // actions item-scoped instead of offering feed edit/move/read operations.
+    if (menu.message.id !== menu.threadId) {
+      return <MessageContextMenu state={{ x: menu.x, y: menu.y, message: menu.message }} isRSS onClose={close} />
+    }
     const targetAccounts = rssAccounts.filter((account) => account.id !== menu.accountId)
     return (
       <FloatingContextMenu

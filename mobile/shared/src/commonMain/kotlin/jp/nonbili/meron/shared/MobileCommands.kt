@@ -452,6 +452,11 @@ data class ThreadListParams(
     // mailbox passes the depth it has already paged in so a background reload
     // does not shrink the list back to one page.
     val limit: Int? = null,
+    // Unified only: which special-use folder each account answers from
+    // ("inbox", "sent", "archive", …). Accounts whose server has no such
+    // mailbox drop out of the merge. Omitted for a single account, whose
+    // folderId already names a real mailbox.
+    val folderRole: String? = null,
 ) {
     fun toJson(): String =
         jsonObject(
@@ -462,6 +467,7 @@ data class ThreadListParams(
             "before_cursor" to beforeCursor?.jsonString(),
             "refresh" to refresh.toString(),
             "limit" to limit?.toString(),
+            "folder_role" to folderRole?.jsonString(),
         )
 }
 

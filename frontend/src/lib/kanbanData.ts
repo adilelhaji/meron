@@ -146,8 +146,14 @@ export function isUnifiedStarredColumn(column: KanbanColumn): boolean {
 
 export function folderLabel(column: KanbanColumn, folders: Folder[], accounts: Account[]) {
   const isInbox = column.folderId.toLowerCase() === 'inbox'
-  if (isUnifiedStarredColumn(column)) return 'Unified Starred'
-  if (column.accountId === 'unified') return 'Unified Inbox'
+  if (column.accountId === 'unified') {
+    // The unified view's synthetic folder list carries the localized role names
+    // ("Sent", "Archive"), so the header reads like an account's own. Kanban
+    // columns are passed per-account folders and fall through to the old labels.
+    const synthetic = folders.find((folder) => folder.account_id === 'unified' && folder.id === column.folderId)
+    if (synthetic) return synthetic.name
+    return isUnifiedStarredColumn(column) ? 'Unified Starred' : 'Unified Inbox'
+  }
   if (isInbox) return isRSSAccount(column.accountId, accounts) ? 'Feed' : 'Inbox'
   return (
     folders.find((folder) => folder.account_id === column.accountId && folder.id === column.folderId)?.name ||

@@ -242,6 +242,7 @@ internal fun kanbanColumnUnreadCount(
     return folderUnread ?: loadedUnreadCount(loadedThreads)
 }
 
+@Composable
 internal fun columnTitle(
     column: KanbanColumnSpec,
     accounts: List<AccountSummary>,
@@ -249,6 +250,7 @@ internal fun columnTitle(
 ): String = folderTitle(column.accountId, column.folderId, accounts, foldersByAccount)
 
 /** The display name of a mailbox, as a kanban column or the mail list shows it. */
+@Composable
 internal fun folderTitle(
     accountId: String,
     folderId: String,
@@ -256,7 +258,10 @@ internal fun folderTitle(
     foldersByAccount: Map<String, List<FolderSummary>>,
 ): String {
     if (accountId == UNIFIED_ACCOUNT_ID) {
-        return if (folderId.equals(STARRED_FOLDER, ignoreCase = true)) "Unified starred" else "Unified inbox"
+        if (folderId.equals(STARRED_FOLDER, ignoreCase = true)) return "Unified starred"
+        // The unified view now switches folders, so the header names the folder
+        // ("Sent", "Archive") the way a single account's does.
+        return unifiedFolderLabel(folderId)
     }
     val account = accounts.firstOrNull { it.id == accountId }
     val folder =

@@ -336,9 +336,11 @@ export async function markColumnAllRead(column: KanbanColumn) {
     kanban$.threads[key].set(
       threads.map((thread) => (thread.unread ? { ...thread, unread: false, unread_count: 0 } : thread)),
     )
+    // Starred rows are whole threads, so each one is marked read as a thread —
+    // there is no single message id to scope this to.
     await Promise.all(
       unread.map((thread) =>
-        invoke('mail.markRead', { thread_id: thread.thread_id, message_ids: [thread.id] }).catch((err) =>
+        invoke('mail.markRead', { thread_id: thread.thread_id }).catch((err) =>
           console.error('markAllRead (starred) failed:', err),
         ),
       ),

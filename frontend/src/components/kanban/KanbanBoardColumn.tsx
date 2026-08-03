@@ -177,19 +177,18 @@ function KanbanColumnContent({
         accounts.find((acc) => acc.id === thread.account_id),
         thread.account_id,
       )
-    const rowId = starredColumn ? thread.id : thread.thread_id
+    const rowId = starredFeed ? thread.id : thread.thread_id
     return {
       key: `kanban:${boardKey}:${rowId}`,
       groupKey: `kanban:${boardKey}`,
       threadId: thread.thread_id,
-      messageId: starredColumn && !starredFeed ? thread.id : undefined,
       accountId: thread.account_id,
       folderId: thread.folder_id,
       surface: 'kanban',
       kind: isRss || starredFeed ? 'feed' : 'mail',
       unread: thread.unread,
       starred: thread.starred,
-      draft: !starredColumn && isDraftFolder(thread.folder_id, thread.account_id),
+      draft: isDraftFolder(thread.folder_id, thread.account_id),
       trash: labelFolders.some(
         (folder) =>
           folder.account_id === thread.account_id && folder.id === thread.folder_id && folder.role === 'trash',
@@ -425,7 +424,7 @@ function KanbanColumnContent({
               const bulkItem = bulkItemFor(thread)
               return (
                 <KanbanThreadCard
-                  key={starredColumn ? thread.id : thread.thread_id}
+                  key={thread.id}
                   boardId={boardId}
                   thread={thread}
                   column={column}

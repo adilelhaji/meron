@@ -65,7 +65,6 @@ export function useAccountDialog() {
     ui$.selectedAccount.set(created.id)
     ui$.selectedFolder.set('inbox')
     ui$.selectedThread.set('')
-    ui$.selectedStarredItem.set('')
     return created
   }
 

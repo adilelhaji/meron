@@ -6,7 +6,7 @@ import { clearBulkSelection, confirmAction, ui$, showToast, showUndoToast, type 
 import { accounts$, unifiedAccounts } from './accounts'
 import { kanban$, removeKanbanColumnsForFolder } from './kanban'
 import { filterThreads, isRssAccount } from '../lib/threadActions'
-import { mergeStarredItems } from '../lib/starredItems'
+import { isUnifiedStarred, unifiedFolderRole, unifiedFolders } from '../lib/unifiedFolders'
 import { isLocalSendId, discardPendingSend } from './pendingSends'
 import { CONVERSATION_PAGE_SIZE } from '../lib/pagination'
 
@@ -398,8 +398,9 @@ export function findLocalThread(threadId: string): Message | undefined {
 // After a read/unread toggle, refresh the cached folder unread counts that feed
 // the side navigation badges. Refreshing the selected view (`loadFolders`) keeps the
 // folder list and the unified/account badge for that view fresh — but it
-// only reloads `selectedAccount`'s folders. In the Starred view or an open
-// Kanban board, `selectedAccount` is 'starred' (or some unrelated account), so
+// only reloads `selectedAccount`'s folders. In a cross-account view (unified,
+// Starred) or an open Kanban board, `selectedAccount` is 'unified' or some
+// unrelated account, so
 // the *thread's own* account never gets reloaded and its side navigation unread badge —
 // plus the unified total it sums into — drifts out of sync. Refresh that
 // account too. Both calls are cache-only (refresh:false), so no IMAP traffic.
@@ -461,9 +462,9 @@ export async function copyAttachmentImage(att: { key: string | null }) {
 // The visible thread list after applying the active filter (all / unread / starred).
 export function getFilteredThreads() {
   const threads = mail$.threads.get()
-  // The starred view is already a flat list of starred items only; a leftover
-  // filter mode from the previous mailbox must not hide rows here.
-  if (ui$.selectedAccount.get() === 'starred') return threads
+  // The starred folder already lists starred threads only; a leftover filter
+  // mode from the previous mailbox must not hide rows here.
+  if (isUnifiedStarred(ui$.selectedAccount.get(), ui$.selectedFolder.get())) return threads
   const filterMode = ui$.filterMode.get()
   const selected = ui$.selectedThread.get()
   return filterThreads(threads, filterMode, selected, mail$.readThreads.get())
@@ -475,17 +476,6 @@ export function getFilteredThreads() {
 export function selectAdjacentThread(delta: number) {
   const list = getFilteredThreads()
   if (list.length === 0) return
-  if (ui$.selectedAccount.get() === 'starred') {
-    const selectedItem = ui$.selectedStarredItem.get()
-    const current = list.findIndex((thread) => thread.id === selectedItem)
-    const next = current === -1 ? 0 : Math.min(list.length - 1, Math.max(0, current + delta))
-    const target = list[next]
-    if (target) {
-      ui$.selectedStarredItem.set(target.id)
-      ui$.selectedThread.set(target.thread_id)
-    }
-    return
-  }
   const selected = ui$.selectedThread.get()
   const current = list.findIndex((thread) => thread.thread_id === selected)
   const next = current === -1 ? 0 : Math.min(list.length - 1, Math.max(0, current + delta))
@@ -496,11 +486,6 @@ export function selectAdjacentThread(delta: number) {
 export function getActiveThread() {
   const filtered = getFilteredThreads()
   const threads = mail$.threads.get()
-  if (ui$.selectedAccount.get() === 'starred') {
-    const selectedItem = ui$.selectedStarredItem.get()
-    const fromItem = selectedItem ? filtered.find((thread) => thread.id === selectedItem) : null
-    if (fromItem) return fromItem
-  }
   const selected = ui$.selectedThread.get()
   if (!selected) {
     return filtered[0] ?? null
@@ -518,12 +503,14 @@ export function getActiveThread() {
 }
 
 export async function loadFolders(accountId: string, refresh = true) {
-  if (accountId === 'starred') {
-    mail$.folders.set([{ id: 'inbox', account_id: 'starred', name: 'Starred', role: 'inbox', unread: 0 }])
-    return
-  }
   if (accountId === 'unified') {
     const accounts = unifiedAccounts()
+    // Publish the synthetic list before the per-account counts land: it never
+    // depends on them, and the folder switcher reads it from the per-account
+    // cache — leaving that empty until the fan-out resolves shows the picker's
+    // "no folders" state on every cold open.
+    mail$.folders.set(unifiedFolders(t))
+    mail$.foldersByAccount['unified'].set(unifiedFolders(t))
     let totalUnread = 0
     try {
       const foldersList = await Promise.all(
@@ -556,7 +543,9 @@ export async function loadFolders(accountId: string, refresh = true) {
       console.error('Failed to load folders list for unified count:', err)
     }
 
-    mail$.folders.set([{ id: 'inbox', account_id: 'unified', name: 'Inbox', role: 'inbox', unread: totalUnread }])
+    const folders = unifiedFolders(t, totalUnread)
+    mail$.folders.set(folders)
+    mail$.foldersByAccount['unified'].set(folders)
     return
   }
 
@@ -622,7 +611,7 @@ export function updateCachedFolderUnread(accountId: string, folderId: string, un
     mail$.folders.set(patch(mail$.folders.get()))
   } else if (selected === 'unified') {
     const total = unifiedAccounts().reduce((sum, account) => sum + inboxUnread(nextByAccount[account.id]), 0)
-    mail$.folders.set([{ id: 'inbox', account_id: 'unified', name: 'Inbox', role: 'inbox', unread: total }])
+    mail$.folders.set(unifiedFolders(t, total))
   }
 }
 
@@ -701,8 +690,10 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
   const initialQuery = ui$.query.get()
   const initialFilter = ui$.filterMode.get()
   const activeAccount = accounts$.get().find((account) => account.id === initialAccount)
+  // Starred is answered from the local cache, so there is no live stage to run.
   const canSearchLive =
-    initialAccount === 'unified' || (initialAccount !== 'starred' && !isRssAccount(activeAccount, initialAccount))
+    !isUnifiedStarred(initialAccount, initialFolder) &&
+    (initialAccount === 'unified' || !isRssAccount(activeAccount, initialAccount))
 
   // Paint results from the local FTS index before starting the live IMAP
   // request. RSS search is already local, and background refreshes deliberately
@@ -734,7 +725,6 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
     ui$.filterMode.get() !== filter
   const previousThreads = mail$.threads.get()
   const currentSelected = ui$.selectedThread.get()
-  const currentSelectedItem = ui$.selectedStarredItem.get()
   const previousThreadsCursor = mail$.threadsCursor.get()
   const previousAccountCursors = snapshotRecord(mail$.threadAccountCursors.get())
   const userInitiated = refresh || searchStage === 'cache'
@@ -746,35 +736,26 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
   // merge the fresh page into the list we already have instead.
   const mergeBackground = !refresh && searchStage !== 'cache' && previousThreads.length > 0
 
-  // The starred view is a flat cross-account list of individual starred items
-  // (mail messages + feed items), queried and paginated by the core.
-  if (selectedAcc === 'starred') {
-    let nextCursor = ''
+  let allThreads: Message[] = []
+
+  // Starred spans every account and every folder, so it is answered by a
+  // cross-account cache query rather than the per-account folder fan-out. Its
+  // rows are ordinary thread cards, so only the fetch is special-cased.
+  if (isUnifiedStarred(selectedAcc, selectedFol)) {
     try {
       const res = await invoke<{ items: Message[]; next_cursor?: string }>('mail.starredItems', { query: q, limit: 50 })
       if (superseded()) return
-      const items = res.items ?? []
-      nextCursor = res.next_cursor ?? ''
-      mail$.threads.set(items)
-      // Keep the conversation pane coherent: getActiveThread falls back to the
-      // first visible row, so the selection must point at a listed item.
-      if (!kanban$.activeBoardId.get() && !items.some((item) => item.id === currentSelectedItem)) {
-        const nextItem = items.find((item) => item.thread_id === currentSelected) ?? items[0]
-        ui$.selectedStarredItem.set(nextItem?.id ?? '')
-        ui$.selectedThread.set(nextItem?.thread_id ?? '')
-      }
+      allThreads = res.items ?? []
+      mail$.threadsCursor.set(res.next_cursor ?? '')
+      mail$.threadAccountCursors.set({})
     } catch (err) {
       if (superseded()) return
       console.error('Failed to load starred items:', err)
+      mail$.threadsCursor.set('')
+      mail$.threadAccountCursors.set({})
     }
-    mail$.threadsCursor.set(nextCursor)
-    mail$.threadAccountCursors.set({})
-    return
-  }
-
-  let allThreads: Message[] = []
-
-  if (selectedAcc === 'unified') {
+  } else if (selectedAcc === 'unified') {
+    const role = unifiedFolderRole(selectedFol)
     try {
       const result = await invoke<{
         threads: Message[]
@@ -783,15 +764,20 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
         failures?: Array<{ account_id: string; message: string }>
       }>('mail.threadList', {
         account_id: 'unified',
-        folder_id: 'inbox',
+        folder_id: role,
+        folder_role: role,
         query: q,
         filter,
         refresh,
       })
       if (superseded()) return
       allThreads = result.threads || []
-      for (const [accountId, unread] of Object.entries(result.folder_unreads ?? {})) {
-        updateCachedFolderUnread(accountId, 'inbox', unread)
+      // Only the Inbox totals feed the side-nav badges; the other unified
+      // folders have no badge to keep in sync.
+      if (role === 'inbox') {
+        for (const [accountId, unread] of Object.entries(result.folder_unreads ?? {})) {
+          updateCachedFolderUnread(accountId, 'inbox', unread)
+        }
       }
       for (const failure of result.failures ?? []) {
         console.error(`Failed to load threads for ${failure.account_id}: ${failure.message}`)
@@ -906,7 +892,7 @@ export async function loadMoreThreads() {
   mail$.threadsLoadingMore.set(true)
   try {
     let moreThreads: Message[] = []
-    if (selectedAcc === 'starred') {
+    if (isUnifiedStarred(selectedAcc, selectedFol)) {
       const cursor = mail$.threadsCursor.get()
       if (!cursor) return
       const res = await invoke<{ items: Message[]; next_cursor?: string }>('mail.starredItems', {
@@ -922,21 +908,25 @@ export async function loadMoreThreads() {
     } else if (selectedAcc === 'unified') {
       const cursor = mail$.threadsCursor.get()
       if (!cursor) return
+      const role = unifiedFolderRole(selectedFol)
       const res = await invoke<{
         threads: Message[]
         next_cursor?: string
         folder_unreads?: Record<string, number>
       }>('mail.threadList', {
         account_id: 'unified',
-        folder_id: 'inbox',
+        folder_id: role,
+        folder_role: role,
         query: q,
         filter,
         before_cursor: cursor,
         refresh: false,
       })
       if (!stillCurrent(cursor)) return
-      for (const [accountId, unread] of Object.entries(res.folder_unreads ?? {})) {
-        updateCachedFolderUnread(accountId, 'inbox', unread)
+      if (role === 'inbox') {
+        for (const [accountId, unread] of Object.entries(res.folder_unreads ?? {})) {
+          updateCachedFolderUnread(accountId, 'inbox', unread)
+        }
       }
       moreThreads = res.threads || []
       mail$.threadAccountCursors.set({})
@@ -1172,22 +1162,19 @@ function removeThreadLocally(threadId: string) {
   const previousKanbanThreads = captureKeys(kanban$.threads.get(), kanbanKeysWithThread(threadId))
   const previousSelected = ui$.selectedThread.get()
   const previousPaneThreadId = kanban$.paneThreadId.get()
-  const previousStarredItem = ui$.selectedStarredItem.get()
-  const inStarredView = ui$.selectedAccount.get() === 'starred'
   // When the selected thread is the one leaving, advance to its neighbour in the
   // visible list (next, or previous if it was last) instead of snapping back to
   // the top — this keeps keyboard triage (e/# on the j/k selection) in place.
   // Computed before mutating mail$.threads, since getFilteredThreads reads it.
   let nextSelected = previousSelected
-  let nextStarredItem = previousStarredItem
   if (previousSelected === threadId) {
     if (kanban$.activeBoardId.get()) {
       nextSelected = kanbanNeighbourThreadId(threadId)
     } else {
       const visible = getFilteredThreads()
       const index = visible.findIndex((thread) => thread.thread_id === threadId)
-      // Skip over rows of the deleted thread itself — the starred view is a
-      // flat item list that can hold several rows with the same thread_id.
+      // Skip over rows of the deleted thread itself — the unified starred folder
+      // can list the same thread once per folder it is starred in.
       const neighbour =
         index === -1
           ? undefined
@@ -1197,7 +1184,6 @@ function removeThreadLocally(threadId: string) {
               .reverse()
               .find((item) => item.thread_id !== threadId))
       nextSelected = neighbour?.thread_id ?? ''
-      if (inStarredView) nextStarredItem = neighbour?.id ?? ''
     }
   }
   const nextThreads = previousThreads.filter((thread) => thread.thread_id !== threadId)
@@ -1207,7 +1193,6 @@ function removeThreadLocally(threadId: string) {
   removeKanbanThread(threadId)
   if (previousSelected === threadId) {
     ui$.selectedThread.set(nextSelected)
-    if (inStarredView) ui$.selectedStarredItem.set(nextStarredItem)
   }
   // If the kanban conversation pane was open on the deleted card, follow the
   // selection so it doesn't keep rendering the removed thread.
@@ -1221,7 +1206,6 @@ function removeThreadLocally(threadId: string) {
       mail$.messages.set(previousMessages)
       restoreKanbanColumns(previousKanbanThreads)
       ui$.selectedThread.set(previousSelected)
-      ui$.selectedStarredItem.set(previousStarredItem)
       if (previousPaneThreadId === threadId) {
         kanban$.paneThreadId.set(previousPaneThreadId)
       }
@@ -1310,15 +1294,8 @@ export async function bulkMarkSelectedUnread(items: BulkSelectionItem[]) {
 }
 
 export async function bulkStarSelected(items: BulkSelectionItem[], starred: boolean) {
-  const messageItems = items.filter((item) => item.kind === 'mail' && item.messageId)
-  const threadItems = uniqueThreadItems(items.filter((item) => !item.messageId))
-  await Promise.all([
-    ...messageItems.map((item) => {
-      const message = mail$.threads.get().find((row) => row.id === item.messageId)
-      return message ? starMessage(message, starred) : starThread(item.threadId, starred)
-    }),
-    ...threadItems.map((item) => starThread(item.threadId, starred)),
-  ])
+  const targets = uniqueThreadItems(items)
+  await Promise.all(targets.map((item) => starThread(item.threadId, starred)))
   clearBulkSelection()
   showToast(starred ? 'Starred selected threads' : 'Unstarred selected threads')
 }
@@ -1666,7 +1643,7 @@ export async function markAllRead() {
 
   const accounts = accounts$.get()
   const selectedAcc = ui$.selectedAccount.get()
-  const folder = selectedAcc === 'unified' ? 'inbox' : ui$.selectedFolder.get()
+  const folder = selectedAcc === 'unified' ? unifiedFolderRole(ui$.selectedFolder.get()) : ui$.selectedFolder.get()
   const activeAccount = accounts.find((account) => account.id === selectedAcc)
   const mailAccountIds =
     selectedAcc === 'unified'
@@ -1822,18 +1799,21 @@ export async function starMessage(message: Message, starred: boolean) {
   const threadStarred = nextMessages.some((item) => item.thread_id === message.thread_id && item.starred)
 
   mail$.messages.set(nextMessages)
-  // In the starred view, threads holds per-message rows: insert/remove the one
-  // row by id instead of stamping the thread-level star onto every sibling.
-  if (ui$.selectedAccount.peek() === 'starred') {
+  // The starred folder lists a thread only while some message in it is starred,
+  // so a row leaves as soon as the last star is cleared and appears the moment
+  // the first one is set — including when starring from the open conversation,
+  // where the thread isn't listed yet.
+  if (isUnifiedStarred(ui$.selectedAccount.peek(), ui$.selectedFolder.peek())) {
     const rows = mail$.threads.get()
-    if (!starred) {
-      mail$.threads.set(rows.filter((item) => item.id !== message.id))
-    } else if (rows.some((item) => item.id === message.id)) {
-      mail$.threads.set(rows.map((item) => (item.id === message.id ? { ...item, starred } : item)))
+    const listed = rows.some((item) => item.thread_id === message.thread_id)
+    if (!threadStarred) {
+      mail$.threads.set(rows.filter((item) => item.thread_id !== message.thread_id))
+    } else if (listed) {
+      mail$.threads.set(
+        rows.map((item) => (item.thread_id === message.thread_id ? { ...item, starred: threadStarred } : item)),
+      )
     } else {
-      // Starred from the open conversation: the row isn't listed yet, insert it
-      // at its sorted position.
-      mail$.threads.set(mergeStarredItems([...rows, { ...message, starred }], ui$.query.peek()))
+      mail$.threads.set([...rows, { ...message, starred: threadStarred }].sort((a, b) => b.date - a.date))
     }
   } else {
     mail$.threads.set(

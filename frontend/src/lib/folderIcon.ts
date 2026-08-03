@@ -22,6 +22,8 @@ const ROLE_ICONS: Record<string, LucideIcon> = {
   junk: OctagonAlert,
   archive: Archive,
   all: Mails,
+  // Not an IMAP special-use: the unified view's cross-account Starred folder.
+  starred: Star,
 }
 
 // Servers that don't advertise RFC 6154 special-use still name these folders

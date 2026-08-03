@@ -199,6 +199,23 @@ pub fn classify_folder_role(name: &str, special_use: Option<&str>) -> &'static s
     }
 }
 
+/// The account's folder for a special-use role, or `None` when it has none.
+///
+/// Backs the unified view's folder switcher: "Sent" there means each account's
+/// own Sent, and an account whose server has no Archive or Junk is simply left
+/// out of that view rather than reported as a failure.
+pub fn folder_for_role(conn: &Connection, account: &str, role: &str) -> Result<Option<String>> {
+    // Every account has an Inbox, and RSS accounts have no folder rows at all —
+    // resolving it from the table would drop them out of the unified inbox.
+    if role.eq_ignore_ascii_case("inbox") {
+        return Ok(Some("INBOX".to_string()));
+    }
+    Ok(get_folders(conn, account)?
+        .into_iter()
+        .find(|folder| classify_folder_role(&folder.name, folder.special_use.as_deref()) == role)
+        .map(|folder| folder.name))
+}
+
 // ---- Messages (mail) --------------------------------------------------------
 
 pub fn upsert_messages(

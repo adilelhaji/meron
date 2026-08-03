@@ -1350,6 +1350,150 @@ fn mobile_protocol_lists_unified_threads_and_excludes_opted_out_accounts() {
 }
 
 #[test]
+fn starred_rows_group_into_threads_without_merging_across_folders() {
+    let data_dir = unique_data_dir("starred-threads");
+    seed_mobile_account(&data_dir, "me@example.com");
+    let conn = store::open_at(data_dir.join("meron.db")).unwrap();
+    for folder in ["INBOX", "Archive"] {
+        store::ensure_folder(&conn, "me@example.com", folder).unwrap();
+    }
+    // Two starred messages of one thread in INBOX collapse to a single card...
+    store::upsert_messages(
+        &conn,
+        "me@example.com",
+        "INBOX",
+        &[
+            MessageHeader {
+                uid: 1,
+                subject: "Trip plans".to_string(),
+                from_addr: "ana@example.com".to_string(),
+                date: 100,
+                seen: true,
+                starred: true,
+                thread_key: "trip".to_string(),
+                ..Default::default()
+            },
+            MessageHeader {
+                uid: 2,
+                subject: "Re: Trip plans".to_string(),
+                from_addr: "ana@example.com".to_string(),
+                date: 150,
+                seen: true,
+                starred: true,
+                thread_key: "trip".to_string(),
+                ..Default::default()
+            },
+            // The card is admitted by the stars above, but its ordinary thread
+            // metadata must still come from this newer unread reply.
+            MessageHeader {
+                uid: 3,
+                subject: "Re: Trip plans".to_string(),
+                from_addr: "bob@example.com".to_string(),
+                date: 200,
+                thread_key: "trip".to_string(),
+                ..Default::default()
+            },
+        ],
+    )
+    .unwrap();
+    // ...but the same thread starred in Archive stays its own row, since a card
+    // addresses one mailbox and collapsing them would strand one folder's copy.
+    store::upsert_messages(
+        &conn,
+        "me@example.com",
+        "Archive",
+        &[MessageHeader {
+            uid: 5,
+            subject: "Trip plans".to_string(),
+            from_addr: "ana@example.com".to_string(),
+            date: 120,
+            starred: true,
+            thread_key: "trip".to_string(),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+    drop(conn);
+
+    let value = invoke_mobile_protocol_json(
+        r#"{"id":75,"method":"mail.starredItems","params":{"limit":10}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    let items = value["result"]["items"].as_array().unwrap();
+    assert_eq!(items.len(), 2, "{value}");
+    for item in items {
+        assert_eq!(item["id"], item["thread_id"], "{value}");
+    }
+    let folders = items
+        .iter()
+        .map(|item| item["folder_id"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(folders.contains(&"INBOX"), "{value}");
+    assert!(folders.contains(&"Archive"), "{value}");
+    let inbox = items
+        .iter()
+        .find(|item| item["folder_id"] == "INBOX")
+        .unwrap();
+    assert_eq!(inbox["date"], 200, "{value}");
+    assert_eq!(inbox["unread"], true, "{value}");
+    assert_eq!(inbox["unread_count"], 1, "{value}");
+
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn unified_folder_role_resolves_per_account_and_skips_accounts_without_it() {
+    let data_dir = unique_data_dir("unified-role");
+    for account in ["has-sent@example.com", "no-sent@example.com"] {
+        seed_mobile_account(&data_dir, account);
+    }
+    let conn = store::open_at(data_dir.join("meron.db")).unwrap();
+    // One account files sent mail under a non-obvious name flagged \Sent; the
+    // other has no sent mailbox at all and must drop out of the merge.
+    store::upsert_folders(
+        &conn,
+        "has-sent@example.com",
+        &[crate::imap::Folder {
+            name: "Postausgang".to_string(),
+            special_use: Some("sent".to_string()),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+    store::ensure_folder(&conn, "has-sent@example.com", "Postausgang").unwrap();
+    store::upsert_messages(
+        &conn,
+        "has-sent@example.com",
+        "Postausgang",
+        &[MessageHeader {
+            uid: 3,
+            subject: "Sent mail".to_string(),
+            from_addr: "me@example.com".to_string(),
+            date: 500,
+            seen: true,
+            thread_key: "sent-topic".to_string(),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+    drop(conn);
+
+    let value = invoke_mobile_protocol_json(
+        r#"{"id":165,"method":"mail.threadList","params":{"account_id":"unified","folder_id":"sent","folder_role":"sent","filter":"all"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    let threads = value["result"]["threads"].as_array().unwrap();
+    assert_eq!(threads.len(), 1, "{value}");
+    assert_eq!(threads[0]["account_id"], "has-sent@example.com", "{value}");
+    assert_eq!(threads[0]["folder_id"], "Postausgang", "{value}");
+    // A missing role is not an error: an account whose server has no Sent
+    // mailbox is simply absent, with no failure banner for the view to show.
+    assert_eq!(value["result"]["failures"], json!([]), "{value}");
+
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+#[test]
 fn mobile_protocol_keeps_gmail_thread_id_atomic_across_subject_drift() {
     let data_dir = unique_data_dir("gmail-thread-id");
     seed_mobile_account(&data_dir, "me@example.com");
@@ -1963,10 +2107,9 @@ fn mobile_protocol_lists_starred_items_from_store() {
         items[0]["thread_id"],
         "a2@example.com#Sent#t.bmV3ZXIjTmV3ZXN0IHN0YXJyZWQ"
     );
-    assert_eq!(
-        items[0]["id"],
-        "a2@example.com#Sent#t.bmV3ZXIjTmV3ZXN0IHN0YXJyZWQ#7"
-    );
+    // Starred rows are thread cards like every other mailbox: the row id *is*
+    // the thread id, not a per-message "{thread_id}#{uid}".
+    assert_eq!(items[0]["id"], items[0]["thread_id"]);
     assert_eq!(items[0]["unread"], false);
     assert_eq!(items[0]["starred"], true);
     assert_eq!(items[1]["account_id"], "a1@example.com");

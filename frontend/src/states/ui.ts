@@ -27,13 +27,12 @@ export type ConfirmState = {
   tone: ConfirmTone
 }
 
-export type BulkSelectionSurface = 'thread-list' | 'starred' | 'kanban'
+export type BulkSelectionSurface = 'thread-list' | 'kanban'
 export type BulkSelectionKind = 'mail' | 'feed'
 export type BulkSelectionItem = {
   key: string
   groupKey: string
   threadId: string
-  messageId?: string
   accountId: string
   folderId: string
   surface: BulkSelectionSurface
@@ -51,8 +50,6 @@ export const ui$ = observable({
   selectedAccount: '',
   selectedFolder: 'inbox',
   selectedThread: '',
-  // Starred is a flat item list, so multiple rows can share selectedThread.
-  selectedStarredItem: '',
   bulkSelection: {} as Record<string, BulkSelectionItem>,
   bulkAnchorKey: '',
   query: '',
@@ -261,11 +258,13 @@ export function restoreUiSession(prefs: Record<string, unknown>, accounts: Accou
       ui$.selectedAccount.set('')
     } else {
       const saved = prefs['session_account']
-      const valid =
-        typeof saved === 'string' &&
-        (saved === 'unified' || saved === 'starred' || accounts.some((a) => a.id === saved))
-      ui$.selectedAccount.set(valid ? (saved as string) : 'unified')
-      const folder = prefs['session_folder']
+      // 'starred' used to be a top-level pseudo-account; it is now a folder of
+      // the unified view, so an old saved session lands there instead of on a
+      // selection nothing can render.
+      const account = saved === 'starred' ? 'unified' : saved
+      const valid = typeof account === 'string' && (account === 'unified' || accounts.some((a) => a.id === account))
+      ui$.selectedAccount.set(valid ? (account as string) : 'unified')
+      const folder = saved === 'starred' ? 'starred' : prefs['session_folder']
       if (typeof folder === 'string' && folder) ui$.selectedFolder.set(folder)
     }
   } finally {

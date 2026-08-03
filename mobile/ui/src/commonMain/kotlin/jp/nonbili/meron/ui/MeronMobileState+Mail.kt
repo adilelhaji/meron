@@ -355,6 +355,7 @@ internal fun mailEventAffectsVisibleMailbox(
     selectedAccountId: String,
     selectedFolder: String,
     unifiedAccountIds: Set<String>,
+    unifiedFoldersByAccount: Map<String, List<FolderSummary>> = emptyMap(),
 ): Boolean {
     if (eventAccount.isBlank()) return true
     val visibleAccount = selectedAccountId.ifBlank { UNIFIED_ACCOUNT_ID }
@@ -366,10 +367,12 @@ internal fun mailEventAffectsVisibleMailbox(
         }
     if (!accountMatches) return false
     if (eventFolder.isBlank()) return true
-    // The unified list only ever shows each account's inbox.
     val visibleFolder =
         if (visibleAccount == UNIFIED_ACCOUNT_ID) {
-            INBOX_FOLDER
+            unifiedAccountFolder(
+                unifiedFoldersByAccount[eventAccount].orEmpty(),
+                selectedFolder,
+            ) ?: return false
         } else {
             selectedFolder.ifBlank { INBOX_FOLDER }
         }
@@ -390,6 +393,7 @@ internal fun MeronMobileState.reloadVisibleMailboxFor(
             selectedAccountId = selectedCoreAccountId,
             selectedFolder = selectedCoreFolder,
             unifiedAccountIds = coreAccounts.filter { it.includedInUnified }.map { it.id }.toSet(),
+            unifiedFoldersByAccount = foldersByAccount,
         )
     if (!affected) {
         Log.i("MailLoad", "reload skipped unrelated event account=$eventAccount folder=$eventFolder")
@@ -486,6 +490,7 @@ internal fun MeronMobileState.syncCoreThreads(
                         syncLimit = syncLimit,
                         listLimit = listLimit,
                         refreshSearch = refreshSearch,
+                        folderRole = requestedFolder,
                     )
                 } else {
                     loadAccountInbox(
@@ -614,10 +619,14 @@ private fun MeronMobileState.deepenMailboxSync(
                 val client = MobileMailCommandClient(core)
                 mailAccounts.forEach { account ->
                     withManagedGoogleAuth(client, account.id) {
+                        val accountFolders =
+                            parseFolderListResponse(client.listFolders(FolderListParams(accountId = account.id)))
+                        val targetFolder =
+                            unifiedAccountFolder(accountFolders, folder) ?: return@withManagedGoogleAuth "{}"
                         client.sync(
                             SyncMailParams(
                                 accountId = account.id,
-                                folderId = folder,
+                                folderId = targetFolder,
                                 limit = MAILBOX_SYNC_LIMIT,
                                 folders = false,
                                 deferTail = true,
@@ -721,6 +730,7 @@ internal fun MeronMobileState.loadMoreCoreThreads(quiet: Boolean = false) {
                         filter = filter,
                         syncFirst = false,
                         beforeCursor = mailboxCursor,
+                        folderRole = requestedFolder,
                     )
                 } else {
                     loadAccountInbox(

@@ -1,5 +1,6 @@
 package jp.nonbili.meron.ui
 
+import jp.nonbili.meron.shared.FolderSummary
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -61,16 +62,26 @@ class MailEventScopeTest {
         )
     }
 
-    // The unified list only ever shows inboxes, whatever selectedFolder says.
     @Test
-    fun unifiedIgnoresNonInboxFolders() {
-        assertFalse(
+    fun unifiedMatchesTheSelectedRoleThroughTheAccountsRealFolderName() {
+        assertTrue(
             affects(
                 eventAccount = "acc1",
-                eventFolder = "Sent",
+                eventFolder = "Postausgang",
                 selectedAccountId = UNIFIED_ACCOUNT_ID,
-                selectedFolder = INBOX_FOLDER,
+                selectedFolder = "sent",
                 unifiedAccountIds = setOf("acc1"),
+                unifiedFoldersByAccount =
+                    mapOf(
+                        "acc1" to
+                            listOf(
+                                FolderSummary(
+                                    accountId = "acc1",
+                                    name = "Postausgang",
+                                    role = "sent",
+                                ),
+                            ),
+                    ),
             ),
         )
     }
@@ -109,6 +120,7 @@ class MailEventScopeTest {
         selectedAccountId: String,
         selectedFolder: String,
         unifiedAccountIds: Set<String> = emptySet(),
+        unifiedFoldersByAccount: Map<String, List<FolderSummary>> = emptyMap(),
     ): Boolean =
         mailEventAffectsVisibleMailbox(
             eventAccount = eventAccount,
@@ -116,5 +128,6 @@ class MailEventScopeTest {
             selectedAccountId = selectedAccountId,
             selectedFolder = selectedFolder,
             unifiedAccountIds = unifiedAccountIds,
+            unifiedFoldersByAccount = unifiedFoldersByAccount,
         )
 }
