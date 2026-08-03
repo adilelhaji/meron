@@ -13,7 +13,6 @@ import {
   Trash2,
   Camera,
   Columns3,
-  Star,
   Globe,
   KeyRound,
   SpellCheck,
@@ -33,7 +32,6 @@ import {
   KANBAN_COLUMN_MIN_WIDTH,
   sendShortcutLabel,
   setUnifiedInboxSideNavVisible,
-  setStarredSideNavVisible,
   type KanbanBoard,
   type SendShortcut,
 } from '../../states/settings'
@@ -340,7 +338,6 @@ function GeneralSection() {
   const sendShortcut = useValue(settings$.sendShortcut)
   const spellCheck = useValue(settings$.spellCheck)
   const showUnifiedInbox = useValue(settings$.showUnifiedInboxInSideNav)
-  const showStarred = useValue(settings$.showStarredInSideNav)
   const kanbanColumnWidth = useValue(settings$.kanbanColumnWidth)
   const language = useValue(settings$.language)
 
@@ -389,12 +386,6 @@ function GeneralSection() {
           title={t('settings.sideNav.showUnifiedInbox')}
           checked={showUnifiedInbox}
           onChange={() => setUnifiedInboxSideNavVisible(!showUnifiedInbox)}
-        />
-        <ToggleRow
-          icon={<Star size={15} />}
-          title={t('settings.sideNav.showStarred')}
-          checked={showStarred}
-          onChange={() => setStarredSideNavVisible(!showStarred)}
         />
       </SettingsGroup>
 

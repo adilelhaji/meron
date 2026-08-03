@@ -71,24 +71,6 @@ describe('spellCheck setting', () => {
   })
 })
 
-describe('side nav starred setting', () => {
-  afterEach(() => {
-    settings$.showStarredInSideNav.set(false)
-  })
-
-  it('defaults show starred off', () => {
-    expect(settings$.showStarredInSideNav.get()).toBe(false)
-  })
-
-  it('hydrates a persisted show starred preference', () => {
-    hydrateSettings({ show_starred_in_sidenav: true })
-    expect(settings$.showStarredInSideNav.get()).toBe(true)
-
-    hydrateSettings({ show_starred_in_sidenav: false })
-    expect(settings$.showStarredInSideNav.get()).toBe(false)
-  })
-})
-
 describe('proxy setting', () => {
   afterEach(() => {
     settings$.proxy.set(EMPTY_PROXY)

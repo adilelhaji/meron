@@ -81,8 +81,6 @@ export type Settings = {
   hiddenSideNavAccounts: string[]
   /** Whether the synthetic unified inbox appears in the desktop side navigation. */
   showUnifiedInboxInSideNav: boolean
-  /** Whether the Starred view button appears in the desktop side navigation. */
-  showStarredInSideNav: boolean
   /** Whether to poll for new releases in the background (see states/update.ts). */
   autoUpdateCheck: boolean
   /** Version whose update banner the user dismissed, so it doesn't nag. */
@@ -115,7 +113,6 @@ const DB_KEY = {
   kanbanMinimizedColumns: 'kanban_minimized_columns',
   hiddenSideNavAccounts: 'hidden_sidenav_accounts',
   showUnifiedInboxInSideNav: 'show_unified_inbox_in_sidenav',
-  showStarredInSideNav: 'show_starred_in_sidenav',
   autoUpdateCheck: 'auto_update_check',
   dismissedUpdateVersion: 'dismissed_update_version',
   language: 'language',
@@ -213,7 +210,6 @@ export const settings$ = observable<Settings>({
   kanbanMinimizedColumns: {},
   hiddenSideNavAccounts: [],
   showUnifiedInboxInSideNav: true,
-  showStarredInSideNav: false,
   autoUpdateCheck: true,
   dismissedUpdateVersion: null,
   language: null,
@@ -401,10 +397,6 @@ export function setUnifiedInboxSideNavVisible(visible: boolean) {
   settings$.showUnifiedInboxInSideNav.set(visible)
 }
 
-export function setStarredSideNavVisible(visible: boolean) {
-  settings$.showStarredInSideNav.set(visible)
-}
-
 /** Apply persisted settings loaded from the DB (via `app.prefsGet`). */
 export function hydrateSettings(prefs: Record<string, unknown>) {
   hydrating = true
@@ -463,10 +455,6 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
 
     if (typeof prefs[DB_KEY.showUnifiedInboxInSideNav] === 'boolean') {
       settings$.showUnifiedInboxInSideNav.set(prefs[DB_KEY.showUnifiedInboxInSideNav] as boolean)
-    }
-
-    if (typeof prefs[DB_KEY.showStarredInSideNav] === 'boolean') {
-      settings$.showStarredInSideNav.set(prefs[DB_KEY.showStarredInSideNav] as boolean)
     }
 
     if (typeof prefs[DB_KEY.autoUpdateCheck] === 'boolean') {

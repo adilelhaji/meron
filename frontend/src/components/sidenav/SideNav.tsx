@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { DragEvent } from 'react'
-import { Mail, MoreHorizontal, EyeOff, Star } from 'lucide-react'
+import { Mail, MoreHorizontal, EyeOff } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
@@ -11,7 +11,7 @@ import { accounts$, reorderAccountIds } from '../../states/accounts'
 import { moveFeed, RSS_FEED_DRAG_TYPE } from '../../states/feeds'
 import { closeKanbanBoard, kanban$, reorderKanbanBoards, selectKanbanBoard } from '../../states/kanban'
 import { mail$, inboxUnread } from '../../states/mail'
-import { settings$, setUnifiedInboxSideNavVisible, setStarredSideNavVisible } from '../../states/settings'
+import { settings$, setUnifiedInboxSideNavVisible } from '../../states/settings'
 import { ui$ } from '../../states/ui'
 import { QuickSettingsMenu } from './QuickSettingsMenu'
 import { SortableBoard, SortableAccount } from './SortableRailItems'
@@ -28,12 +28,10 @@ export function SideNav() {
   const boards = useValue(settings$.kanbanBoards)
   const hiddenSideNavAccounts = useValue(settings$.hiddenSideNavAccounts)
   const showUnifiedInbox = useValue(settings$.showUnifiedInboxInSideNav)
-  const showStarred = useValue(settings$.showStarredInSideNav)
   const showUnreadBadge = useValue(settings$.showUnreadAccountBadge)
   const foldersByAccount = useValue(mail$.foldersByAccount)
   const activeBoardId = useValue(kanban$.activeBoardId)
   const selectedAccount = useValue(ui$.selectedAccount)
-  const selectedFolder = useValue(ui$.selectedFolder)
   // Right-click context menu anchored at the cursor for one account.
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const menuAccount = menu ? accounts.find((acc) => acc.id === menu.id) : null
@@ -41,14 +39,12 @@ export function SideNav() {
   const menuBoard = boardMenu ? boards.find((board) => board.id === boardMenu.id) : null
   const [boardDialog, setBoardDialog] = useState<BoardDialogState | null>(null)
   const [unifiedMenu, setUnifiedMenu] = useState<{ x: number; y: number } | null>(null)
-  const [starredMenu, setStarredMenu] = useState<{ x: number; y: number } | null>(null)
   // Bottom "more" menu holding the view switcher and theme settings.
   const [moreMenu, setMoreMenu] = useState<{ x: number; y: number } | null>(null)
 
-  // Starred is a folder of the unified view, so the rail's two buttons differ by
-  // which unified folder they point at rather than by account.
-  const isUnifiedActive = !activeBoardId && selectedAccount === 'unified' && selectedFolder !== 'starred'
-  const isStarredActive = !activeBoardId && selectedAccount === 'unified' && selectedFolder === 'starred'
+  // Starred is a folder of the unified view, reachable from the column's folder
+  // switcher, so the rail button covers it too.
+  const isUnifiedActive = !activeBoardId && selectedAccount === 'unified'
   const unifiedUnread = showUnreadBadge
     ? accounts.reduce(
         (sum, account) =>
@@ -173,36 +169,7 @@ export function SideNav() {
           </div>
         )}
 
-        {/* Starred view: every starred message / feed item across all accounts */}
-        {showStarred && (
-          <div className="relative w-full flex justify-center group">
-            <div
-              className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-r bg-accent transition-all duration-200 ${
-                isStarredActive ? 'h-7' : 'h-0 group-hover:h-3'
-              }`}
-            />
-            <button
-              className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-all duration-200 cursor-pointer ${
-                isStarredActive
-                  ? 'bg-accent text-white shadow-lg shadow-accent/25'
-                  : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:scale-105'
-              }`}
-              onClick={() => selectAccount('unified', 'starred')}
-              onContextMenu={(event) => {
-                event.preventDefault()
-                event.stopPropagation()
-                setStarredMenu({ x: event.clientX, y: event.clientY })
-              }}
-              title={t('settings.sideNav.showStarred')}
-            >
-              <Star size={19} />
-            </button>
-          </div>
-        )}
-
-        {(showUnifiedInbox || showStarred) && (hasBoards || hasAccounts) && (
-          <div className="h-px w-8 shrink-0 bg-white/10" />
-        )}
+        {showUnifiedInbox && (hasBoards || hasAccounts) && <div className="h-px w-8 shrink-0 bg-white/10" />}
 
         {/* Kanban Boards */}
         {hasBoards && (
@@ -265,9 +232,7 @@ export function SideNav() {
         )}
       </div>
 
-      {(showUnifiedInbox || showStarred || hasBoards || hasAccounts) && (
-        <div className="h-px w-8 shrink-0 bg-white/10" />
-      )}
+      {(showUnifiedInbox || hasBoards || hasAccounts) && <div className="h-px w-8 shrink-0 bg-white/10" />}
 
       {/* Utilities */}
       <div className="flex flex-col gap-3 items-center">
@@ -302,19 +267,6 @@ export function SideNav() {
             onClick={() => {
               setUnifiedInboxSideNavVisible(false)
               setUnifiedMenu(null)
-            }}
-          />
-        </RailContextMenu>
-      )}
-
-      {starredMenu && (
-        <RailContextMenu x={starredMenu.x} y={starredMenu.y} onClose={() => setStarredMenu(null)}>
-          <RailMenuItem
-            icon={<EyeOff size={13} className="text-secondary" />}
-            label={t('sidenav.actions.hideFromSideNav')}
-            onClick={() => {
-              setStarredSideNavVisible(false)
-              setStarredMenu(null)
             }}
           />
         </RailContextMenu>
