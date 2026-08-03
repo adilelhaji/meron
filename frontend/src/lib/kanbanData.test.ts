@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'bun:test'
 import { accounts$ } from '../states/accounts'
 import { kanban$, setGlobalKanbanFilter } from '../states/kanban'
 import { mail$ } from '../states/mail'
+import { settings$ } from '../states/settings'
 import type { Account, Folder } from '../types'
 import {
   accountLabel,
@@ -21,8 +22,8 @@ import {
   searchColumnLabel,
   searchScopeColumn,
   searchTargets,
+  subscribeKanbanMailReloads,
   syncKanbanColumn,
-  unifiedColumnLabel,
 } from './kanbanData'
 
 const account = (id: string): Account => ({
@@ -611,17 +612,6 @@ describe('labels', () => {
     expect(folderLabel({ accountId: 'acc1', folderId: 'f2' }, folders, accs)).toBe('f2')
   })
 
-  it('unifiedColumnLabel names every unified role and falls back to inbox', () => {
-    expect(unifiedColumnLabel('sent', t)).toBe('Unified sent')
-    expect(unifiedColumnLabel('drafts', t)).toBe('Unified drafts')
-    expect(unifiedColumnLabel('archive', t)).toBe('Unified archive')
-    expect(unifiedColumnLabel('junk', t)).toBe('Unified junk')
-    expect(unifiedColumnLabel('trash', t)).toBe('Unified trash')
-    // A column persisted before unified folders were switchable, or one whose
-    // stored role we no longer know, still names something.
-    expect(unifiedColumnLabel('Receipts', t)).toBe('Unified inbox')
-  })
-
   it('searchColumnLabel names a unified column by its role', () => {
     const accs = [account('acc1')]
     expect(searchColumnLabel({ accountId: 'unified', folderId: 'sent' }, [], accs, t)).toBe('Unified sent')
@@ -683,5 +673,91 @@ describe('nextFoldersSnapshot', () => {
     expect(second).not.toBe(first)
     delete live.acc1
     expect(nextFoldersSnapshot(second, live)).not.toBe(second)
+  })
+})
+
+describe('subscribeKanbanMailReloads', () => {
+  const setup = () => {
+    const handlers = new Map<string, (detail: { account?: string; folder?: string }) => void>()
+    const calls: { command: string; payload: any }[] = []
+    settings$.kanbanBoards.set([
+      { id: 'board-a', name: 'A', columns: [{ accountId: 'acc1', folderId: 'INBOX' }] },
+      { id: 'board-b', name: 'B', columns: [{ accountId: 'acc2', folderId: 'Archive' }] },
+    ])
+    kanban$.activeBoardId.set('board-a')
+    kanban$.searchQuery.set('')
+    kanban$.searchScope.set('all')
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (command: string, payload: any) => {
+            calls.push({ command, payload })
+            return { threads: [], next_cursor: '', folder_unread: 0 }
+          },
+        },
+      },
+    }
+    const unsubscribe = subscribeKanbanMailReloads((name, callback) => {
+      handlers.set(name, callback)
+      return () => handlers.delete(name)
+    })
+    const cleanup = () => {
+      unsubscribe()
+      kanban$.activeBoardId.set('')
+    }
+    return { calls, cleanup, handlers }
+  }
+
+  it('keeps a queued new-mail reload alive when the folder cache changes', async () => {
+    const { calls, cleanup, handlers } = setup()
+    try {
+      handlers.get('mail.newMessages')?.({ account: 'acc1', folder: 'inbox' })
+      mail$.foldersByAccount.acc1.set([{ account_id: 'acc1', id: 'INBOX', name: 'Inbox', role: 'inbox', unread: 1 }])
+      await Bun.sleep(275)
+
+      expect(calls.filter((call) => call.command === 'mail.threadList').map((call) => call.payload)).toEqual([
+        {
+          account_id: 'acc1',
+          folder_id: 'INBOX',
+          query: '',
+          filter: 'all',
+          refresh: false,
+          limit: 50,
+        },
+      ])
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('resolves the active board and folder roles when each event arrives', async () => {
+    const { calls, cleanup, handlers } = setup()
+    try {
+      kanban$.activeBoardId.set('board-b')
+      settings$.kanbanBoards.set([
+        { id: 'board-a', name: 'A', columns: [{ accountId: 'acc1', folderId: 'INBOX' }] },
+        { id: 'board-b', name: 'B', columns: [{ accountId: 'unified', folderId: 'archive' }] },
+      ])
+      mail$.foldersByAccount.acc2.set([
+        { account_id: 'acc2', id: 'All Mail', name: 'Archive', role: 'archive', unread: 0 },
+      ])
+
+      handlers.get('mail.synced')?.({ account: 'acc2', folder: 'All Mail' })
+      await Bun.sleep(275)
+
+      expect(calls.filter((call) => call.command === 'mail.threadList').map((call) => call.payload)).toEqual([
+        {
+          account_id: 'unified',
+          folder_id: 'archive',
+          folder_role: 'archive',
+          query: '',
+          filter: 'all',
+          refresh: false,
+          limit: 50,
+        },
+      ])
+    } finally {
+      cleanup()
+    }
   })
 })

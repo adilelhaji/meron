@@ -3,6 +3,7 @@ import {
   DEFAULT_UNIFIED_FOLDER,
   UNIFIED_FOLDER_ROLES,
   isUnifiedStarred,
+  unifiedFolderLabel,
   unifiedFolderRole,
   unifiedFolders,
 } from './unifiedFolders'
@@ -47,5 +48,28 @@ describe('isUnifiedStarred', () => {
     // A real account can have a folder literally named "starred"; it is a normal
     // mailbox and must not take the cross-account path.
     expect(isUnifiedStarred('me@example.com', 'starred')).toBe(false)
+  })
+})
+
+describe('unifiedFolderLabel', () => {
+  const label = (key: string) =>
+    ({
+      'kanban.columns.unifiedInbox': 'Unified inbox',
+      'kanban.columns.unifiedSent': 'Unified sent',
+      'kanban.columns.unifiedDrafts': 'Unified drafts',
+      'kanban.columns.unifiedArchive': 'Unified archive',
+      'kanban.columns.unifiedJunk': 'Unified junk',
+      'kanban.columns.unifiedTrash': 'Unified trash',
+    })[key] ?? key
+
+  it('names every unified role and falls back to inbox', () => {
+    expect(unifiedFolderLabel('sent', label)).toBe('Unified sent')
+    expect(unifiedFolderLabel('drafts', label)).toBe('Unified drafts')
+    expect(unifiedFolderLabel('archive', label)).toBe('Unified archive')
+    expect(unifiedFolderLabel('junk', label)).toBe('Unified junk')
+    expect(unifiedFolderLabel('trash', label)).toBe('Unified trash')
+    // A column persisted before unified folders were switchable, or one whose
+    // stored role we no longer know, still names something.
+    expect(unifiedFolderLabel('Receipts', label)).toBe('Unified inbox')
   })
 })

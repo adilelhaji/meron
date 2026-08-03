@@ -247,11 +247,6 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                 accountId={selectedAccount}
                 folderId={selectedFolder}
                 label={folderLabel({ accountId: selectedAccount, folderId: selectedFolder }, folders, accounts, t)}
-                // The unified view's folder names are the same ones a single
-                // account shows, so the header alone can't say which mailbox
-                // this is — and the side-nav's unified button, the only other
-                // cue, can be hidden from settings.
-                caption={selectedAccount === 'unified' ? t('accounts.unified') : undefined}
                 labelClassName="-ml-2 max-w-[40%] shrink-0 text-xs font-bold"
                 onSelect={(nextFolderId) => ui$.selectedFolder.set(nextFolderId)}
               />

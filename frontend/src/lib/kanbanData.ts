@@ -2,11 +2,11 @@ import { useRef } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { invoke } from './bridge'
 import { accounts$, unifiedAccounts } from '../states/accounts'
-import { getAllKanbanColumns, kanbanColumnKey, kanban$, type KanbanColumn } from '../states/kanban'
+import { getAllKanbanColumns, getKanbanColumns, kanbanColumnKey, kanban$, type KanbanColumn } from '../states/kanban'
 import { mail$, updateCachedFolderUnread } from '../states/mail'
 import { showToast } from '../states/ui'
 import type { FilterMode } from '../states/ui'
-import { accountFolderForRole, unifiedFolderRole, type UnifiedFolderRole } from './unifiedFolders'
+import { accountFolderForRole, unifiedFolderLabel, unifiedFolderRole, type UnifiedFolderRole } from './unifiedFolders'
 import type { Account, Folder, Message } from '../types'
 import type { ThreadContextAction, ThreadContextActionDetail } from '../components/threads/ThreadContextMenu'
 
@@ -154,25 +154,6 @@ export function isUnifiedStarredColumn(column: KanbanColumn): boolean {
   return column.accountId === 'unified' && column.folderId.toLowerCase() === 'starred'
 }
 
-// A unified column's own name. It has to carry "Unified" itself: a board sits
-// beside single-account columns whose folders are called the same thing, and
-// unlike the thread list — which has room under its header for a qualifier —
-// a column header is one line next to an avatar. Spelled out per role rather
-// than composed from "Unified" + a folder name, which no language agrees on.
-const UNIFIED_COLUMN_LABEL_KEYS: Record<UnifiedFolderRole, string> = {
-  inbox: 'kanban.columns.unifiedInbox',
-  starred: 'kanban.columns.unifiedStarred',
-  sent: 'kanban.columns.unifiedSent',
-  drafts: 'kanban.columns.unifiedDrafts',
-  archive: 'kanban.columns.unifiedArchive',
-  junk: 'kanban.columns.unifiedJunk',
-  trash: 'kanban.columns.unifiedTrash',
-}
-
-export function unifiedColumnLabel(folderId: string, t: (key: string) => string): string {
-  return t(UNIFIED_COLUMN_LABEL_KEYS[unifiedFolderRole(folderId)])
-}
-
 export function folderLabel(
   column: KanbanColumn,
   folders: Folder[],
@@ -180,15 +161,11 @@ export function folderLabel(
   t: (key: string) => string = (key) => key,
 ) {
   const isInbox = column.folderId.toLowerCase() === 'inbox'
-  if (column.accountId === 'unified') {
-    // The unified view's synthetic folder list carries the localized role names
-    // ("Sent", "Archive"), so the thread-list header reads like an account's own
-    // and leans on its "Unified" caption to say whose mail it is. Kanban columns
-    // have no caption and use unifiedColumnLabel instead.
-    const synthetic = folders.find((folder) => folder.account_id === 'unified' && folder.id === column.folderId)
-    if (synthetic) return synthetic.name
-    return unifiedColumnLabel(column.folderId, t)
-  }
+  // The unified view's synthetic folders are named after their role alone
+  // ("Sent", "Archive") for the side nav, where the selected account already
+  // says whose mail it is. Anywhere a column or header stands beside a single
+  // account's, the qualified name is the one that reads unambiguously.
+  if (column.accountId === 'unified') return unifiedFolderLabel(column.folderId, t)
   if (isInbox) return isRSSAccount(column.accountId, accounts) ? 'Feed' : 'Inbox'
   return (
     folders.find((folder) => folder.account_id === column.accountId && folder.id === column.folderId)?.name ||
@@ -202,7 +179,7 @@ export function searchColumnLabel(
   accounts: Account[],
   t: (key: string) => string = (key) => key,
 ) {
-  if (column.accountId === 'unified') return unifiedColumnLabel(column.folderId, t)
+  if (column.accountId === 'unified') return unifiedFolderLabel(column.folderId, t)
   return `${accountLabel(column.accountId, accounts)} / ${folderLabel(column, folders, accounts)}`
 }
 
@@ -220,6 +197,56 @@ export function kanbanColumnMatchesMailEvent(
   if (!folderId) return role === 'inbox'
   const accountFolder = accountFolderForRole(foldersByAccount[accountId], role) ?? (role === 'inbox' ? 'inbox' : '')
   return !!accountFolder && folderMatches(accountFolder, folderId)
+}
+
+type EventsOn = (name: string, callback: (detail: { account?: string; folder?: string }) => void) => unknown
+
+export function subscribeKanbanMailReloads(eventsOn: EventsOn): () => void {
+  // Coalesce reloads. At startup each account is synced separately, so a board
+  // showing N accounts gets N mail.synced events back-to-back — and each event
+  // would otherwise re-fetch every matching column once. Collect the columns to
+  // reload (keyed by column key, latest query wins) and flush them once after a
+  // short quiet window so a burst of syncs costs one threadList per column.
+  const pending = new Map<string, { column: KanbanColumn; query: string }>()
+  let flushTimer: number | undefined
+  const flush = () => {
+    flushTimer = undefined
+    const jobs = [...pending.values()]
+    pending.clear()
+    for (const job of jobs) {
+      void loadKanbanColumn(job.column, false, job.query)
+    }
+  }
+  const reload = (detail: { account?: string; folder?: string }) => {
+    const account = detail?.account
+    if (!account) return
+    const query = kanban$.searchQuery.peek().trim()
+    const scope = kanban$.searchScope.peek()
+    const folders = mail$.foldersByAccount.peek()
+    // Only the open board renders, and its columns are the only ones whose
+    // cache anything reads; a board opened later reloads its columns on mount
+    // (with a real refresh). Read the active board here rather than closing
+    // over the prop so the effect can stay mounted for the session.
+    for (const column of getKanbanColumns(kanban$.activeBoardId.peek())) {
+      const key = kanbanColumnKey(column)
+      const columnQuery = query && (scope === 'all' || scope === key) ? query : ''
+      if (kanbanColumnMatchesMailEvent(column, account, detail?.folder, folders)) {
+        pending.set(key, { column, query: columnQuery })
+      }
+    }
+    // Leading-window collect: the first event arms the flush; later events in
+    // the window just add to the pending set, bounding latency at ~250ms.
+    if (pending.size > 0 && flushTimer === undefined) {
+      flushTimer = window.setTimeout(flush, 250)
+    }
+  }
+  const offSynced = eventsOn('mail.synced', reload)
+  const offNew = eventsOn('mail.newMessages', reload)
+  return () => {
+    if (flushTimer !== undefined) window.clearTimeout(flushTimer)
+    if (typeof offSynced === 'function') offSynced()
+    if (typeof offNew === 'function') offNew()
+  }
 }
 
 // Whether a column is in the active search's scope ("all" or this column's key).

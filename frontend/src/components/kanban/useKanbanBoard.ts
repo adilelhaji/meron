@@ -3,16 +3,15 @@ import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useValue } from '@legendapp/state/react'
 import { invoke } from '../../lib/bridge'
 import { moveFeed } from '../../states/feeds'
-import { mail$ } from '../../states/mail'
 import { showToast } from '../../states/ui'
-import { getKanbanColumns, kanbanColumnKey, kanban$, reorderKanbanColumn, type KanbanColumn } from '../../states/kanban'
+import { kanbanColumnKey, kanban$, reorderKanbanColumn, type KanbanColumn } from '../../states/kanban'
 import type { Account, Message } from '../../types'
 import {
   SEARCH_DEBOUNCE_MS,
   isRSSAccount,
-  kanbanColumnMatchesMailEvent,
   loadKanbanColumn,
   searchTargets,
+  subscribeKanbanMailReloads,
   useFoldersByAccount,
 } from '../../lib/kanbanData'
 import { accountFolderForRole, unifiedFolderRole } from '../../lib/unifiedFolders'
@@ -124,51 +123,7 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
   useEffect(() => {
     const eventsOn = (window as any).runtime?.EventsOn
     if (typeof eventsOn !== 'function') return
-    // Coalesce reloads. At startup each account is synced separately, so a board
-    // showing N accounts gets N mail.synced events back-to-back — and each event
-    // would otherwise re-fetch every matching column once. Collect the columns to
-    // reload (keyed by column key, latest query wins) and flush them once after a
-    // short quiet window so a burst of syncs costs one threadList per column.
-    const pending = new Map<string, { column: KanbanColumn; query: string }>()
-    let flushTimer: number | undefined
-    const flush = () => {
-      flushTimer = undefined
-      const jobs = [...pending.values()]
-      pending.clear()
-      for (const job of jobs) {
-        void loadKanbanColumn(job.column, false, job.query)
-      }
-    }
-    const reload = (detail: { account?: string; folder?: string }) => {
-      const account = detail?.account
-      if (!account) return
-      const query = kanban$.searchQuery.peek().trim()
-      const scope = kanban$.searchScope.peek()
-      const folders = mail$.foldersByAccount.peek()
-      // Only the open board renders, and its columns are the only ones whose
-      // cache anything reads; a board opened later reloads its columns on mount
-      // (with a real refresh). Read the active board here rather than closing
-      // over the prop so the effect can stay mounted for the session.
-      for (const column of getKanbanColumns(kanban$.activeBoardId.peek())) {
-        const key = kanbanColumnKey(column)
-        const columnQuery = query && (scope === 'all' || scope === key) ? query : ''
-        if (kanbanColumnMatchesMailEvent(column, account, detail?.folder, folders)) {
-          pending.set(key, { column, query: columnQuery })
-        }
-      }
-      // Leading-window collect: the first event arms the flush; later events in
-      // the window just add to the pending set, bounding latency at ~250ms.
-      if (pending.size > 0 && flushTimer === undefined) {
-        flushTimer = window.setTimeout(flush, 250)
-      }
-    }
-    const offSynced = eventsOn('mail.synced', reload)
-    const offNew = eventsOn('mail.newMessages', reload)
-    return () => {
-      if (flushTimer !== undefined) window.clearTimeout(flushTimer)
-      if (typeof offSynced === 'function') offSynced()
-      if (typeof offNew === 'function') offNew()
-    }
+    return subscribeKanbanMailReloads(eventsOn)
   }, [])
 }
 

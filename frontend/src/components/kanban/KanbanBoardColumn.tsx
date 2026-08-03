@@ -40,7 +40,6 @@ import {
   mergeLabelFolders,
   refreshKanbanContextAction,
   isUnifiedStarredColumn,
-  unifiedColumnLabel,
   kanbanColumnUnreadCount,
   useFoldersByAccount,
 } from '../../lib/kanbanData'
@@ -332,11 +331,7 @@ function KanbanColumnContent({
                   // A unified column names itself ("Unified sent"): a board mixes
                   // it with single-account columns whose folders are called the
                   // same thing.
-                  label={
-                    column.accountId === 'unified'
-                      ? unifiedColumnLabel(column.folderId, t)
-                      : folderLabel(column, labelFolders, accounts)
-                  }
+                  label={folderLabel(column, labelFolders, accounts, t)}
                   labelClassName="-mx-2"
                   // Folders already open as their own column on this board can't
                   // be switched to — the board would end up with duplicates.

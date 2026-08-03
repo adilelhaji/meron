@@ -61,6 +61,25 @@ const ROLE_LABEL_KEYS: Record<UnifiedFolderRole, string> = {
   trash: 'folders.roles.trash',
 }
 
+// A unified folder's name where it stands next to single-account ones: a kanban
+// board, or the thread-list header and its folder picker. It has to carry
+// "Unified" itself, since the plain role names ("Sent", "Trash") are the same
+// ones an account shows. Spelled out per role rather than composed from
+// "Unified" + a folder name, which no language agrees on.
+const UNIFIED_LABEL_KEYS: Record<UnifiedFolderRole, string> = {
+  inbox: 'kanban.columns.unifiedInbox',
+  starred: 'kanban.columns.unifiedStarred',
+  sent: 'kanban.columns.unifiedSent',
+  drafts: 'kanban.columns.unifiedDrafts',
+  archive: 'kanban.columns.unifiedArchive',
+  junk: 'kanban.columns.unifiedJunk',
+  trash: 'kanban.columns.unifiedTrash',
+}
+
+export function unifiedFolderLabel(folderId: string, t: (key: string) => string): string {
+  return t(UNIFIED_LABEL_KEYS[unifiedFolderRole(folderId)])
+}
+
 /**
  * The unified view's synthetic folder list. Ids are the roles themselves, so
  * `ui$.selectedFolder` holds a role while the unified account is selected.
