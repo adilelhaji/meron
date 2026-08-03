@@ -164,12 +164,20 @@ func (a *App) threadList(payload map[string]any) (any, error) {
 		a.logf("threadList starred: account=%s folder=%s query=%q refresh=%t", req.AccountID, req.FolderID, req.Query, req.Refresh)
 	}
 	method := "messages.recent"
+	// The unified fan-out resolves a *role* per account, not a folder id. The
+	// frontend sends the role alongside the folder; without forwarding it the
+	// core falls back to "inbox" and every unified folder shows the inbox.
+	folderRole := req.FolderRole
 	if req.AccountID == "unified" {
 		method = "messages.unifiedRecent"
+		if strings.TrimSpace(folderRole) == "" {
+			folderRole = req.FolderID
+		}
 	}
 	res, err := a.sidecar.Call(method, map[string]any{
 		"account":       req.AccountID,
 		"folder":        req.FolderID,
+		"folder_role":   folderRole,
 		"query":         req.Query,
 		"filter":        req.Filter,
 		"before_cursor": req.BeforeCursor,

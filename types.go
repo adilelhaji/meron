@@ -136,8 +136,11 @@ type FolderDeleteRequest struct {
 }
 
 type ThreadListRequest struct {
-	AccountID    string `json:"account_id"`
-	FolderID     string `json:"folder_id"`
+	AccountID string `json:"account_id"`
+	FolderID  string `json:"folder_id"`
+	// Unified view only: the role each account answers from (its own Sent,
+	// Archive, …). Ignored for a single account, which names a real folder.
+	FolderRole   string `json:"folder_role"`
 	Query        string `json:"query"`
 	Filter       string `json:"filter"`
 	BeforeCursor string `json:"before_cursor"`
