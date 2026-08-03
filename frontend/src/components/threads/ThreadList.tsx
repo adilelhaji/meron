@@ -36,6 +36,7 @@ import {
   deleteFolder,
   loadThreads,
 } from '../../states/mail'
+import { clsx } from '../../lib/utils'
 import { isRssAccount } from '../../lib/threadActions'
 import { folderLabel } from '../../lib/kanbanData'
 import { isUnifiedStarred } from '../../lib/unifiedFolders'
@@ -79,6 +80,11 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
   const [quickMenu, setQuickMenu] = useState<{ x: number; y: number } | null>(null)
   // Focus the search box when ⌘/Ctrl+Shift+F (or the palette) bumps the signal.
   const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const [searchFocused, setSearchFocused] = useState(false)
+  // Searching takes over the header: the folder name and the icon buttons step
+  // aside so the box is full width while it is being used. It stays open with
+  // text in it after blur, so a typed query is never truncated out of view.
+  const searchExpanded = searchFocused || query.length > 0
   const globalSearchFocus = useValue(ui$.globalSearchFocus)
   useEffect(() => {
     if (globalSearchFocus === 0) return
@@ -242,7 +248,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
             {/* Current folder, doubling as a picker: switching here retargets the
               list the same way it retargets a kanban column. Capped so a deep
               folder name can't crowd out the search box. */}
-            {showFolderSwitcher && (
+            {showFolderSwitcher && !searchExpanded && (
               <FolderSwitcher
                 accountId={selectedAccount}
                 folderId={selectedFolder}
@@ -252,13 +258,24 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
               />
             )}
             <div className="relative min-w-0 flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-secondary" size={15} />
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-secondary" size={15} />
               <input
                 ref={searchInputRef}
                 value={query}
                 onChange={(event) => ui$.query.set(event.target.value)}
+                onFocus={() => setSearchFocused(true)}
+                onBlur={() => setSearchFocused(false)}
+                onKeyDown={(event) => {
+                  if (event.key !== 'Escape') return
+                  ui$.query.set('')
+                  event.currentTarget.blur()
+                }}
                 placeholder={isRSSAccount ? t('threads.searchFeeds') : t('threads.searchMessages')}
-                className="w-full rounded-xl bg-hover py-2 pl-9.5 pr-8 text-[13px] text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:bg-chats border border-transparent focus:border-transparent transition-all duration-150"
+                className={clsx(
+                  'w-full rounded-xl bg-hover py-2 pl-8 text-[13px] text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:bg-chats border border-transparent focus:border-transparent transition-all duration-150',
+                  // The right padding only has to clear the clear button while there is one.
+                  query ? 'pr-8' : 'pr-3',
+                )}
               />
               {query && (
                 <button
@@ -270,82 +287,93 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
               )}
             </div>
 
-            {/* Add account: only reachable here when the side navigation is hidden (narrow). */}
-            <IconButton
-              icon={Plus}
-              iconSize={18}
-              label={t('accounts.actions.addAccount')}
-              size="md"
-              radius="lg"
-              className="min-[769px]:hidden"
-              onClick={() => ui$.setupOpen.set(true)}
-            />
-            {/* New mail (compose) */}
-            {hasSendableAccount && !isStarredView && !isRSSAccount && (
-              <IconButton
-                icon={SquarePen}
-                iconSize={16}
-                label={t('composer.actions.newMessage')}
-                size="md"
-                radius="lg"
-                onClick={() => openComposeTab()}
-              />
+            {!searchExpanded && (
+              <>
+                {/* Add account: only reachable here when the side navigation is hidden (narrow). */}
+                <IconButton
+                  icon={Plus}
+                  iconSize={18}
+                  label={t('accounts.actions.addAccount')}
+                  size="md"
+                  radius="lg"
+                  className="min-[769px]:hidden"
+                  onClick={() => ui$.setupOpen.set(true)}
+                />
+                {/* New mail (compose) */}
+                {hasSendableAccount && !isStarredView && !isRSSAccount && (
+                  <IconButton
+                    icon={SquarePen}
+                    iconSize={16}
+                    label={t('composer.actions.newMessage')}
+                    size="md"
+                    radius="lg"
+                    onClick={() => openComposeTab()}
+                  />
+                )}
+                {/* Filter + mark-all-read overflow menu (shared with kanban columns).
+                Hidden in the starred view, where the list is starred-only by definition. */}
+                {!isStarredView && (
+                  <ThreadActionsMenu
+                    filterMode={filterMode}
+                    onFilterChange={(mode) => ui$.filterMode.set(mode)}
+                    hasUnread={hasUnread}
+                    onMarkAllRead={() => markAllRead()}
+                    onEmptyFolder={
+                      emptiableTarget
+                        ? () =>
+                            void emptyFolder(selectedAccount, selectedFolder, emptiableTarget).then(async (emptied) => {
+                              if (emptied) await loadThreads(false)
+                            })
+                        : undefined
+                    }
+                    emptyFolderLabel={
+                      emptiableTarget?.role === 'junk'
+                        ? t('threads.actions.emptyJunk')
+                        : t('threads.actions.emptyTrash')
+                    }
+                    onDeleteFolder={
+                      deletableTarget
+                        ? () =>
+                            void deleteFolder(
+                              selectedAccount,
+                              selectedFolder,
+                              deletableTarget.name,
+                              deletableTarget.nested,
+                            )
+                        : undefined
+                    }
+                    onSync={syncMail}
+                    syncing={busy}
+                    allLabel={isRSSAccount ? t('filters.allFeeds') : t('filters.all')}
+                    syncLabel={isRSSAccount ? t('feeds.actions.syncFeeds') : t('threads.actions.syncMailbox')}
+                    syncingLabel={isRSSAccount ? t('feeds.actions.syncingFeeds') : t('threads.actions.syncing')}
+                  />
+                )}
+                {isRSSAccount && (
+                  <IconButton
+                    icon={Plus}
+                    iconSize={16}
+                    label={t('feeds.actions.addToAccount')}
+                    size="md"
+                    radius="lg"
+                    onClick={() => openAddFeed(selectedAccount)}
+                  />
+                )}
+                {/* View + theme: only reachable here when the side navigation is hidden (narrow). */}
+                <IconButton
+                  icon={MoreHorizontal}
+                  iconSize={18}
+                  label={t('sidenav.actions.viewAndTheme')}
+                  size="md"
+                  radius="lg"
+                  className="min-[769px]:hidden"
+                  onClick={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    setQuickMenu({ x: rect.right - 208, y: rect.bottom })
+                  }}
+                />
+              </>
             )}
-            {/* Filter + mark-all-read overflow menu (shared with kanban columns).
-              Hidden in the starred view, where the list is starred-only by definition. */}
-            {!isStarredView && (
-              <ThreadActionsMenu
-                filterMode={filterMode}
-                onFilterChange={(mode) => ui$.filterMode.set(mode)}
-                hasUnread={hasUnread}
-                onMarkAllRead={() => markAllRead()}
-                onEmptyFolder={
-                  emptiableTarget
-                    ? () =>
-                        void emptyFolder(selectedAccount, selectedFolder, emptiableTarget).then(async (emptied) => {
-                          if (emptied) await loadThreads(false)
-                        })
-                    : undefined
-                }
-                emptyFolderLabel={
-                  emptiableTarget?.role === 'junk' ? t('threads.actions.emptyJunk') : t('threads.actions.emptyTrash')
-                }
-                onDeleteFolder={
-                  deletableTarget
-                    ? () =>
-                        void deleteFolder(selectedAccount, selectedFolder, deletableTarget.name, deletableTarget.nested)
-                    : undefined
-                }
-                onSync={syncMail}
-                syncing={busy}
-                allLabel={isRSSAccount ? t('filters.allFeeds') : t('filters.all')}
-                syncLabel={isRSSAccount ? t('feeds.actions.syncFeeds') : t('threads.actions.syncMailbox')}
-                syncingLabel={isRSSAccount ? t('feeds.actions.syncingFeeds') : t('threads.actions.syncing')}
-              />
-            )}
-            {isRSSAccount && (
-              <IconButton
-                icon={Plus}
-                iconSize={16}
-                label={t('feeds.actions.addToAccount')}
-                size="md"
-                radius="lg"
-                onClick={() => openAddFeed(selectedAccount)}
-              />
-            )}
-            {/* View + theme: only reachable here when the side navigation is hidden (narrow). */}
-            <IconButton
-              icon={MoreHorizontal}
-              iconSize={18}
-              label={t('sidenav.actions.viewAndTheme')}
-              size="md"
-              radius="lg"
-              className="min-[769px]:hidden"
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect()
-                setQuickMenu({ x: rect.right - 208, y: rect.bottom })
-              }}
-            />
           </div>
         </div>
       )}
