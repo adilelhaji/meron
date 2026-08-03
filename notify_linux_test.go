@@ -57,6 +57,115 @@ func TestPortalNotificationOptionsWithoutTarget(t *testing.T) {
 	}
 }
 
+func TestTakeFdoNotificationTarget(t *testing.T) {
+	notificationMu.Lock()
+	fdoNotificationTargets[7] = fdoNotificationTarget{
+		target:           notificationTarget{Account: "account-1", ThreadID: "account-1#INBOX#message-1"},
+		responseSequence: 10,
+	}
+	notificationMu.Unlock()
+	t.Cleanup(func() {
+		notificationMu.Lock()
+		delete(fdoNotificationTargets, 7)
+		notificationMu.Unlock()
+	})
+
+	target, ok := takeFdoNotificationTarget([]any{uint32(7), fdoNotificationDefaultAction}, 11)
+	if !ok {
+		t.Fatal("takeFdoNotificationTarget rejected a registered notification")
+	}
+	if target.Account != "account-1" || target.ThreadID != "account-1#INBOX#message-1" {
+		t.Fatalf("target = %#v", target)
+	}
+	// The entry is consumed: ids are reused, so a later signal carrying the same
+	// id must not reopen this thread.
+	if _, ok := takeFdoNotificationTarget([]any{uint32(7), fdoNotificationDefaultAction}, 12); ok {
+		t.Error("takeFdoNotificationTarget returned a consumed target")
+	}
+}
+
+func TestTakeFdoNotificationTargetRejectsInvalidSignal(t *testing.T) {
+	notificationMu.Lock()
+	fdoNotificationTargets[9] = fdoNotificationTarget{
+		target:           notificationTarget{Account: "account-1", ThreadID: "thread-1"},
+		responseSequence: 10,
+	}
+	notificationMu.Unlock()
+	t.Cleanup(func() {
+		notificationMu.Lock()
+		delete(fdoNotificationTargets, 9)
+		notificationMu.Unlock()
+	})
+
+	tests := [][]any{
+		nil,
+		{uint32(9)},
+		{"9", fdoNotificationDefaultAction},
+		{uint32(9), "other-action"},
+		// Another app's notification, broadcast to every listener.
+		{uint32(1234), fdoNotificationDefaultAction},
+	}
+	for _, body := range tests {
+		if target, ok := takeFdoNotificationTarget(body, 11); ok {
+			t.Errorf("takeFdoNotificationTarget(%#v) = %#v, want rejection", body, target)
+		}
+	}
+}
+
+func TestFdoNotificationTargetIgnoresSignalsFromReusedID(t *testing.T) {
+	notificationMu.Lock()
+	fdoNotificationTargets[11] = fdoNotificationTarget{
+		target:           notificationTarget{Account: "account-2", ThreadID: "thread-2"},
+		responseSequence: 20,
+	}
+	notificationMu.Unlock()
+	t.Cleanup(func() {
+		notificationMu.Lock()
+		delete(fdoNotificationTargets, 11)
+		notificationMu.Unlock()
+	})
+
+	// These signals were received before the Notify reply and therefore belong
+	// to the previous notification that used id 11, even though they are handled
+	// after the replacement target has been registered.
+	closeFdoNotificationTarget([]any{uint32(11), uint32(2)}, 19)
+	if _, ok := takeFdoNotificationTarget(
+		[]any{uint32(11), fdoNotificationDefaultAction},
+		19,
+	); ok {
+		t.Fatal("stale action consumed the replacement notification target")
+	}
+
+	target, ok := takeFdoNotificationTarget(
+		[]any{uint32(11), fdoNotificationDefaultAction},
+		21,
+	)
+	if !ok {
+		t.Fatal("replacement notification target was removed by a stale signal")
+	}
+	if target.Account != "account-2" || target.ThreadID != "thread-2" {
+		t.Fatalf("target = %#v", target)
+	}
+}
+
+func TestLinuxDesktopEntry(t *testing.T) {
+	t.Setenv("FLATPAK_ID", "")
+	t.Setenv("SNAP_NAME", "")
+	if got := linuxDesktopEntry(); got != "meron" {
+		t.Errorf("linuxDesktopEntry() = %q, want %q", got, "meron")
+	}
+
+	t.Setenv("SNAP_NAME", "meron")
+	if got := linuxDesktopEntry(); got != "meron_meron" {
+		t.Errorf("snap linuxDesktopEntry() = %q, want %q", got, "meron_meron")
+	}
+
+	t.Setenv("FLATPAK_ID", "jp.nonbili.meron")
+	if got := linuxDesktopEntry(); got != "jp.nonbili.meron" {
+		t.Errorf("flatpak linuxDesktopEntry() = %q, want %q", got, "jp.nonbili.meron")
+	}
+}
+
 func TestPortalNotificationTargetRejectsInvalidSignal(t *testing.T) {
 	tests := [][]any{
 		nil,
