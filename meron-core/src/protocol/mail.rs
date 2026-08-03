@@ -1282,15 +1282,29 @@ pub(crate) fn mark_mobile_folder_all_read(data_dir: &str, params: &Value) -> Res
         .as_array()
         .cloned()
         .unwrap_or_default();
+        let accounts = accounts
+            .into_iter()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect::<Vec<_>>();
+        let account_folders = with_mobile_db(data_dir, |conn| {
+            let mut resolved = Vec::new();
+            for account in accounts {
+                if let Some(account_folder) = store::folder_for_role(&conn, &account, &folder)
+                    .map_err(|err| err.to_string())?
+                {
+                    resolved.push((account, account_folder));
+                }
+            }
+            Ok(json!(resolved))
+        })?;
+        let account_folders = serde_json::from_value::<Vec<(String, String)>>(account_folders)
+            .map_err(|err| format!("{err:#}"))?;
         let mut updated = 0_u64;
         let mut failures = Vec::new();
         let mut folder_unreads = serde_json::Map::new();
         let mut folder_counts = Vec::new();
-        for account in accounts
-            .into_iter()
-            .filter_map(|value| value.as_str().map(str::to_string))
-        {
-            let account_params = json!({ "account_id": account, "folder_id": folder });
+        for (account, account_folder) in account_folders {
+            let account_params = json!({ "account_id": account, "folder_id": account_folder });
             match mark_mobile_folder_all_read(data_dir, &account_params) {
                 Ok(result) => {
                     updated += result

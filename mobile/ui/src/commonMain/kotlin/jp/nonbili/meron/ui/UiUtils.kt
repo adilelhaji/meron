@@ -247,7 +247,13 @@ internal fun columnTitle(
     column: KanbanColumnSpec,
     accounts: List<AccountSummary>,
     foldersByAccount: Map<String, List<FolderSummary>>,
-): String = folderTitle(column.accountId, column.folderId, accounts, foldersByAccount)
+): String {
+    // A column names itself: the mail list can say "Sent" because the unified
+    // mailbox is the whole screen, but a board mixes unified and per-account
+    // columns whose folders share those names.
+    if (column.accountId == UNIFIED_ACCOUNT_ID) return unifiedColumnLabel(column.folderId)
+    return folderTitle(column.accountId, column.folderId, accounts, foldersByAccount)
+}
 
 /** The display name of a mailbox, as a kanban column or the mail list shows it. */
 @Composable

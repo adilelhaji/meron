@@ -334,7 +334,7 @@ function KanbanColumnContent({
                   // same thing.
                   label={
                     column.accountId === 'unified'
-                      ? unifiedColumnLabel(column.folderId)
+                      ? unifiedColumnLabel(column.folderId, t)
                       : folderLabel(column, labelFolders, accounts)
                   }
                   labelClassName="-mx-2"

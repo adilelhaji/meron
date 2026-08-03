@@ -159,21 +159,26 @@ export function isUnifiedStarredColumn(column: KanbanColumn): boolean {
 // unlike the thread list — which has room under its header for a qualifier —
 // a column header is one line next to an avatar. Spelled out per role rather
 // than composed from "Unified" + a folder name, which no language agrees on.
-const UNIFIED_COLUMN_LABELS: Record<UnifiedFolderRole, string> = {
-  inbox: 'Unified inbox',
-  starred: 'Unified starred',
-  sent: 'Unified sent',
-  drafts: 'Unified drafts',
-  archive: 'Unified archive',
-  junk: 'Unified junk',
-  trash: 'Unified trash',
+const UNIFIED_COLUMN_LABEL_KEYS: Record<UnifiedFolderRole, string> = {
+  inbox: 'kanban.columns.unifiedInbox',
+  starred: 'kanban.columns.unifiedStarred',
+  sent: 'kanban.columns.unifiedSent',
+  drafts: 'kanban.columns.unifiedDrafts',
+  archive: 'kanban.columns.unifiedArchive',
+  junk: 'kanban.columns.unifiedJunk',
+  trash: 'kanban.columns.unifiedTrash',
 }
 
-export function unifiedColumnLabel(folderId: string): string {
-  return UNIFIED_COLUMN_LABELS[unifiedFolderRole(folderId)]
+export function unifiedColumnLabel(folderId: string, t: (key: string) => string): string {
+  return t(UNIFIED_COLUMN_LABEL_KEYS[unifiedFolderRole(folderId)])
 }
 
-export function folderLabel(column: KanbanColumn, folders: Folder[], accounts: Account[]) {
+export function folderLabel(
+  column: KanbanColumn,
+  folders: Folder[],
+  accounts: Account[],
+  t: (key: string) => string = (key) => key,
+) {
   const isInbox = column.folderId.toLowerCase() === 'inbox'
   if (column.accountId === 'unified') {
     // The unified view's synthetic folder list carries the localized role names
@@ -182,7 +187,7 @@ export function folderLabel(column: KanbanColumn, folders: Folder[], accounts: A
     // have no caption and use unifiedColumnLabel instead.
     const synthetic = folders.find((folder) => folder.account_id === 'unified' && folder.id === column.folderId)
     if (synthetic) return synthetic.name
-    return unifiedColumnLabel(column.folderId)
+    return unifiedColumnLabel(column.folderId, t)
   }
   if (isInbox) return isRSSAccount(column.accountId, accounts) ? 'Feed' : 'Inbox'
   return (
@@ -191,9 +196,30 @@ export function folderLabel(column: KanbanColumn, folders: Folder[], accounts: A
   )
 }
 
-export function searchColumnLabel(column: KanbanColumn, folders: Folder[], accounts: Account[]) {
-  if (column.accountId === 'unified') return unifiedColumnLabel(column.folderId)
+export function searchColumnLabel(
+  column: KanbanColumn,
+  folders: Folder[],
+  accounts: Account[],
+  t: (key: string) => string = (key) => key,
+) {
+  if (column.accountId === 'unified') return unifiedColumnLabel(column.folderId, t)
   return `${accountLabel(column.accountId, accounts)} / ${folderLabel(column, folders, accounts)}`
+}
+
+export function kanbanColumnMatchesMailEvent(
+  column: KanbanColumn,
+  accountId: string,
+  folderId: string | undefined,
+  foldersByAccount: Record<string, Folder[]>,
+): boolean {
+  if (column.accountId !== 'unified') {
+    return column.accountId === accountId && folderMatches(column.folderId, folderId)
+  }
+  if (isUnifiedStarredColumn(column)) return true
+  const role = unifiedFolderRole(column.folderId)
+  if (!folderId) return role === 'inbox'
+  const accountFolder = accountFolderForRole(foldersByAccount[accountId], role) ?? (role === 'inbox' ? 'inbox' : '')
+  return !!accountFolder && folderMatches(accountFolder, folderId)
 }
 
 // Whether a column is in the active search's scope ("all" or this column's key).

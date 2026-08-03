@@ -14,12 +14,13 @@ import {
 import type { Account, Message } from '../../types'
 import {
   SEARCH_DEBOUNCE_MS,
-  folderMatches,
-  isUnifiedStarredColumn,
   isRSSAccount,
+  kanbanColumnMatchesMailEvent,
   loadKanbanColumn,
   searchTargets,
+  useFoldersByAccount,
 } from '../../lib/kanbanData'
+import { accountFolderForRole, unifiedFolderRole } from '../../lib/unifiedFolders'
 
 // All of the board's data-sync effects: folder watches, the pane reset, the
 // debounced search loads, and the mail.synced/newMessages refresh listener.
@@ -27,6 +28,7 @@ import {
 export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn[], accounts: Account[]) {
   const searchQuery = useValue(kanban$.searchQuery)
   const searchScope = useValue(kanban$.searchScope)
+  const foldersByAccount = useFoldersByAccount()
   const searchedColumnKeysRef = useRef<Set<string>>(new Set())
   const watchedKanbanFoldersRef = useRef<Set<string>>(new Set())
 
@@ -38,7 +40,16 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
   useEffect(() => {
     const desired = new Set<string>()
     for (const column of visibleColumns) {
-      if (column.accountId === 'unified') continue
+      if (column.accountId === 'unified') {
+        const role = unifiedFolderRole(column.folderId)
+        if (role === 'inbox' || role === 'starred') continue
+        for (const account of accounts) {
+          if (account.included_in_unified === false || account.paused || isRSSAccount(account.id, accounts)) continue
+          const folder = accountFolderForRole(foldersByAccount[account.id], role)
+          if (folder) desired.add(kanbanColumnKey({ accountId: account.id, folderId: folder }))
+        }
+        continue
+      }
       if (column.folderId.toLowerCase() === 'inbox') continue
       const account = accounts.find((item) => item.id === column.accountId)
       if (!account || account.paused || isRSSAccount(column.accountId, accounts)) continue
@@ -58,7 +69,7 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
       if (account && folder) void invoke('watch.start', { account, folder })
       current.add(key)
     }
-  }, [accounts, visibleColumns])
+  }, [accounts, foldersByAccount, visibleColumns])
 
   useEffect(() => {
     return () => {
@@ -133,13 +144,10 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
       if (!account) return
       const query = kanban$.searchQuery.peek().trim()
       const scope = kanban$.searchScope.peek()
-      const syncedInbox = !detail?.folder || detail.folder.toLowerCase() === 'inbox'
       for (const column of getAllKanbanColumns()) {
         const key = kanbanColumnKey(column)
         const columnQuery = query && (scope === 'all' || scope === key) ? query : ''
-        if (column.accountId === 'unified') {
-          if (isUnifiedStarredColumn(column) || syncedInbox) pending.set(key, { column, query: columnQuery })
-        } else if (column.accountId === account && folderMatches(column.folderId, detail?.folder)) {
+        if (kanbanColumnMatchesMailEvent(column, account, detail?.folder, foldersByAccount)) {
           pending.set(key, { column, query: columnQuery })
         }
       }
@@ -156,7 +164,7 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
       if (typeof offSynced === 'function') offSynced()
       if (typeof offNew === 'function') offNew()
     }
-  }, [])
+  }, [foldersByAccount])
 }
 
 // Thread/column drag-and-drop: the optimistic cross-column move plus the dnd-kit

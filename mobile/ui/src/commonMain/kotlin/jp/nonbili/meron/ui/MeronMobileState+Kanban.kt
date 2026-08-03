@@ -477,11 +477,11 @@ internal fun MeronMobileState.refreshKanbanColumnsForMailEvent(
             val directFolderMatch =
                 column.accountId == accountId &&
                     column.folderId.equals(folder, ignoreCase = true)
-            val unifiedInboxMatch =
+            val unifiedFolderMatch =
                 column.accountId == UNIFIED_ACCOUNT_ID &&
-                    folder.equals(INBOX_FOLDER, ignoreCase = true) &&
-                    accountIncludedInUnified
-            directFolderMatch || unifiedInboxMatch
+                    accountIncludedInUnified &&
+                    unifiedColumnMatchesFolder(column.folderId, foldersByAccount[accountId].orEmpty(), folderId)
+            directFolderMatch || unifiedFolderMatch
         }.distinctBy(::kanbanColumnKey)
         .forEach { column ->
             // The IDLE/event path has already synced the core DB, so callers can

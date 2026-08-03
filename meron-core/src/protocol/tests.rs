@@ -1470,7 +1470,7 @@ fn unified_folder_role_resolves_per_account_and_skips_accounts_without_it() {
             subject: "Sent mail".to_string(),
             from_addr: "me@example.com".to_string(),
             date: 500,
-            seen: true,
+            seen: false,
             thread_key: "sent-topic".to_string(),
             ..Default::default()
         }],
@@ -1489,6 +1489,20 @@ fn unified_folder_role_resolves_per_account_and_skips_accounts_without_it() {
     // A missing role is not an error: an account whose server has no Sent
     // mailbox is simply absent, with no failure banner for the view to show.
     assert_eq!(value["result"]["failures"], json!([]), "{value}");
+
+    // Folder-wide mutations use the same role resolution. The one account with
+    // a Sent mailbox reaches authentication, while the account without one is
+    // skipped; treating "sent" as a literal folder would silently update neither.
+    let mark_all = invoke_mobile_protocol_json(
+        r#"{"id":168,"method":"mail.markAllRead","params":{"account_id":"unified","folder_id":"sent"}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    let failures = mark_all["result"]["failures"].as_array().unwrap();
+    assert_eq!(failures.len(), 1, "{mark_all}");
+    assert_eq!(
+        failures[0]["account_id"], "has-sent@example.com",
+        "{mark_all}"
+    );
 
     let _ = std::fs::remove_dir_all(data_dir);
 }

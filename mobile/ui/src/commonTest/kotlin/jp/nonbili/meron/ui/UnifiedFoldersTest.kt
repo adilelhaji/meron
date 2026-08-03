@@ -3,7 +3,9 @@ package jp.nonbili.meron.ui
 import jp.nonbili.meron.shared.FolderSummary
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class UnifiedFoldersTest {
     private val folders =
@@ -21,5 +23,12 @@ class UnifiedFoldersTest {
     fun inboxHasABootstrapFallbackButMissingRolesAreSkipped() {
         assertEquals(INBOX_FOLDER, unifiedAccountFolder(emptyList(), "inbox"))
         assertNull(unifiedAccountFolder(folders, "archive"))
+    }
+
+    @Test
+    fun unifiedColumnsMatchProviderFolderNamesInMailEvents() {
+        assertTrue(unifiedColumnMatchesFolder("sent", folders, "Postausgang"))
+        assertFalse(unifiedColumnMatchesFolder("sent", folders, "INBOX"))
+        assertTrue(unifiedColumnMatchesFolder(STARRED_FOLDER, folders, "INBOX"))
     }
 }

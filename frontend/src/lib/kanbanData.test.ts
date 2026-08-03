@@ -12,6 +12,7 @@ import {
   folderMatches,
   isUnifiedStarredColumn,
   isRSSAccount,
+  kanbanColumnMatchesMailEvent,
   kanbanColumnUnreadCount,
   loadKanbanColumn,
   loadMoreKanbanColumn,
@@ -576,6 +577,17 @@ describe('isRSSAccount', () => {
 })
 
 describe('labels', () => {
+  const t = (key: string) =>
+    ({
+      'kanban.columns.unifiedInbox': 'Unified inbox',
+      'kanban.columns.unifiedStarred': 'Unified starred',
+      'kanban.columns.unifiedSent': 'Unified sent',
+      'kanban.columns.unifiedDrafts': 'Unified drafts',
+      'kanban.columns.unifiedArchive': 'Unified archive',
+      'kanban.columns.unifiedJunk': 'Unified junk',
+      'kanban.columns.unifiedTrash': 'Unified trash',
+    })[key] ?? key
+
   const accounts = [
     { id: 'acc1', email: 'a@x.com', display_name: 'Alice' },
     { id: 'acc2', email: 'b@x.com', display_name: '' },
@@ -591,29 +603,47 @@ describe('labels', () => {
   it('folderLabel names unified, inbox, and stored folders', () => {
     const folders = [{ account_id: 'acc1', id: 'f1', name: 'Receipts' } as Folder]
     const accs = [account('acc1')]
-    expect(folderLabel({ accountId: 'unified', folderId: 'inbox' }, folders, accs)).toBe('Unified inbox')
+    expect(folderLabel({ accountId: 'unified', folderId: 'inbox' }, folders, accs, t)).toBe('Unified inbox')
     expect(isUnifiedStarredColumn({ accountId: 'unified', folderId: 'starred' })).toBe(true)
-    expect(folderLabel({ accountId: 'unified', folderId: 'starred' }, folders, accs)).toBe('Unified starred')
+    expect(folderLabel({ accountId: 'unified', folderId: 'starred' }, folders, accs, t)).toBe('Unified starred')
     expect(folderLabel({ accountId: 'acc1', folderId: 'INBOX' }, folders, accs)).toBe('Inbox')
     expect(folderLabel({ accountId: 'acc1', folderId: 'f1' }, folders, accs)).toBe('Receipts')
     expect(folderLabel({ accountId: 'acc1', folderId: 'f2' }, folders, accs)).toBe('f2')
   })
 
   it('unifiedColumnLabel names every unified role and falls back to inbox', () => {
-    expect(unifiedColumnLabel('sent')).toBe('Unified sent')
-    expect(unifiedColumnLabel('drafts')).toBe('Unified drafts')
-    expect(unifiedColumnLabel('archive')).toBe('Unified archive')
-    expect(unifiedColumnLabel('junk')).toBe('Unified junk')
-    expect(unifiedColumnLabel('trash')).toBe('Unified trash')
+    expect(unifiedColumnLabel('sent', t)).toBe('Unified sent')
+    expect(unifiedColumnLabel('drafts', t)).toBe('Unified drafts')
+    expect(unifiedColumnLabel('archive', t)).toBe('Unified archive')
+    expect(unifiedColumnLabel('junk', t)).toBe('Unified junk')
+    expect(unifiedColumnLabel('trash', t)).toBe('Unified trash')
     // A column persisted before unified folders were switchable, or one whose
     // stored role we no longer know, still names something.
-    expect(unifiedColumnLabel('Receipts')).toBe('Unified inbox')
+    expect(unifiedColumnLabel('Receipts', t)).toBe('Unified inbox')
   })
 
   it('searchColumnLabel names a unified column by its role', () => {
     const accs = [account('acc1')]
-    expect(searchColumnLabel({ accountId: 'unified', folderId: 'sent' }, [], accs)).toBe('Unified sent')
-    expect(searchColumnLabel({ accountId: 'unified', folderId: 'starred' }, [], accs)).toBe('Unified starred')
+    expect(searchColumnLabel({ accountId: 'unified', folderId: 'sent' }, [], accs, t)).toBe('Unified sent')
+    expect(searchColumnLabel({ accountId: 'unified', folderId: 'starred' }, [], accs, t)).toBe('Unified starred')
+  })
+
+  it('matches unified columns to each account own folder in sync events', () => {
+    const byAccount = {
+      acc1: [{ account_id: 'acc1', id: '[Gmail]/Sent Mail', name: 'Sent', role: 'sent' } as Folder],
+    }
+    expect(
+      kanbanColumnMatchesMailEvent({ accountId: 'unified', folderId: 'sent' }, 'acc1', '[Gmail]/Sent Mail', byAccount),
+    ).toBe(true)
+    expect(kanbanColumnMatchesMailEvent({ accountId: 'unified', folderId: 'sent' }, 'acc1', 'INBOX', byAccount)).toBe(
+      false,
+    )
+    expect(
+      kanbanColumnMatchesMailEvent({ accountId: 'unified', folderId: 'inbox' }, 'acc1', undefined, byAccount),
+    ).toBe(true)
+    expect(
+      kanbanColumnMatchesMailEvent({ accountId: 'unified', folderId: 'starred' }, 'acc1', 'INBOX', byAccount),
+    ).toBe(true)
   })
 
   it('mergeLabelFolders flattens per-account folders after the base list', () => {

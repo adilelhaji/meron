@@ -371,12 +371,20 @@ export async function markColumnAllRead(column: KanbanColumn) {
   )
   kanban$.unreadCounts[key].set(0)
 
+  const mailRequests =
+    column.accountId === 'unified'
+      ? [
+          invoke('mail.markAllRead', { account_id: 'unified', folder_id: column.folderId }).catch((err) =>
+            console.error('markAllRead failed:', err),
+          ),
+        ]
+      : mailAccountIds.map((accountId) =>
+          invoke('mail.markAllRead', { account_id: accountId, folder_id: column.folderId }).catch((err) =>
+            console.error('markAllRead failed:', err),
+          ),
+        )
   await Promise.all([
-    ...mailAccountIds.map((accountId) =>
-      invoke('mail.markAllRead', { account_id: accountId, folder_id: column.folderId }).catch((err) =>
-        console.error('markAllRead failed:', err),
-      ),
-    ),
+    ...mailRequests,
     ...rssUnread.map((thread) =>
       invoke('mail.markRead', { thread_id: thread.thread_id }).catch((err) =>
         console.error('markAllRead (rss) failed:', err),

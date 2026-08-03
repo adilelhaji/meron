@@ -1722,7 +1722,7 @@ internal fun MeronMobileState.markKanbanColumnAllRead(column: KanbanColumnSpec) 
                     mailTargets.forEach { (accountId, _) -> withManagedGoogleAuth(client, accountId) { "" } }
                     responses +=
                         requireCoreOk(
-                            client.markAllRead(MarkAllReadParams(accountId = UNIFIED_ACCOUNT_ID, folderId = INBOX_FOLDER)),
+                            client.markAllRead(MarkAllReadParams(accountId = UNIFIED_ACCOUNT_ID, folderId = column.folderId)),
                         )
                 } else {
                     mailTargets.forEach { (target, messageIds) ->

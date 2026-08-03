@@ -246,7 +246,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
               <FolderSwitcher
                 accountId={selectedAccount}
                 folderId={selectedFolder}
-                label={folderLabel({ accountId: selectedAccount, folderId: selectedFolder }, folders, accounts)}
+                label={folderLabel({ accountId: selectedAccount, folderId: selectedFolder }, folders, accounts, t)}
                 // The unified view's folder names are the same ones a single
                 // account shows, so the header alone can't say which mailbox
                 // this is — and the side-nav's unified button, the only other

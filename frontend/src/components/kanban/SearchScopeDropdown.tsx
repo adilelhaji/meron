@@ -40,7 +40,7 @@ export function SearchScopeDropdown({
     if (value === 'all') return t('kanban.searchScope.allColumns')
     const column = visibleColumns.find((c) => kanbanColumnKey(c) === value)
     if (!column) return t('kanban.searchScope.allColumns')
-    return folderLabel(column, folders, accounts)
+    return folderLabel(column, folders, accounts, t)
   }, [value, visibleColumns, folders, accounts, t])
 
   return (
@@ -103,7 +103,7 @@ export function SearchScopeDropdown({
                   size={18}
                 />
                 <div className="min-w-0 flex-1 text-left">
-                  <div className="truncate font-semibold">{folderLabel(column, folders, accounts)}</div>
+                  <div className="truncate font-semibold">{folderLabel(column, folders, accounts, t)}</div>
                   <div className="truncate text-[10px] text-secondary font-medium">
                     {column.accountId === 'unified' ? t('accounts.unified') : columnAccountLabel}
                   </div>

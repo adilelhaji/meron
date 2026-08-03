@@ -54,7 +54,7 @@ export function KanbanColumnMinimized({
   const columnAccount = column.accountId !== 'unified' ? accounts.find((a) => a.id === column.accountId) : undefined
   const columnAccountLabel = columnAccount ? columnAccount.display_name || columnAccount.email || columnAccount.id : ''
   const isPaused = !!columnAccount?.paused
-  const label = folderLabel(column, labelFolders, accounts)
+  const label = folderLabel(column, labelFolders, accounts, t)
 
   // WebKitGTK (Wails on Linux) can mis-measure the intrinsic size of vertical-rl
   // text, and horizontal and vertical glyph advances are not necessarily equal.

@@ -65,8 +65,6 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.RssFeed
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.ViewKanban
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -804,13 +802,14 @@ internal fun KanbanColumnHeader(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val account = accounts.firstOrNull { it.id == column.accountId }
-    // Only a per-account mail column can be repointed: unified columns span
-    // accounts and an RSS account has no folders to choose between.
+    // A unified column is repointed by role — each account answers from its own
+    // Sent/Archive/… — so it offers the fixed role list rather than any one
+    // account's folders. An RSS account has no folders to choose between.
     val switchableFolders =
-        if (column.accountId == UNIFIED_ACCOUNT_ID || account == null || accountSummaryIsRss(account)) {
-            emptyList()
-        } else {
-            foldersByAccount[column.accountId].orEmpty()
+        when {
+            column.accountId == UNIFIED_ACCOUNT_ID -> unifiedColumnFolders()
+            account == null || accountSummaryIsRss(account) -> emptyList()
+            else -> foldersByAccount[column.accountId].orEmpty()
         }
     // Emptying is offered only for a per-account Trash or Junk column; a unified
     // column spans accounts and has no single folder to empty.
@@ -840,7 +839,8 @@ internal fun KanbanColumnHeader(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            val canSwitchFolder = column.accountId != UNIFIED_ACCOUNT_ID && account != null && !accountSummaryIsRss(account)
+            val canSwitchFolder =
+                column.accountId == UNIFIED_ACCOUNT_ID || (account != null && !accountSummaryIsRss(account))
             FolderSwitcher(
                 label = columnTitle(column, accounts, foldersByAccount),
                 folders = switchableFolders,
@@ -1041,11 +1041,12 @@ internal fun columnAvatarFallbackIcon(
     return accounts.firstOrNull { it.id == column.accountId }?.let(::accountAvatarFallbackIcon)
 }
 
+@Composable
 internal fun columnAvatarLabel(
     column: KanbanColumnSpec,
     accounts: List<AccountSummary>,
 ): String {
-    if (column.accountId == UNIFIED_ACCOUNT_ID) return "Unified inbox"
+    if (column.accountId == UNIFIED_ACCOUNT_ID) return unifiedColumnLabel(column.folderId)
     val account = accounts.firstOrNull { it.id == column.accountId }
     return account?.displayName?.ifBlank { account.email } ?: column.accountId
 }
@@ -1095,16 +1096,6 @@ internal fun KanbanColumnDialog(
                         subtitle = null,
                         onClick = { toggle(unified) },
                         leadingIcon = Icons.Filled.Inbox,
-                    )
-                }
-                item {
-                    val starred = KanbanColumnSpec(UNIFIED_ACCOUNT_ID, STARRED_FOLDER)
-                    SidebarLikeDialogRow(
-                        selected = selected.contains(kanbanColumnKey(starred)),
-                        title = tr("kanban.columns.unifiedStarred"),
-                        subtitle = null,
-                        onClick = { toggle(starred) },
-                        leadingIcon = Icons.Filled.Star,
                     )
                 }
                 accounts.forEach { account ->
