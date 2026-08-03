@@ -139,7 +139,8 @@ describe('thread list paging', () => {
     expect(refreshes).toEqual([false, true])
     expect(mail$.threads.get().map((item) => item.subject)).toEqual(['Cached result'])
     expect(mail$.threadsCursor.get()).toBe('cached-cursor')
-    expect(ui$.selectedThread.get()).toBe('acc:inbox:thread:cached')
+    // Neither stage opens a result on its own — that would mark it read.
+    expect(ui$.selectedThread.get()).toBe('')
 
     resolveLive({
       threads: [thread({ thread_id: 'acc:inbox:thread:live', subject: 'Live result' })],
@@ -149,7 +150,69 @@ describe('thread list paging', () => {
 
     expect(mail$.threads.get().map((item) => item.subject)).toEqual(['Live result'])
     expect(mail$.threadsCursor.get()).toBe('live-cursor')
-    expect(ui$.selectedThread.get()).toBe('acc:inbox:thread:live')
+    expect(ui$.selectedThread.get()).toBe('')
+  })
+})
+
+describe('thread selection on load', () => {
+  beforeEach(() => {
+    mail$.threads.set([])
+    mail$.messages.set([])
+    mail$.threadsCursor.set('')
+    mail$.threadAccountCursors.set({})
+    mail$.threadLoading.set(false)
+    ui$.selectedAccount.set('unified')
+    ui$.selectedFolder.set('inbox')
+    ui$.selectedThread.set('')
+    ui$.query.set('')
+    ui$.filterMode.set('all')
+    kanban$.activeBoardId.set('')
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async () => ({
+            threads: [thread({ thread_id: 'acc:inbox:thread:top', unread: true })],
+          }),
+        },
+      },
+    }
+  })
+
+  it('leaves the conversation pane closed when a view is opened', async () => {
+    await loadThreads()
+
+    expect(mail$.threads.get()).toHaveLength(1)
+    // Opening a thread marks its visible messages read, so switching to a view
+    // must never do it on the user's behalf.
+    expect(ui$.selectedThread.get()).toBe('')
+  })
+
+  it('closes a selection the new view does not contain instead of opening another thread', async () => {
+    // The conversation is open and fully loaded, as it is after any ordinary
+    // click — its messages must not keep it selected in a view it is absent from.
+    ui$.selectedThread.set('acc:other:thread:9')
+    mail$.messages.set([thread({ id: 'acc:other:thread:9#1', thread_id: 'acc:other:thread:9' })])
+
+    await loadThreads()
+
+    expect(ui$.selectedThread.get()).toBe('')
+  })
+
+  it('keeps a selection whose conversation is still loading', async () => {
+    ui$.selectedThread.set('acc:other:thread:9')
+    mail$.threadLoading.set(true)
+
+    await loadThreads()
+
+    expect(ui$.selectedThread.get()).toBe('acc:other:thread:9')
+  })
+
+  it('keeps the open thread when it is still in the loaded view', async () => {
+    ui$.selectedThread.set('acc:inbox:thread:top')
+
+    await loadThreads()
+
+    expect(ui$.selectedThread.get()).toBe('acc:inbox:thread:top')
   })
 })
 
@@ -466,6 +529,22 @@ describe('deleteThread', () => {
     await deleteThread('acc:inbox:thread:1')
 
     expect(mail$.threads.get()).toHaveLength(1)
+    expect(ui$.selectedThread.get()).toBe('acc:inbox:thread:2')
+  })
+
+  it('opens the replacement thread when the deleted one had no visible neighbour', async () => {
+    const replacement = thread({
+      id: 'acc:inbox:thread:2#201',
+      thread_id: 'acc:inbox:thread:2',
+      date: Math.floor(Date.parse('2026-06-10T12:00:00Z') / 1000),
+    })
+    responses['mail.delete'] = { ok: true, deleted: 2 }
+    // The deleted thread was the only row we had, so the neighbour comes from
+    // the refreshed list rather than from the local one.
+    responses['mail.threadList'] = { threads: [replacement] }
+
+    await deleteThread('acc:inbox:thread:1')
+
     expect(ui$.selectedThread.get()).toBe('acc:inbox:thread:2')
   })
 

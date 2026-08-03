@@ -487,9 +487,10 @@ export function getActiveThread() {
   const filtered = getFilteredThreads()
   const threads = mail$.threads.get()
   const selected = ui$.selectedThread.get()
-  if (!selected) {
-    return filtered[0] ?? null
-  }
+  // Nothing selected means an empty conversation pane. Falling back to the top
+  // of the list here would re-open — and so mark read — a thread the user never
+  // picked, which is exactly what `loadThreads` refuses to do.
+  if (!selected) return null
   const fromList = filtered.find((thread) => thread.thread_id === selected)
   if (fromList) return fromList
   const fromAllThreads = threads.find((thread) => thread.thread_id === selected)
@@ -499,7 +500,10 @@ export function getActiveThread() {
     const match = threads.find((thread) => thread.thread_id === selected)
     if (match) return match
   }
-  return filtered[0] ?? null
+  // The selected thread's row hasn't landed yet (a notification or kanban jump
+  // that outran the list load). Wait for it rather than showing an unrelated
+  // conversation from the list we happen to have.
+  return null
 }
 
 export async function loadFolders(accountId: string, refresh = true) {
@@ -682,6 +686,22 @@ export async function ensureAccountFolders(
 // column loader's `columnLoadVersions` and mobile's `activeMailboxLoadToken`).
 let threadLoadVersion = 0
 
+// Opening a conversation is never passive: the message pane marks every visible
+// unread message read as soon as it renders. So the thread list must not open a
+// conversation on its own — switching account/folder (the unified inbox above
+// all, since it lands on the newest mail across every account) would silently
+// clear the unread flag on a thread the user never looked at. Selection follows
+// a click, a j/k move, or the flows below that delete what was open and hand the
+// slot to the replacement thread; every other load leaves it alone.
+let reselectAfterThreadLoad = false
+
+// Called by flows that clear `selectedThread` because the open conversation is
+// leaving the list (delete, move, discard draft) and want the next load to open
+// whatever takes its place. One-shot: consumed by the next `loadThreads`.
+export function requestThreadReselect() {
+  reselectAfterThreadLoad = true
+}
+
 type ThreadSearchStage = 'auto' | 'cache' | 'live'
 
 export async function loadThreads(refresh = true, searchStage: ThreadSearchStage = 'auto') {
@@ -848,6 +868,11 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
   mail$.threads.set(allThreads)
 
   const filtered = getFilteredThreads()
+  // Consume the reselect request here rather than at the top of the load: a
+  // superseded or replaced load returns above without ever reaching the
+  // selection, and the request belongs to whichever load actually lands.
+  const reselect = reselectAfterThreadLoad
+  reselectAfterThreadLoad = false
   // In kanban view the open conversation is owned by kanban$.paneThreadId, not by
   // mail$.threads/filtered. Clicking a card sets selectedFolder (firing this load)
   // and selectedThread together; auto-selecting or snapping here would yank
@@ -857,21 +882,25 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
     return
   }
   if (!currentSelected) {
-    ui$.selectedThread.set(filtered[0]?.thread_id ?? '')
+    // Only a flow that just cleared the selection may fill it (see
+    // `requestThreadReselect`); an empty pane otherwise stays empty.
+    if (reselect) ui$.selectedThread.set(filtered[0]?.thread_id ?? '')
   } else if (
-    // Only snap the selection on a user-initiated load (account/folder/query/
+    // Only drop the selection on a user-initiated load (account/folder/query/
     // filter change, including the cache stage of a search). A background
     // refresh only re-fetches the first page, so an open thread the user
-    // scrolled down to and opened from a later page — or whose messages are
-    // still in flight — would look "missing" and get yanked back to the top
-    // thread a second or two later. Deliberate clear-then-reselect flows
-    // (delete/move) reset selectedThread to "" first, so they use the branch
-    // above.
+    // scrolled down to and opened from a later page would look "missing" and
+    // get closed a second or two later.
     userInitiated &&
     !allThreads.some((thread) => thread.thread_id === currentSelected) &&
-    !mail$.messages.get().some((message) => message.thread_id === currentSelected)
+    // A selection whose conversation is still being fetched — a notification or
+    // starred jump that set account, folder and thread together — isn't missing,
+    // it just hasn't landed. Only close one that has settled.
+    !mail$.threadLoading.get()
   ) {
-    ui$.selectedThread.set(filtered[0]?.thread_id ?? '')
+    // The thread the user was reading is not in this view: close the pane rather
+    // than opening an unrelated one for them.
+    ui$.selectedThread.set('')
   }
 }
 
@@ -1198,6 +1227,8 @@ function removeThreadLocally(threadId: string) {
   removeKanbanThread(threadId)
   if (previousSelected === threadId) {
     ui$.selectedThread.set(nextSelected)
+    // No neighbour in the list we have: let the fresh list pick the replacement.
+    if (!nextSelected) requestThreadReselect()
   }
   // If the kanban conversation pane was open on the deleted card, follow the
   // selection so it doesn't keep rendering the removed thread.
@@ -1537,7 +1568,10 @@ export async function discardSavedDraftCopy(draft: {
   if (removeThread) {
     mail$.threads.set(previousThreads.filter((thread) => thread.thread_id !== draft.threadId))
     removeKanbanThread(draft.threadId)
-    if (selectedThread === draft.threadId) ui$.selectedThread.set('')
+    if (selectedThread === draft.threadId) {
+      ui$.selectedThread.set('')
+      requestThreadReselect()
+    }
   } else {
     reconcileThreadDraftFromLoadedMessages(draft.threadId, nextMessages)
   }
@@ -1624,6 +1658,7 @@ export async function deleteMessage(message: Message) {
     if (!nextMessages.some((item) => item.thread_id === threadId)) {
       if (ui$.selectedThread.get() === threadId) {
         ui$.selectedThread.set('')
+        requestThreadReselect()
       }
       removeKanbanThread(threadId)
     }
