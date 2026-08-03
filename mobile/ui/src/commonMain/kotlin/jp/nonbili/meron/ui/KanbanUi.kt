@@ -807,7 +807,7 @@ internal fun KanbanColumnHeader(
     // account's folders. An RSS account has no folders to choose between.
     val switchableFolders =
         when {
-            column.accountId == UNIFIED_ACCOUNT_ID -> unifiedColumnFolders()
+            column.accountId == UNIFIED_ACCOUNT_ID -> unifiedFolders()
             account == null || accountSummaryIsRss(account) -> emptyList()
             else -> foldersByAccount[column.accountId].orEmpty()
         }

@@ -25,6 +25,17 @@ class UnifiedFoldersTest {
         assertNull(unifiedAccountFolder(folders, "archive"))
     }
 
+    // Starred is the one switcher entry that is not a per-account mailbox, so
+    // it must never resolve to one — the inbox fallback would silently show the
+    // wrong list.
+    @Test
+    fun starredSitsNextToTheInboxInTheSwitcherButIsNoMailboxRole() {
+        assertEquals(listOf(INBOX_FOLDER, STARRED_FOLDER), UNIFIED_VIEW_ROLES.take(2))
+        assertTrue(isUnifiedStarredFolder("Starred"))
+        assertFalse(isUnifiedStarredFolder("sent"))
+        assertFalse(UNIFIED_FOLDER_ROLES.contains(STARRED_FOLDER))
+    }
+
     @Test
     fun unifiedColumnsMatchProviderFolderNamesInMailEvents() {
         assertTrue(unifiedColumnMatchesFolder("sent", folders, "Postausgang"))

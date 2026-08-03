@@ -86,6 +86,31 @@ class MailEventScopeTest {
         )
     }
 
+    // A starred item can sit in any folder, so the starred listing reloads on
+    // any event from an account it covers — including one from a folder the
+    // unified view has no role for.
+    @Test
+    fun unifiedStarredReloadsForAnyFolderOfAnIncludedAccount() {
+        assertTrue(
+            affects(
+                eventAccount = "acc1",
+                eventFolder = "Some/Custom/Folder",
+                selectedAccountId = UNIFIED_ACCOUNT_ID,
+                selectedFolder = STARRED_FOLDER,
+                unifiedAccountIds = setOf("acc1"),
+            ),
+        )
+        assertFalse(
+            affects(
+                eventAccount = "acc3",
+                eventFolder = "INBOX",
+                selectedAccountId = UNIFIED_ACCOUNT_ID,
+                selectedFolder = STARRED_FOLDER,
+                unifiedAccountIds = setOf("acc1"),
+            ),
+        )
+    }
+
     // Folder-list syncs emit {account, folders:true} with no folder at all.
     @Test
     fun eventWithoutAFolderReloads() {

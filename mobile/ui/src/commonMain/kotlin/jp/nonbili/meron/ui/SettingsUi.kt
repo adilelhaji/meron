@@ -128,8 +128,6 @@ internal fun SettingsScreen(
     onToggleUnreadBadges: () -> Unit,
     showUnifiedInboxNav: Boolean,
     onToggleUnifiedInboxNav: () -> Unit,
-    showStarredNav: Boolean,
-    onToggleStarredNav: () -> Unit,
     sendShortcutMode: SendShortcutMode,
     onToggleSendShortcut: () -> Unit,
     appProxy: ProxySpec,
@@ -279,8 +277,6 @@ internal fun SettingsScreen(
                     onToggleUnreadBadges = onToggleUnreadBadges,
                     showUnifiedInboxNav = showUnifiedInboxNav,
                     onToggleUnifiedInboxNav = onToggleUnifiedInboxNav,
-                    showStarredNav = showStarredNav,
-                    onToggleStarredNav = onToggleStarredNav,
                     kanbanColumnWidth = kanbanColumnWidth,
                     onCycleKanbanColumnWidth = onCycleKanbanColumnWidth,
                     sendShortcutMode = sendShortcutMode,
@@ -612,8 +608,6 @@ internal fun SettingsGeneralPage(
     onToggleUnreadBadges: () -> Unit,
     showUnifiedInboxNav: Boolean,
     onToggleUnifiedInboxNav: () -> Unit,
-    showStarredNav: Boolean,
-    onToggleStarredNav: () -> Unit,
     kanbanColumnWidth: Int,
     onCycleKanbanColumnWidth: () -> Unit,
     sendShortcutMode: SendShortcutMode,
@@ -698,15 +692,6 @@ internal fun SettingsGeneralPage(
                 subtitle = tr("settings.navigationDrawerHint"),
                 checked = showUnifiedInboxNav,
                 onToggle = onToggleUnifiedInboxNav,
-            )
-        }
-        item {
-            SettingsToggleRow(
-                icon = Icons.Filled.Star,
-                title = tr("settings.sideNav.showStarred"),
-                subtitle = tr("settings.navigationDrawerHint"),
-                checked = showStarredNav,
-                onToggle = onToggleStarredNav,
             )
         }
 

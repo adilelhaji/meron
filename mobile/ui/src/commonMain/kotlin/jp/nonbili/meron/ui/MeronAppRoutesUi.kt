@@ -103,133 +103,6 @@ internal fun MailSelectionTitle(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun StarredRouteContent(
-    state: MeronMobileState,
-    drawerState: DrawerState,
-    drawerFolders: List<FolderSummary>,
-) {
-    with(state) {
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            drawerContent = {
-                MailDrawer(
-                    accounts = coreAccounts.filterNot { it.id in hiddenNavigationAccountIds },
-                    selectedAccountId = selectedCoreAccountId,
-                    folders = drawerFolders,
-                    currentScreen = screen,
-                    showUnreadBadges = showUnreadBadges,
-                    showUnifiedInboxNav = showUnifiedInboxNav,
-                    showStarredNav = showStarredNav,
-                    kanbanBoards = kanbanBoards,
-                    activeKanbanBoardId = activeKanbanBoardId,
-                    onSelectUnified = {
-                        screen = Screen.Mail
-                        selectCoreMailbox(UNIFIED_ACCOUNT_ID, INBOX_FOLDER)
-                        syncCoreThreads(accountOverride = UNIFIED_ACCOUNT_ID, folderOverride = INBOX_FOLDER, syncFirst = false)
-                        scope.launch { drawerState.close() }
-                    },
-                    onSelectAccount = { account ->
-                        screen = Screen.Mail
-                        selectCoreMailbox(account.id, INBOX_FOLDER)
-                        syncCoreThreads(accountOverride = account.id, folderOverride = INBOX_FOLDER, syncFirst = false)
-                        scope.launch { drawerState.close() }
-                    },
-                    onSelectStarred = { scope.launch { drawerState.close() } },
-                    onSelectKanban = {
-                        screen = Screen.Kanban
-                        previousTopScreen = Screen.Kanban
-                        loadKanbanBoard(refresh = false)
-                        scope.launch { drawerState.close() }
-                    },
-                    onSelectKanbanBoard = { board ->
-                        activeKanbanBoardId = board.id
-                        saveActiveKanbanBoardId(kanbanPrefs, board.id)
-                        screen = Screen.Kanban
-                        previousTopScreen = Screen.Kanban
-                        loadKanbanBoard(refresh = false)
-                        scope.launch { drawerState.close() }
-                    },
-                    onAddAccount = {
-                        addSection = 0
-                        passwordServerSettingsOpen = false
-                        previousTopScreen = Screen.Starred
-                        screen = Screen.AddAccount
-                        scope.launch { drawerState.close() }
-                    },
-                    onOpenSettings = {
-                        previousTopScreen = screen
-                        screen = Screen.Settings
-                        scope.launch { drawerState.close() }
-                    },
-                    onShowAbout = {
-                        showAboutDialog = true
-                        scope.launch { drawerState.close() }
-                    },
-                    googleReauthAccountId = googleReauthAccountId,
-                    onReconnectGoogle = {
-                        connectGoogleDeviceAccount()
-                        scope.launch { drawerState.close() }
-                    },
-                )
-            },
-        ) {
-            Scaffold(
-                topBar = {
-                    TopAppBar(
-                        title = {
-                            Column {
-                                Text(tr("mobile.tabs.starred"), fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    tr("mobile.mail.starredSubtitle"),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = { scope.launch { drawerState.open() } }) {
-                                Icon(Icons.Filled.Menu, contentDescription = tr("mobile.actions.openNavigation"))
-                            }
-                        },
-                        actions = {
-                            IconButton(onClick = ::loadStarredItems) {
-                                Icon(Icons.Filled.Refresh, contentDescription = tr("mobile.actions.refreshStarred"))
-                            }
-                        },
-                    )
-                },
-                snackbarHost = { SnackbarHost(snackbarHost) },
-            ) { innerPadding ->
-                Box(Modifier.fillMaxSize().padding(innerPadding)) {
-                    if (syncing) {
-                        CircularProgressIndicator(Modifier.padding(top = 4.dp).align(Alignment.TopCenter).size(28.dp))
-                    }
-                    if (starredItems.isEmpty()) {
-                        EmptyState(
-                            icon = Icons.Filled.StarBorder,
-                            title = tr("empty.noStarredItems"),
-                            text = tr("empty.noStarredItemsText"),
-                            actionLabel = tr("mobile.actions.refresh"),
-                            onAction = ::loadStarredItems,
-                        )
-                    } else {
-                        StarredItemList(
-                            items = starredItems,
-                            showSenderImages = showSenderImages,
-                            onOpen = ::readStarredItem,
-                            onToggleRead = ::toggleStarredItemRead,
-                            onUnstar = ::unstarStarredItem,
-                            onDelete = ::deleteStarredMailItem,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
 internal fun KanbanRouteContent(
     state: MeronMobileState,
     drawerState: DrawerState,
@@ -249,7 +122,6 @@ internal fun KanbanRouteContent(
                     currentScreen = screen,
                     showUnreadBadges = showUnreadBadges,
                     showUnifiedInboxNav = showUnifiedInboxNav,
-                    showStarredNav = showStarredNav,
                     kanbanBoards = kanbanBoards,
                     activeKanbanBoardId = activeKanbanBoardId,
                     onSelectUnified = {
@@ -266,12 +138,6 @@ internal fun KanbanRouteContent(
                             selectCoreMailbox(account.id, INBOX_FOLDER)
                             syncCoreThreads(accountOverride = account.id, folderOverride = INBOX_FOLDER, syncFirst = false)
                         }
-                        scope.launch { drawerState.close() }
-                    },
-                    onSelectStarred = {
-                        screen = Screen.Starred
-                        previousTopScreen = Screen.Starred
-                        loadStarredItems()
                         scope.launch { drawerState.close() }
                     },
                     onSelectKanban = { scope.launch { drawerState.close() } },
@@ -638,7 +504,6 @@ internal fun MailRouteContent(
                     currentScreen = screen,
                     showUnreadBadges = showUnreadBadges,
                     showUnifiedInboxNav = showUnifiedInboxNav,
-                    showStarredNav = showStarredNav,
                     kanbanBoards = kanbanBoards,
                     activeKanbanBoardId = activeKanbanBoardId,
                     onSelectUnified = {
@@ -655,12 +520,6 @@ internal fun MailRouteContent(
                             syncCoreThreads(accountOverride = account.id, folderOverride = INBOX_FOLDER, syncFirst = false)
                         }
                         screen = Screen.Mail
-                        scope.launch { drawerState.close() }
-                    },
-                    onSelectStarred = {
-                        screen = Screen.Starred
-                        previousTopScreen = Screen.Starred
-                        loadStarredItems()
                         scope.launch { drawerState.close() }
                     },
                     onSelectKanban = {

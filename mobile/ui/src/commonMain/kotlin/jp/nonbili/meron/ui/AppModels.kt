@@ -5,11 +5,10 @@ import jp.nonbili.meron.shared.AccountSummary
 import jp.nonbili.meron.shared.FolderSummary
 import jp.nonbili.meron.shared.ThreadSummary
 
-internal enum class Screen { Mail, Starred, Kanban, Thread, Compose, AddAccount, Settings }
+internal enum class Screen { Mail, Kanban, Thread, Compose, AddAccount, Settings }
 
 internal object AppRoutes {
     const val Mail = "mail"
-    const val Starred = "starred"
     const val Kanban = "kanban"
     const val Thread = "thread"
     const val Compose = "compose"
@@ -20,7 +19,6 @@ internal object AppRoutes {
 internal fun Screen.route(): String =
     when (this) {
         Screen.Mail -> AppRoutes.Mail
-        Screen.Starred -> AppRoutes.Starred
         Screen.Kanban -> AppRoutes.Kanban
         Screen.Thread -> AppRoutes.Thread
         Screen.Compose -> AppRoutes.Compose
@@ -31,7 +29,6 @@ internal fun Screen.route(): String =
 internal fun appRouteToScreen(route: String?): Screen? =
     when (route?.substringBefore("?")) {
         AppRoutes.Mail -> Screen.Mail
-        AppRoutes.Starred -> Screen.Starred
         AppRoutes.Kanban -> Screen.Kanban
         AppRoutes.Thread -> Screen.Thread
         AppRoutes.Compose -> Screen.Compose
@@ -101,7 +98,6 @@ internal const val APP_PREFS = "meron_app_prefs"
 internal const val APPEARANCE_MODE_PREF = "appearance_mode_v1"
 internal const val SHOW_UNREAD_BADGES_PREF = "show_unread_badges_v1"
 internal const val SHOW_UNIFIED_INBOX_PREF = "show_unified_inbox_v1"
-internal const val SHOW_STARRED_NAV_PREF = "show_starred_nav_v1"
 internal const val SHOW_SENDER_IMAGES_PREF = "show_sender_images_v1"
 internal const val NOTIFICATION_BANNER_DISMISSED_PREF = "notification_banner_dismissed_v1"
 internal const val LIVE_MAIL_PUSH_PREF = "live_mail_push_v1"

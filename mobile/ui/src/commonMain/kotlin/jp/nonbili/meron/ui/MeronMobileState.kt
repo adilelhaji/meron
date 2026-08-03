@@ -128,7 +128,6 @@ internal class MeronMobileState(
     var mailboxReloadJob: Job? = null
     var mailListScrollToTopRequest by mutableStateOf(0L)
     var loadingMoreThreads by mutableStateOf(false)
-    var starredItems by mutableStateOf(emptyList<StarredItemSummary>())
     var selectedCoreThread by mutableStateOf<ThreadSummary?>(null)
     var activeThreadReadToken by mutableStateOf(0L)
     var conversationHtmlOverrides by mutableStateOf(emptyMap<String, Boolean>())
@@ -205,7 +204,6 @@ internal class MeronMobileState(
     var syncing by mutableStateOf(false)
     var showUnreadBadges by mutableStateOf(loadAppBoolean(prefs, SHOW_UNREAD_BADGES_PREF, true))
     var showUnifiedInboxNav by mutableStateOf(loadAppBoolean(prefs, SHOW_UNIFIED_INBOX_PREF, true))
-    var showStarredNav by mutableStateOf(loadAppBoolean(prefs, SHOW_STARRED_NAV_PREF, false))
     var showSenderImages by mutableStateOf(loadAppBoolean(prefs, SHOW_SENDER_IMAGES_PREF, false))
     var liveMailPushEnabled by mutableStateOf(loadAppBoolean(prefs, LIVE_MAIL_PUSH_PREF, false))
     var backgroundSyncEnabled by mutableStateOf(loadAppBoolean(prefs, BACKGROUND_SYNC_ENABLED_PREF, true))
@@ -234,7 +232,7 @@ internal class MeronMobileState(
         get() = screenState
         set(value) {
             screenState = value
-            if (value == Screen.Mail || value == Screen.Starred || value == Screen.Kanban) {
+            if (value == Screen.Mail || value == Screen.Kanban) {
                 saveLastTopScreen(prefs, value)
             }
         }

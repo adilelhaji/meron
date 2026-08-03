@@ -666,7 +666,7 @@ private fun MeronMobileScreenContent(
                 subject = draft.subject
                 body = draft.body
                 attachments = draft.attachments
-                composeReturnScreen = if (screen == Screen.Kanban || screen == Screen.Starred) screen else Screen.Mail
+                composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
                 screen = Screen.Compose
                 status = "Loaded compose draft"
             }
@@ -1123,11 +1123,6 @@ private fun MeronMobileScreenContent(
                         showUnifiedInboxNav = !showUnifiedInboxNav
                         saveAppBoolean(prefs, SHOW_UNIFIED_INBOX_PREF, showUnifiedInboxNav)
                     },
-                    showStarredNav = showStarredNav,
-                    onToggleStarredNav = {
-                        showStarredNav = !showStarredNav
-                        saveAppBoolean(prefs, SHOW_STARRED_NAV_PREF, showStarredNav)
-                    },
                     sendShortcutMode = sendShortcutMode,
                     onToggleSendShortcut = {
                         val next = sendShortcutMode.next()
@@ -1182,14 +1177,6 @@ private fun MeronMobileScreenContent(
                     storageClearConfirming = storageClearConfirming,
                     onRefreshStorage = { loadStorageUsage(showStatus = true) },
                     onClearStorageCache = ::clearStorageCache,
-                )
-            }
-
-            composable(AppRoutes.Starred) {
-                StarredRouteContent(
-                    state = state,
-                    drawerState = drawerState,
-                    drawerFolders = drawerFolders,
                 )
             }
 

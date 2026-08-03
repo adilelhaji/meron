@@ -241,12 +241,10 @@ internal fun MailDrawer(
     currentScreen: Screen,
     showUnreadBadges: Boolean,
     showUnifiedInboxNav: Boolean,
-    showStarredNav: Boolean,
     kanbanBoards: List<KanbanBoardSpec>,
     activeKanbanBoardId: String,
     onSelectUnified: () -> Unit,
     onSelectAccount: (AccountSummary) -> Unit,
-    onSelectStarred: () -> Unit,
     onSelectKanban: () -> Unit,
     onSelectKanbanBoard: (KanbanBoardSpec) -> Unit,
     onAddAccount: () -> Unit,
@@ -323,18 +321,6 @@ internal fun MailDrawer(
             }
             if (accounts.isNotEmpty()) {
                 item { DrawerLabel(tr("drawer.views"), chat) }
-                if (showStarredNav) {
-                    item {
-                        SidebarRow(
-                            selected = currentScreen == Screen.Starred,
-                            chat = chat,
-                            onClick = onSelectStarred,
-                            leading = { Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                            title = tr("mobile.tabs.starred"),
-                            trailing = null,
-                        )
-                    }
-                }
                 if (kanbanBoards.isEmpty()) {
                     item {
                         SidebarRow(

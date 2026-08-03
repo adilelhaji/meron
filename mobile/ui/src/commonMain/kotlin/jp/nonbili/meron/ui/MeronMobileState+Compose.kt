@@ -1129,7 +1129,7 @@ internal fun MeronMobileState.openCompose() {
     composeDraftId = ""
     composeDraftSaved = false
     composeDraftAccountId = ""
-    composeReturnScreen = if (screen == Screen.Kanban || screen == Screen.Starred) screen else Screen.Mail
+    composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
     screen = Screen.Compose
 }
 
@@ -1273,7 +1273,7 @@ internal fun MeronMobileState.reconnectAccount(account: AccountSummary) {
         }
     }
     errorBanner = null
-    previousTopScreen = if (screen == Screen.Kanban || screen == Screen.Starred) screen else Screen.Mail
+    previousTopScreen = if (screen == Screen.Kanban) screen else Screen.Mail
     screen = Screen.AddAccount
 }
 

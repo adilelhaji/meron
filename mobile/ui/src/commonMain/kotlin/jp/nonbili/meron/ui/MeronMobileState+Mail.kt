@@ -366,6 +366,9 @@ internal fun mailEventAffectsVisibleMailbox(
             eventAccount == visibleAccount
         }
     if (!accountMatches) return false
+    // A starred item can live in any folder, so any event from an account the
+    // listing covers can change it.
+    if (visibleAccount == UNIFIED_ACCOUNT_ID && isUnifiedStarredFolder(selectedFolder)) return true
     if (eventFolder.isBlank()) return true
     val visibleFolder =
         if (visibleAccount == UNIFIED_ACCOUNT_ID) {
@@ -430,6 +433,7 @@ internal fun MeronMobileState.syncCoreThreads(
     }
     val accountId = accountOverride ?: selectedCoreAccountId.ifBlank { UNIFIED_ACCOUNT_ID }
     val requestedFolder = folderOverride ?: selectedCoreFolder.ifBlank { INBOX_FOLDER }
+    val unifiedStarred = accountId == UNIFIED_ACCOUNT_ID && isUnifiedStarredFolder(requestedFolder)
     val query = mailSearch
     val filter = mailFilter
     val selectedAccounts =
@@ -480,7 +484,12 @@ internal fun MeronMobileState.syncCoreThreads(
         runCatching {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
-                if (accountId == UNIFIED_ACCOUNT_ID) {
+                if (unifiedStarred) {
+                    // The starred listing spans folders, so there is no mailbox
+                    // to sync first: the core reads whatever the accounts'
+                    // own syncs have already starred.
+                    loadUnifiedStarred(client = client, query = query, filter = filter, limit = listLimit)
+                } else if (accountId == UNIFIED_ACCOUNT_ID) {
                     loadUnifiedInbox(
                         client = client,
                         accounts = selectedAccounts,
@@ -575,7 +584,7 @@ internal fun MeronMobileState.syncCoreThreads(
                     refreshSearch = true,
                 )
             }
-            if (firstLoad && syncFirst) {
+            if (firstLoad && syncFirst && !unifiedStarred) {
                 deepenMailboxSync(accountId, folder, selectedAccounts)
             }
         }.onFailure {
@@ -722,7 +731,9 @@ internal fun MeronMobileState.loadMoreCoreThreads(quiet: Boolean = false) {
         runCatching {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
-                if (accountId == UNIFIED_ACCOUNT_ID) {
+                if (accountId == UNIFIED_ACCOUNT_ID && isUnifiedStarredFolder(requestedFolder)) {
+                    loadUnifiedStarred(client = client, query = query, filter = filter, beforeCursor = mailboxCursor)
+                } else if (accountId == UNIFIED_ACCOUNT_ID) {
                     loadUnifiedInbox(
                         client = client,
                         accounts = selectedAccounts,
@@ -767,26 +778,6 @@ internal fun MeronMobileState.loadMoreCoreThreads(quiet: Boolean = false) {
             loadingMoreThreads = false
             errorBanner = it.message ?: "Load more failed"
             status = "Load more failed: ${it.message}"
-        }
-    }
-}
-
-internal fun MeronMobileState.loadStarredItems() {
-    if (!coreLoaded) {
-        status = coreUnavailableMessage
-        return
-    }
-    syncing = true
-    scope.launch {
-        runCatching {
-            withContext(ioDispatcher) { MobileMailCommandClient(core).listStarredItems() }
-        }.onSuccess {
-            starredItems = parseStarredItemsResponse(it)
-            syncing = false
-            status = "${starredItems.size} starred item(s)"
-        }.onFailure {
-            syncing = false
-            status = "Starred load failed: ${it.message}"
         }
     }
 }
@@ -880,7 +871,7 @@ internal fun MeronMobileState.readCoreThread(
     val backendThreadId = thread.backendThreadId()
     val readToken = activeThreadReadToken + 1
     activeThreadReadToken = readToken
-    val returnScreen = if (screen == Screen.Kanban || screen == Screen.Starred) screen else Screen.Mail
+    val returnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
     val readsDraftThread =
         !threadIdIsRss(backendThreadId) &&
             (thread.folderRole == "drafts" || (thread.folderRole == "folder" && (folderIsDrafts(sourceFolder) || folderIsDrafts(thread.folder))))
@@ -1179,93 +1170,6 @@ internal fun MeronMobileState.loadMoreThreadMessages() {
     }
 }
 
-internal fun MeronMobileState.readStarredItem(item: StarredItemSummary) {
-    readCoreThread(
-        ThreadSummary(
-            id = item.threadId,
-            accountId = item.accountId,
-            folder = item.folder,
-            subject = item.subject,
-            sender = item.sender,
-            preview = item.preview,
-            unread = item.unread,
-            starred = true,
-            dateEpochSeconds = item.dateEpochSeconds,
-        ),
-    )
-}
-
-internal fun MeronMobileState.runStarredItemAction(
-    item: StarredItemSummary,
-    label: String,
-    action: suspend MobileMailCommandClient.() -> String,
-    update: (List<StarredItemSummary>) -> List<StarredItemSummary>,
-) {
-    if (!coreLoaded) {
-        status = coreUnavailableMessage
-        return
-    }
-    scope.launch {
-        runCatching {
-            withContext(ioDispatcher) {
-                val client = MobileMailCommandClient(core)
-                withManagedGoogleAuth(client, item.accountId) { client.action() }
-            }
-        }.onSuccess { response ->
-            applyCoreFolderUnreadChanges(response)
-            starredItems = update(starredItems)
-            status = "$label complete"
-        }.onFailure {
-            status = "$label failed: ${it.message}"
-        }
-    }
-}
-
-internal fun MeronMobileState.toggleStarredItemRead(item: StarredItemSummary) {
-    val isRssItem = threadIdIsRss(item.threadId)
-    runStarredItemAction(
-        item = item,
-        label = if (item.unread) "Mark read" else "Mark unread",
-        action = {
-            if (isRssItem) {
-                markRssRead(RssMarkReadParams(threadId = item.threadId, seen = item.unread, itemKeys = listOf(item.id)))
-            } else {
-                markRead(MarkReadParams(threadId = item.threadId, seen = item.unread, messageIds = listOf(item.id)))
-            }
-        },
-        update = { rows -> rows.map { if (it.id == item.id) it.copy(unread = !item.unread) else it } },
-    )
-}
-
-internal fun MeronMobileState.unstarStarredItem(item: StarredItemSummary) {
-    val isRssItem = threadIdIsRss(item.threadId)
-    runStarredItemAction(
-        item = item,
-        label = "Unstar",
-        action = {
-            if (isRssItem) {
-                markRssStarred(RssMarkStarredParams(threadId = item.threadId, starred = false, itemKeys = listOf(item.id)))
-            } else {
-                markStarred(MarkStarredParams(threadId = item.threadId, starred = false, messageIds = listOf(item.id)))
-            }
-        },
-        update = { rows -> rows.filterNot { it.id == item.id } },
-    )
-}
-
-internal fun MeronMobileState.deleteStarredMailItem(item: StarredItemSummary) {
-    if (threadIdIsRss(item.threadId)) {
-        status = "RSS items cannot be deleted."
-        return
-    }
-    runStarredItemAction(
-        item = item,
-        label = threadDeleteActionLabel(item.folder, item.folderRole),
-        action = { delete(ThreadActionParams(threadId = item.threadId, folderId = item.folder, messageIds = listOf(item.id))) },
-        update = { rows -> rows.filterNot { it.id == item.id } },
-    )
-}
-
 internal fun MeronMobileState.runCoreThreadAction(
     thread: ThreadSummary,
     label: String,
@@ -1449,6 +1353,7 @@ internal fun MeronMobileState.updateMessageEverywhere(
 
 internal fun MeronMobileState.toggleMessageRead(message: MessageBody) {
     val thread = selectedCoreThread ?: return
+    val backendThreadId = thread.backendThreadId()
     val seen = message.unread
     val messagesBefore = messages
     val selectedBefore = selectedCoreThread
@@ -1464,10 +1369,18 @@ internal fun MeronMobileState.toggleMessageRead(message: MessageBody) {
             requireCoreOk(
                 withContext(ioDispatcher) {
                     val client = MobileMailCommandClient(core)
-                    withManagedGoogleAuth(client, thread.accountId) {
-                        client.markRead(
-                            MarkReadParams(threadId = thread.id, seen = seen, messageIds = listOf(message.id)),
+                    // Feed items carry "<thread>#<item key>" ids the core splits
+                    // apart, so one item reads back the same way a message does.
+                    if (threadIdIsRss(backendThreadId)) {
+                        client.markRssRead(
+                            RssMarkReadParams(threadId = backendThreadId, seen = seen, itemKeys = listOf(message.id)),
                         )
+                    } else {
+                        withManagedGoogleAuth(client, thread.accountId) {
+                            client.markRead(
+                                MarkReadParams(threadId = backendThreadId, seen = seen, messageIds = listOf(message.id)),
+                            )
+                        }
                     }
                 },
             )
@@ -1550,16 +1463,23 @@ internal fun MeronMobileState.markThreadReadOnScroll() {
 
 internal fun MeronMobileState.toggleMessageStarred(message: MessageBody) {
     val thread = selectedCoreThread ?: return
+    val backendThreadId = thread.backendThreadId()
     val starred = !message.starred
     status = if (starred) "Starring..." else "Unstarring..."
     scope.launch {
         runCatching {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
-                withManagedGoogleAuth(client, thread.accountId) {
-                    client.markStarred(
-                        MarkStarredParams(threadId = thread.id, starred = starred, messageIds = listOf(message.id)),
+                if (threadIdIsRss(backendThreadId)) {
+                    client.markRssStarred(
+                        RssMarkStarredParams(threadId = backendThreadId, starred = starred, itemKeys = listOf(message.id)),
                     )
+                } else {
+                    withManagedGoogleAuth(client, thread.accountId) {
+                        client.markStarred(
+                            MarkStarredParams(threadId = backendThreadId, starred = starred, messageIds = listOf(message.id)),
+                        )
+                    }
                 }
             }
         }.onSuccess {
@@ -1615,8 +1535,22 @@ internal fun MeronMobileState.markVisibleMailboxAllRead() {
         return
     }
     val accountsById = coreAccounts.associateBy { it.id }
+    val unifiedStarred = selectedCoreAccountId == UNIFIED_ACCOUNT_ID && isUnifiedStarredFolder(selectedCoreFolder)
+    // Starred rows are single items spread across folders, so there is no
+    // mailbox to mark: read them item by item, the way their column does.
+    val starredTargets =
+        if (unifiedStarred) {
+            unread
+                .filterNot { threadIdIsRss(it.id) }
+                .groupBy { it.backendThreadId() }
+                .map { (threadId, rows) -> threadId to rows.map { it.id } }
+        } else {
+            emptyList()
+        }
     val mailTargets =
-        if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID) {
+        if (unifiedStarred) {
+            emptyList()
+        } else if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID) {
             coreAccounts
                 .filter { it.includedInUnified && !accountSummaryIsRss(it) }
                 .map { account -> account.id to INBOX_FOLDER }
@@ -1625,7 +1559,7 @@ internal fun MeronMobileState.markVisibleMailboxAllRead() {
             if (account != null && !accountSummaryIsRss(account)) listOf(selectedCoreAccountId to selectedCoreFolder) else emptyList()
         }
     val rssTargets = unread.filter { threadIdIsRss(it.id) }
-    if (mailTargets.isEmpty() && rssTargets.isEmpty()) {
+    if (mailTargets.isEmpty() && starredTargets.isEmpty() && rssTargets.isEmpty()) {
         status = "No unread messages."
         return
     }
@@ -1641,6 +1575,9 @@ internal fun MeronMobileState.markVisibleMailboxAllRead() {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
                 val responses = mutableListOf<String>()
+                starredTargets.forEach { (threadId, messageIds) ->
+                    responses += requireCoreOk(client.markRead(MarkReadParams(threadId = threadId, messageIds = messageIds)))
+                }
                 if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID && mailTargets.isNotEmpty()) {
                     mailTargets.forEach { (accountId, _) -> withManagedGoogleAuth(client, accountId) { "" } }
                     responses +=

@@ -63,6 +63,9 @@ internal fun MessageBubble(
     searchQuery: String,
     activeSearchMatch: Boolean,
     actionsEnabled: Boolean,
+    // Read and star work per item on feed threads too, unlike the mail-only
+    // actions (forward, edit as new, delete) [actionsEnabled] gates.
+    itemActionsEnabled: Boolean,
     showSubject: Boolean,
     onForward: (MessageBody) -> Unit,
     onEditAsNew: (MessageBody) -> Unit,
@@ -247,7 +250,7 @@ internal fun MessageBubble(
                                 },
                             )
                         }
-                        if (actionsEnabled) {
+                        if (itemActionsEnabled) {
                             DropdownMenuItem(
                                 text = { Text(if (message.unread) tr("threads.actions.markAsRead") else tr("threads.actions.markAsUnread")) },
                                 onClick = {
@@ -262,6 +265,8 @@ internal fun MessageBubble(
                                     onToggleStarred(message)
                                 },
                             )
+                        }
+                        if (actionsEnabled) {
                             DropdownMenuItem(
                                 text = { Text(tr("chat.actions.forward")) },
                                 onClick = {

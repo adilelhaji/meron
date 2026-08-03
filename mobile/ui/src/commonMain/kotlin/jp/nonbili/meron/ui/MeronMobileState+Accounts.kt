@@ -182,6 +182,7 @@ import jp.nonbili.meron.shared.RssThreadParams
 import jp.nonbili.meron.shared.SendIdentity
 import jp.nonbili.meron.shared.SharedMobileContract
 import jp.nonbili.meron.shared.StarredItemSummary
+import jp.nonbili.meron.shared.StarredItemsParams
 import jp.nonbili.meron.shared.StorageUsage
 import jp.nonbili.meron.shared.SyncMailParams
 import jp.nonbili.meron.shared.SyncRssParams
@@ -220,6 +221,7 @@ import jp.nonbili.meron.shared.parseOAuthCallbackUrlForRedirect
 import jp.nonbili.meron.shared.parseOpmlExportResponse
 import jp.nonbili.meron.shared.parseOpmlImportCountResponse
 import jp.nonbili.meron.shared.parseProxyResponse
+import jp.nonbili.meron.shared.parseStarredItemsPage
 import jp.nonbili.meron.shared.parseStarredItemsResponse
 import jp.nonbili.meron.shared.parseStorageUsageResponse
 import jp.nonbili.meron.shared.parseThreadListPage
@@ -1305,6 +1307,36 @@ internal suspend fun MeronMobileState.loadUnifiedInbox(
         unreadCount = page.folderUnread.takeIf { role == INBOX_FOLDER },
         nextCursor = page.nextCursor,
         folderSynced = page.folderSynced,
+    )
+}
+
+/**
+ * The unified starred listing. Unlike the other unified folders this is not a
+ * mailbox any account owns: the core returns the starred *items* themselves —
+ * single messages and feed entries across every account — which the list shows
+ * as rows the same way a thread is shown.
+ */
+internal suspend fun MeronMobileState.loadUnifiedStarred(
+    client: MobileMailCommandClient,
+    query: String = mailSearch,
+    filter: FilterMode = mailFilter,
+    beforeCursor: String? = null,
+    limit: Int = MAILBOX_PAGE_SIZE,
+): MailboxLoadResult {
+    val page =
+        parseStarredItemsPage(
+            client.listStarredItems(
+                StarredItemsParams(query = query.trim(), limit = limit, beforeCursor = beforeCursor),
+            ),
+        )
+    // The starred command takes no filter — every row is starred by definition,
+    // so only Unread narrows anything, and it narrows the page in hand.
+    val rows = page.items.map { it.toThreadSummary() }.filter { filter != FilterMode.Unread || it.unread }
+    return MailboxLoadResult(
+        folders = emptyList(),
+        folder = STARRED_FOLDER,
+        threads = rows,
+        nextCursor = page.nextCursor,
     )
 }
 

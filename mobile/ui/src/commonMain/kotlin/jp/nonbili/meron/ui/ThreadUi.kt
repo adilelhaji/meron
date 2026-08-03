@@ -548,6 +548,7 @@ internal fun ThreadScreen(
                                     searchQuery = normalizedSearch,
                                     activeSearchMatch = message.id == activeSearchId,
                                     actionsEnabled = !isRss,
+                                    itemActionsEnabled = true,
                                     showSubject = isRss,
                                     onForward = onForward,
                                     onEditAsNew = onEditAsNew,

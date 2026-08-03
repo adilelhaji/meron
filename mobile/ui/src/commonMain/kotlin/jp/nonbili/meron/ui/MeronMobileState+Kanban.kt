@@ -273,7 +273,7 @@ internal fun shouldSyncUnfetchedKanbanColumn(
     return !account.paused && !account.needsReconnect && !accountSummaryIsRss(account)
 }
 
-internal fun StarredItemSummary.toKanbanThreadSummary(): ThreadSummary =
+internal fun StarredItemSummary.toThreadSummary(): ThreadSummary =
     ThreadSummary(
         id = id,
         threadId = threadId,
@@ -339,15 +339,13 @@ internal suspend fun MeronMobileState.fetchKanbanColumn(
 ): MailboxLoadResult {
     val columnQuery = kanbanColumnSearchQuery(column)
     if (isUnifiedStarredColumn(column)) {
-        val page =
-            parseStarredItemsPage(
-                client.listStarredItems(StarredItemsParams(query = columnQuery, beforeCursor = beforeCursor)),
-            )
-        return MailboxLoadResult(
-            folders = emptyList(),
-            folder = STARRED_FOLDER,
-            threads = page.items.map { it.toKanbanThreadSummary() },
-            nextCursor = page.nextCursor,
+        // The column applies its own filter to the loaded cards, so the load
+        // itself asks for all of them.
+        return loadUnifiedStarred(
+            client = client,
+            query = columnQuery,
+            filter = FilterMode.All,
+            beforeCursor = beforeCursor,
         )
     }
     return if (column.accountId == UNIFIED_ACCOUNT_ID) {

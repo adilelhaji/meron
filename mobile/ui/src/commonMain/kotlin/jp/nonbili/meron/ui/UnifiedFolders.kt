@@ -10,11 +10,22 @@ import jp.nonbili.meron.shared.FolderSummary
  * account's own Sent, which the core resolves per account, leaving out accounts
  * whose server has no such mailbox.
  *
- * Starred is deliberately absent: unlike desktop, mobile already surfaces every
- * starred item across accounts as its own tab, so listing it here too would be a
- * second door to the same screen.
+ * Starred is absent here because it is not a mailbox any account owns — it is
+ * the cross-account starred *items* listing, which resolves through the core's
+ * starred-items command rather than through a per-account folder. It still sits
+ * in the switcher: see [UNIFIED_VIEW_ROLES].
  */
 internal val UNIFIED_FOLDER_ROLES = listOf(INBOX_FOLDER, "sent", "drafts", "archive", "junk", "trash")
+
+/**
+ * The roles the unified view offers to switch between — its mailbox roles plus
+ * starred, ordered as on desktop with starred next to the inbox. Shared by the
+ * mail list and by a unified Kanban column, which show the same choices.
+ */
+internal val UNIFIED_VIEW_ROLES = listOf(INBOX_FOLDER, STARRED_FOLDER) + UNIFIED_FOLDER_ROLES.filterNot { it == INBOX_FOLDER }
+
+/** Whether [folderId] selects the cross-account starred listing. */
+internal fun isUnifiedStarredFolder(folderId: String): Boolean = folderId.equals(STARRED_FOLDER, ignoreCase = true)
 
 /** Locale keys for the role names, shared with the desktop folder switcher. */
 private val UNIFIED_ROLE_LABEL_KEYS =
@@ -41,23 +52,26 @@ internal fun unifiedAccountFolder(
 }
 
 /**
- * The unified view's synthetic folder list. The folder *name* is the role, so a
- * picked entry round-trips straight back as the requested role.
+ * The unified view's synthetic folder list, shown by the mail list's folder
+ * switcher and by a unified column's. The folder *name* is the role, so a picked
+ * entry round-trips straight back as the requested role.
  */
 @Composable
 internal fun unifiedFolders(): List<FolderSummary> =
-    UNIFIED_FOLDER_ROLES.map { role ->
+    UNIFIED_VIEW_ROLES.map { role ->
         FolderSummary(
             accountId = UNIFIED_ACCOUNT_ID,
             name = role,
             role = role,
-            displayName = tr(UNIFIED_ROLE_LABEL_KEYS.getValue(role)),
+            // Starred has no folder-role name of its own; it reuses the filter
+            // label, the same string the desktop switcher shows.
+            displayName = if (role == STARRED_FOLDER) tr("filters.starred") else tr(UNIFIED_ROLE_LABEL_KEYS.getValue(role)),
         )
     }
 
 /** The unified view's label for [folderId], e.g. "Sent". */
 @Composable
-internal fun unifiedFolderLabel(folderId: String): String = tr(UNIFIED_ROLE_LABEL_KEYS.getValue(unifiedFolderRole(folderId)))
+internal fun unifiedFolderLabel(folderId: String): String = if (isUnifiedStarredFolder(folderId)) tr("filters.starred") else tr(UNIFIED_ROLE_LABEL_KEYS.getValue(unifiedFolderRole(folderId)))
 
 /**
  * A unified Kanban column's own name. Unlike the mail list — where the unified
@@ -78,42 +92,16 @@ private val UNIFIED_COLUMN_LABEL_KEYS =
     )
 
 @Composable
-internal fun unifiedColumnLabel(folderId: String): String = tr(UNIFIED_COLUMN_LABEL_KEYS.getValue(if (folderId.equals(STARRED_FOLDER, ignoreCase = true)) STARRED_FOLDER else unifiedFolderRole(folderId)))
+internal fun unifiedColumnLabel(folderId: String): String = tr(UNIFIED_COLUMN_LABEL_KEYS.getValue(if (isUnifiedStarredFolder(folderId)) STARRED_FOLDER else unifiedFolderRole(folderId)))
 
 internal fun unifiedColumnMatchesFolder(
     columnFolderId: String,
     accountFolders: List<FolderSummary>,
     eventFolderId: String,
 ): Boolean {
-    if (columnFolderId.equals(STARRED_FOLDER, ignoreCase = true)) return true
+    if (isUnifiedStarredFolder(columnFolderId)) return true
     val role = unifiedFolderRole(columnFolderId)
     if (eventFolderId.isBlank()) return role == INBOX_FOLDER
     val accountFolder = unifiedAccountFolder(accountFolders, role) ?: return false
     return kanbanFolderIdsEqual(accountFolder, eventFolderId)
 }
-
-/**
- * The roles a unified *Kanban column* offers. Starred is included here though
- * the mail list leaves it out: the mail list has a dedicated Starred tab to
- * reach it by, a board column has none, and the column picker no longer offers
- * a separate starred entry. Ordered as on desktop, starred next to the inbox.
- */
-internal val UNIFIED_COLUMN_ROLES = listOf(INBOX_FOLDER, STARRED_FOLDER) + UNIFIED_FOLDER_ROLES.filterNot { it == INBOX_FOLDER }
-
-/**
- * The folder list a unified column's switcher shows. As with [unifiedFolders]
- * the folder *name* is the role, so a picked entry round-trips straight back as
- * the requested role.
- */
-@Composable
-internal fun unifiedColumnFolders(): List<FolderSummary> =
-    UNIFIED_COLUMN_ROLES.map { role ->
-        FolderSummary(
-            accountId = UNIFIED_ACCOUNT_ID,
-            name = role,
-            role = role,
-            // Starred has no folder-role name of its own; it reuses the filter
-            // label, the same string the desktop switcher shows.
-            displayName = if (role == STARRED_FOLDER) tr("filters.starred") else tr(UNIFIED_ROLE_LABEL_KEYS.getValue(role)),
-        )
-    }
