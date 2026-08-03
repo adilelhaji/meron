@@ -34,6 +34,22 @@ export function isUnifiedStarred(accountId: string, folderId: string): boolean {
   return accountId === UNIFIED_ACCOUNT && folderId === 'starred'
 }
 
+/**
+ * The folder in one account's own list that answers a unified role, or
+ * undefined when that account's server has none — those accounts drop out of a
+ * unified read rather than failing it. Listing resolves roles in the core; this
+ * is for the callers that must name a real mailbox client-side, e.g. syncing
+ * each account behind a unified Kanban column. Starred is never resolvable: it
+ * is a flag, not a mailbox.
+ */
+export function accountFolderForRole(folders: Folder[] | undefined, role: UnifiedFolderRole): string | undefined {
+  if (!folders?.length || role === 'starred') return undefined
+  if (role === 'inbox') {
+    return folders.find((folder) => folder.role === 'inbox' || folder.id.toLowerCase() === 'inbox')?.id
+  }
+  return folders.find((folder) => folder.role === role)?.id
+}
+
 const ROLE_LABEL_KEYS: Record<UnifiedFolderRole, string> = {
   inbox: 'folders.roles.inbox',
   // Reuses the filter label rather than minting a second "Starred" string.

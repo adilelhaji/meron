@@ -40,6 +40,7 @@ import {
   mergeLabelFolders,
   refreshKanbanContextAction,
   isUnifiedStarredColumn,
+  unifiedColumnLabel,
   kanbanColumnUnreadCount,
   useFoldersByAccount,
 } from '../../lib/kanbanData'
@@ -120,11 +121,10 @@ function KanbanColumnContent({
   const loadingMore = allLoadingMore[key] ?? false
   const searchActive = columnSearchActive(key, searchQuery, searchScope)
   const starredColumn = isUnifiedStarredColumn(column)
-  const hasMore = starredColumn
-    ? false
-    : column.accountId === 'unified'
-      ? Object.keys(allAccountCursors[key] ?? {}).length > 0
-      : !!(allCursors[key] ?? '')
+  // Every column pages on the single cursor now, unified included — the core
+  // merges the per-account pages behind one. (The legacy per-account cursors
+  // are still read from persisted boards, but nothing writes them.)
+  const hasMore = starredColumn ? false : !!(allCursors[key] ?? '')
   const minimized = !!minimizedColumns[boardKey]
   const columnAccount =
     column.accountId !== 'unified' ? accounts.find((account) => account.id === column.accountId) : undefined
@@ -323,13 +323,20 @@ function KanbanColumnContent({
           </div>
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <h3 className={clsx('flex min-w-0 text-xs font-bold', isPaused ? 'text-secondary' : 'text-primary')}>
-              {column.accountId === 'unified' || isRss ? (
+              {isRss ? (
                 <span className="truncate">{folderLabel(column, labelFolders, accounts)}</span>
               ) : (
                 <FolderSwitcher
                   accountId={column.accountId}
                   folderId={column.folderId}
-                  label={folderLabel(column, labelFolders, accounts)}
+                  // A unified column names itself ("Unified sent"): a board mixes
+                  // it with single-account columns whose folders are called the
+                  // same thing.
+                  label={
+                    column.accountId === 'unified'
+                      ? unifiedColumnLabel(column.folderId)
+                      : folderLabel(column, labelFolders, accounts)
+                  }
                   labelClassName="-mx-2"
                   // Folders already open as their own column on this board can't
                   // be switched to — the board would end up with duplicates.

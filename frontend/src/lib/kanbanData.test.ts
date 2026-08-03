@@ -17,9 +17,11 @@ import {
   loadMoreKanbanColumn,
   mergeLabelFolders,
   nextFoldersSnapshot,
+  searchColumnLabel,
   searchScopeColumn,
   searchTargets,
   syncKanbanColumn,
+  unifiedColumnLabel,
 } from './kanbanData'
 
 const account = (id: string): Account => ({
@@ -345,6 +347,73 @@ describe('kanban column loading filters', () => {
     expect(mail$.foldersByAccount.acc3.get()?.[0]?.unread).toBe(2)
   })
 
+  it('asks for a unified column by role and keeps its unreads out of the inbox badge', async () => {
+    const calls: { command: string; payload: unknown }[] = []
+    accounts$.set([account('acc1')])
+    mail$.foldersByAccount.acc1.set([{ account_id: 'acc1', id: 'INBOX', name: 'Inbox', role: 'inbox', unread: 7 }])
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (command: string, payload: unknown) => {
+            calls.push({ command, payload })
+            return { threads: [], next_cursor: '', folder_unreads: { acc1: 1 } }
+          },
+        },
+      },
+    }
+    kanban$.globalFilter.set('all')
+
+    await loadKanbanColumn({ accountId: 'unified', folderId: 'trash' }, true)
+
+    const threadListCalls = calls.filter((call) => call.command === 'mail.threadList').map((call) => call.payload)
+    expect(threadListCalls).toHaveLength(1)
+    // Both fields: folder_id keeps the request readable, folder_role is what the
+    // core resolves per account.
+    expect(threadListCalls[0]).toMatchObject({
+      account_id: 'unified',
+      folder_id: 'trash',
+      folder_role: 'trash',
+    })
+    // Trash's unread count must not land on the side-nav's inbox badge.
+    expect(mail$.foldersByAccount.acc1.get()?.[0]?.unread).toBe(7)
+  })
+
+  it('syncs each account own folder behind a unified non-inbox column', async () => {
+    const calls: { command: string; payload: any }[] = []
+    accounts$.set([account('acc1'), account('acc2')])
+    // acc1 has a Sent folder; acc2's server does not, so it sits the sync out.
+    mail$.foldersByAccount.acc1.set([
+      { account_id: 'acc1', id: 'INBOX', name: 'Inbox', role: 'inbox', unread: 0 },
+      { account_id: 'acc1', id: '[Gmail]/Sent Mail', name: 'Sent', role: 'sent', unread: 0 },
+    ])
+    mail$.foldersByAccount.acc2.set([{ account_id: 'acc2', id: 'INBOX', name: 'Inbox', role: 'inbox', unread: 0 }])
+    const handlers = new Map<string, (detail: unknown) => void>()
+    ;(window as any).runtime = {
+      EventsOn: (name: string, handler: (detail: unknown) => void) => {
+        handlers.set(name, handler)
+        return () => handlers.delete(name)
+      },
+    }
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (command: string, payload: unknown) => {
+            calls.push({ command, payload })
+            return command === 'mail.threadList' ? { threads: [], next_cursor: '' } : { online: true, queued: true }
+          },
+        },
+      },
+    }
+
+    const sync = syncKanbanColumn({ accountId: 'unified', folderId: 'sent' })
+    await Promise.resolve()
+    handlers.get('mail.synced')?.({ account: 'acc1', folder: '[Gmail]/Sent Mail' })
+    await sync
+
+    const syncCalls = calls.filter((call) => call.command === 'mail.sync').map((call) => call.payload)
+    expect(syncCalls).toEqual([{ account_id: 'acc1', folder: '[Gmail]/Sent Mail' }])
+  })
+
   it('keeps a just-read thread in an unread column when the reload drops it', async () => {
     ;(window as any).go = {
       main: {
@@ -522,12 +591,29 @@ describe('labels', () => {
   it('folderLabel names unified, inbox, and stored folders', () => {
     const folders = [{ account_id: 'acc1', id: 'f1', name: 'Receipts' } as Folder]
     const accs = [account('acc1')]
-    expect(folderLabel({ accountId: 'unified', folderId: 'inbox' }, folders, accs)).toBe('Unified Inbox')
+    expect(folderLabel({ accountId: 'unified', folderId: 'inbox' }, folders, accs)).toBe('Unified inbox')
     expect(isUnifiedStarredColumn({ accountId: 'unified', folderId: 'starred' })).toBe(true)
-    expect(folderLabel({ accountId: 'unified', folderId: 'starred' }, folders, accs)).toBe('Unified Starred')
+    expect(folderLabel({ accountId: 'unified', folderId: 'starred' }, folders, accs)).toBe('Unified starred')
     expect(folderLabel({ accountId: 'acc1', folderId: 'INBOX' }, folders, accs)).toBe('Inbox')
     expect(folderLabel({ accountId: 'acc1', folderId: 'f1' }, folders, accs)).toBe('Receipts')
     expect(folderLabel({ accountId: 'acc1', folderId: 'f2' }, folders, accs)).toBe('f2')
+  })
+
+  it('unifiedColumnLabel names every unified role and falls back to inbox', () => {
+    expect(unifiedColumnLabel('sent')).toBe('Unified sent')
+    expect(unifiedColumnLabel('drafts')).toBe('Unified drafts')
+    expect(unifiedColumnLabel('archive')).toBe('Unified archive')
+    expect(unifiedColumnLabel('junk')).toBe('Unified junk')
+    expect(unifiedColumnLabel('trash')).toBe('Unified trash')
+    // A column persisted before unified folders were switchable, or one whose
+    // stored role we no longer know, still names something.
+    expect(unifiedColumnLabel('Receipts')).toBe('Unified inbox')
+  })
+
+  it('searchColumnLabel names a unified column by its role', () => {
+    const accs = [account('acc1')]
+    expect(searchColumnLabel({ accountId: 'unified', folderId: 'sent' }, [], accs)).toBe('Unified sent')
+    expect(searchColumnLabel({ accountId: 'unified', folderId: 'starred' }, [], accs)).toBe('Unified starred')
   })
 
   it('mergeLabelFolders flattens per-account folders after the base list', () => {

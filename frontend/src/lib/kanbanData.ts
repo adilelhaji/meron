@@ -6,6 +6,7 @@ import { getAllKanbanColumns, kanbanColumnKey, kanban$, type KanbanColumn } from
 import { mail$, updateCachedFolderUnread } from '../states/mail'
 import { showToast } from '../states/ui'
 import type { FilterMode } from '../states/ui'
+import { accountFolderForRole, unifiedFolderRole, type UnifiedFolderRole } from './unifiedFolders'
 import type { Account, Folder, Message } from '../types'
 import type { ThreadContextAction, ThreadContextActionDetail } from '../components/threads/ThreadContextMenu'
 
@@ -26,7 +27,14 @@ type MailSyncEvent = {
   message?: string
 }
 
-function waitForKanbanSync(accountIds: string[], folderId: string, timeoutMs = KANBAN_SYNC_TIMEOUT_MS) {
+function waitForKanbanSync(
+  accountIds: string[],
+  folderId: string,
+  timeoutMs = KANBAN_SYNC_TIMEOUT_MS,
+  // A unified column asks each account for its *own* mailbox, so one folder id
+  // cannot match every event it is waiting on. When given, any of these counts.
+  folderIds?: Set<string>,
+) {
   const eventsOn = (window as any).runtime?.EventsOn
   if (typeof eventsOn !== 'function') {
     return {
@@ -59,8 +67,10 @@ function waitForKanbanSync(accountIds: string[], folderId: string, timeoutMs = K
     if (error) rejectPromise(error)
     else resolvePromise()
   }
+  const folderAccepted = (synced: string) =>
+    folderIds ? [...folderIds].some((wanted) => folderMatches(wanted, synced)) : folderMatches(folderId, synced)
   const matches = (detail: MailSyncEvent) =>
-    !!detail?.account && pending.has(detail.account) && (!detail.folder || folderMatches(folderId, detail.folder))
+    !!detail?.account && pending.has(detail.account) && (!detail.folder || folderAccepted(detail.folder))
   const completeAccount = (detail: MailSyncEvent) => {
     if (!matches(detail)) return
     pending.delete(detail.account!)
@@ -144,15 +154,35 @@ export function isUnifiedStarredColumn(column: KanbanColumn): boolean {
   return column.accountId === 'unified' && column.folderId.toLowerCase() === 'starred'
 }
 
+// A unified column's own name. It has to carry "Unified" itself: a board sits
+// beside single-account columns whose folders are called the same thing, and
+// unlike the thread list — which has room under its header for a qualifier —
+// a column header is one line next to an avatar. Spelled out per role rather
+// than composed from "Unified" + a folder name, which no language agrees on.
+const UNIFIED_COLUMN_LABELS: Record<UnifiedFolderRole, string> = {
+  inbox: 'Unified inbox',
+  starred: 'Unified starred',
+  sent: 'Unified sent',
+  drafts: 'Unified drafts',
+  archive: 'Unified archive',
+  junk: 'Unified junk',
+  trash: 'Unified trash',
+}
+
+export function unifiedColumnLabel(folderId: string): string {
+  return UNIFIED_COLUMN_LABELS[unifiedFolderRole(folderId)]
+}
+
 export function folderLabel(column: KanbanColumn, folders: Folder[], accounts: Account[]) {
   const isInbox = column.folderId.toLowerCase() === 'inbox'
   if (column.accountId === 'unified') {
     // The unified view's synthetic folder list carries the localized role names
-    // ("Sent", "Archive"), so the header reads like an account's own. Kanban
-    // columns are passed per-account folders and fall through to the old labels.
+    // ("Sent", "Archive"), so the thread-list header reads like an account's own
+    // and leans on its "Unified" caption to say whose mail it is. Kanban columns
+    // have no caption and use unifiedColumnLabel instead.
     const synthetic = folders.find((folder) => folder.account_id === 'unified' && folder.id === column.folderId)
     if (synthetic) return synthetic.name
-    return isUnifiedStarredColumn(column) ? 'Unified Starred' : 'Unified Inbox'
+    return unifiedColumnLabel(column.folderId)
   }
   if (isInbox) return isRSSAccount(column.accountId, accounts) ? 'Feed' : 'Inbox'
   return (
@@ -162,8 +192,7 @@ export function folderLabel(column: KanbanColumn, folders: Folder[], accounts: A
 }
 
 export function searchColumnLabel(column: KanbanColumn, folders: Folder[], accounts: Account[]) {
-  if (isUnifiedStarredColumn(column)) return 'Unified Starred'
-  if (column.accountId === 'unified') return 'Unified Inbox'
+  if (column.accountId === 'unified') return unifiedColumnLabel(column.folderId)
   return `${accountLabel(column.accountId, accounts)} / ${folderLabel(column, folders, accounts)}`
 }
 
@@ -286,6 +315,9 @@ async function fetchColumnThreads(
     }
   }
   if (column.accountId === 'unified') {
+    // The column names a role, not a folder: the core resolves each account's
+    // own Sent/Archive/… and leaves out the ones whose server has none.
+    const role = unifiedFolderRole(column.folderId)
     const result = await invoke<{
       threads: Message[]
       next_cursor?: string
@@ -293,7 +325,8 @@ async function fetchColumnThreads(
       folder_unreads?: Record<string, number>
     }>('mail.threadList', {
       account_id: 'unified',
-      folder_id: 'inbox',
+      folder_id: role,
+      folder_role: role,
       query: trimmedQuery,
       filter,
       refresh,
@@ -364,8 +397,16 @@ export async function loadKanbanColumn(column: KanbanColumn, refresh = false, qu
     const { threads, folderUnread, folderUnreadByAccount, folderSynced, nextSingle, nextUnified } =
       await fetchColumnThreads(column, refresh, trimmedQuery)
     if (columnLoadVersions.get(key) !== version) return
-    for (const [accountId, unread] of Object.entries(folderUnreadByAccount ?? {})) {
-      updateCachedFolderUnread(accountId, column.accountId === 'unified' ? 'inbox' : column.folderId, unread)
+    // Only Inbox totals back the side-nav badges. A unified column on another
+    // role reports that role's per-account unreads, which must not be written
+    // to the cache under 'inbox' — that would overwrite the badge with, say,
+    // the unread count of Trash.
+    const unreadCacheFolder =
+      column.accountId === 'unified' ? (unifiedFolderRole(column.folderId) === 'inbox' ? 'inbox' : '') : column.folderId
+    if (unreadCacheFolder) {
+      for (const [accountId, unread] of Object.entries(folderUnreadByAccount ?? {})) {
+        updateCachedFolderUnread(accountId, unreadCacheFolder, unread)
+      }
     }
     kanban$.threads[key].set(keepReadThreads(column, key, threads))
     if (folderUnread !== undefined) kanban$.unreadCounts[key].set(folderUnread)
@@ -412,19 +453,37 @@ export async function syncKanbanColumn(column: KanbanColumn) {
     return
   }
 
-  const accounts = column.accountId === 'unified' ? unifiedAccounts() : [{ id: column.accountId }]
-  const folderId = column.accountId === 'unified' ? 'inbox' : column.folderId
-  if (accounts.length === 0) {
+  // A sync names a real mailbox, so a unified column resolves its role against
+  // each account's own folder list first. Accounts whose server has no such
+  // folder are simply not synced — the same accounts the listing leaves out.
+  const role = unifiedFolderRole(column.folderId)
+  const targets =
+    column.accountId === 'unified'
+      ? unifiedAccounts().flatMap((account) => {
+          // Inbox needs no lookup — every server has one and the core
+          // canonicalises the name — so a cold folder cache still syncs it.
+          // The other roles have no safe guess and sit the round out.
+          const folder =
+            accountFolderForRole(mail$.foldersByAccount[account.id].peek(), role) ??
+            (role === 'inbox' ? 'inbox' : undefined)
+          return folder ? [{ id: account.id, folder }] : []
+        })
+      : [{ id: column.accountId, folder: column.folderId }]
+  if (targets.length === 0) {
     await loadKanbanColumn(column, false)
     return
   }
+  // The sync events name each account's own folder, so a unified column waits
+  // on whichever folder it asked that account for.
   const completion = waitForKanbanSync(
-    accounts.map((account) => account.id),
-    folderId,
+    targets.map((target) => target.id),
+    targets[0].folder,
+    KANBAN_SYNC_TIMEOUT_MS,
+    new Set(targets.map((target) => target.folder)),
   )
   try {
-    const requests = accounts.map((account) =>
-      invoke<{ online?: boolean }>('mail.sync', { account_id: account.id, folder: folderId }).then((result) => {
+    const requests = targets.map((target) =>
+      invoke<{ online?: boolean }>('mail.sync', { account_id: target.id, folder: target.folder }).then((result) => {
         if (result?.online === false) throw new Error('Mail engine unavailable')
       }),
     )
@@ -456,8 +515,16 @@ export async function loadMoreKanbanColumn(column: KanbanColumn) {
     const existing = kanban$.threads[key].get() ?? []
     const seen = new Set(existing.map((thread) => thread.thread_id))
     const merged = [...existing, ...threads.filter((thread) => !seen.has(thread.thread_id))]
-    for (const [accountId, unread] of Object.entries(folderUnreadByAccount ?? {})) {
-      updateCachedFolderUnread(accountId, unified ? 'inbox' : column.folderId, unread)
+    // As in loadKanbanColumn: only Inbox totals belong in the badge cache.
+    const unreadCacheFolder = unified
+      ? unifiedFolderRole(column.folderId) === 'inbox'
+        ? 'inbox'
+        : ''
+      : column.folderId
+    if (unreadCacheFolder) {
+      for (const [accountId, unread] of Object.entries(folderUnreadByAccount ?? {})) {
+        updateCachedFolderUnread(accountId, unreadCacheFolder, unread)
+      }
     }
     if (unified) merged.sort((a, b) => b.date - a.date)
     kanban$.threads[key].set(merged)

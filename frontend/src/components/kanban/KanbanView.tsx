@@ -273,16 +273,14 @@ export function KanbanView({ boardId }: { boardId: string }) {
         <AddColumnDialog
           groups={dialogGroups}
           initialSelected={selectedKeys}
+          // One unified entry, not one per unified folder: the column's own
+          // header switches it to Starred/Sent/… once it is on the board, the
+          // same way a single-account column is retargeted.
           specialOptions={[
             {
               key: kanbanColumnKey({ accountId: 'unified', folderId: 'inbox' }),
               label: t('kanban.columns.unifiedInbox'),
               icon: 'inbox',
-            },
-            {
-              key: kanbanColumnKey({ accountId: 'unified', folderId: 'starred' }),
-              label: t('kanban.columns.unifiedStarred'),
-              icon: 'star',
             },
           ]}
           onClose={() => setDialogOpen(false)}
