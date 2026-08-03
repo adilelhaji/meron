@@ -5,6 +5,7 @@ import { folderIcon } from '../../lib/folderIcon'
 import { useTranslation } from '../../lib/i18n'
 import { clsx } from '../../lib/utils'
 import { ensureAccountFolders, mail$ } from '../../states/mail'
+import { UNIFIED_ACCOUNT, unifiedFolders } from '../../lib/unifiedFolders'
 import { FloatingContextMenu } from './FloatingContextMenu'
 import { menuItemBase } from './menuStyles'
 import { buildFolderTree, type TreeNode } from '../../lib/folderTree'
@@ -94,6 +95,7 @@ export function FolderSwitcher({
   accountId,
   folderId,
   label,
+  caption,
   labelClassName,
   takenFolderIds,
   onSelect,
@@ -101,6 +103,14 @@ export function FolderSwitcher({
   accountId: string
   folderId: string
   label: string
+  /**
+   * A second line under the label, qualifying whose folder is shown. The
+   * unified view needs it: its folder names ("Sent", "Drafts") are the same
+   * ones a single account shows, so without it the header cannot be told apart
+   * from an account's own. Callers whose scope is already unambiguous — a
+   * kanban column, which is always one account — leave it unset.
+   */
+  caption?: string
   labelClassName?: string
   /** Folders already shown elsewhere (e.g. another column) and so not offered. */
   takenFolderIds?: string[]
@@ -108,14 +118,20 @@ export function FolderSwitcher({
 }) {
   const { t } = useTranslation()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const isUnified = accountId === UNIFIED_ACCOUNT
   // Keep observing the shared cache: when it contains only the bootstrap Inbox,
   // ensureAccountFolders refreshes it in the background.
-  const folders = useValue(mail$.foldersByAccount[accountId]) ?? []
+  const cachedFolders = useValue(mail$.foldersByAccount[accountId]) ?? []
+  // The unified view has no folders of its own to fetch — its list is the fixed
+  // set of roles, each resolved per account at read time. Building it here also
+  // keeps the picker working on a Kanban board, where nothing has necessarily
+  // populated the unified entry of the shared folder cache.
+  const folders = useMemo(() => (isUnified ? unifiedFolders(t) : cachedFolders), [isUnified, t, cachedFolders])
   const [loading, setLoading] = useState(false)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    if (!menu) return
+    if (!menu || isUnified) return
     let cancelled = false
     setLoading(true)
     void ensureAccountFolders(accountId, { refreshIfBootstrapOnly: true }).finally(() => {
@@ -124,7 +140,7 @@ export function FolderSwitcher({
     return () => {
       cancelled = true
     }
-  }, [menu, accountId])
+  }, [menu, accountId, isUnified])
 
   const close = () => {
     setMenu(null)
@@ -159,14 +175,26 @@ export function FolderSwitcher({
         // 48px+ tall, so a text-height hit target left most of it dead. The padding
         // is the caller's to pull back with a negative margin if it wants the label
         // flush with the rest of the header.
-        className={clsx('flex h-8 min-w-0 items-center gap-1 rounded px-2 hover:bg-hover', labelClassName)}
+        className={clsx(
+          'flex min-w-0 items-center gap-1 rounded px-2 hover:bg-hover',
+          caption ? 'h-11' : 'h-8',
+          labelClassName,
+        )}
         title={t('kanban.actions.switchFolder')}
         onClick={open}
         // A kanban column header is a drag handle; keep the pointer gesture to ourselves.
         onPointerDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.stopPropagation()}
       >
-        <span className="truncate">{label}</span>
+        {/* The caption stacks under the label rather than sitting beside it: the
+          thread-list header caps this control's width so the search box keeps
+          room, and a second line costs none of it. */}
+        <span className="flex min-w-0 flex-col items-start">
+          <span className="w-full truncate">{label}</span>
+          {caption && (
+            <span className="w-full truncate text-[10px] font-medium leading-tight text-secondary">{caption}</span>
+          )}
+        </span>
         <ChevronDown size={12} className="shrink-0 text-secondary" />
       </button>
       {menu && (
