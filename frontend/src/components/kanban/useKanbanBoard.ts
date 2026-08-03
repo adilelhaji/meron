@@ -3,14 +3,9 @@ import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useValue } from '@legendapp/state/react'
 import { invoke } from '../../lib/bridge'
 import { moveFeed } from '../../states/feeds'
+import { mail$ } from '../../states/mail'
 import { showToast } from '../../states/ui'
-import {
-  getAllKanbanColumns,
-  kanbanColumnKey,
-  kanban$,
-  reorderKanbanColumn,
-  type KanbanColumn,
-} from '../../states/kanban'
+import { getKanbanColumns, kanbanColumnKey, kanban$, reorderKanbanColumn, type KanbanColumn } from '../../states/kanban'
 import type { Account, Message } from '../../types'
 import {
   SEARCH_DEBOUNCE_MS,
@@ -121,6 +116,11 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
   // arrives via IMAP IDLE — pull the freshly-cached threads into any column that
   // shows that account/folder. `mail.synced` covers flag-only refreshes; new
   // arrivals come as `mail.newMessages`, which carries the same account/folder.
+  //
+  // Mounted once: the folder cache is read at event time (peek) rather than
+  // captured as a dependency. Those very events refresh the folder cache, so a
+  // dependency would tear this effect down mid-flush — clearing the pending
+  // 250ms timer below — and the new mail would never reach the column.
   useEffect(() => {
     const eventsOn = (window as any).runtime?.EventsOn
     if (typeof eventsOn !== 'function') return
@@ -144,10 +144,15 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
       if (!account) return
       const query = kanban$.searchQuery.peek().trim()
       const scope = kanban$.searchScope.peek()
-      for (const column of getAllKanbanColumns()) {
+      const folders = mail$.foldersByAccount.peek()
+      // Only the open board renders, and its columns are the only ones whose
+      // cache anything reads; a board opened later reloads its columns on mount
+      // (with a real refresh). Read the active board here rather than closing
+      // over the prop so the effect can stay mounted for the session.
+      for (const column of getKanbanColumns(kanban$.activeBoardId.peek())) {
         const key = kanbanColumnKey(column)
         const columnQuery = query && (scope === 'all' || scope === key) ? query : ''
-        if (kanbanColumnMatchesMailEvent(column, account, detail?.folder, foldersByAccount)) {
+        if (kanbanColumnMatchesMailEvent(column, account, detail?.folder, folders)) {
           pending.set(key, { column, query: columnQuery })
         }
       }
@@ -164,7 +169,7 @@ export function useKanbanBoardSync(boardId: string, visibleColumns: KanbanColumn
       if (typeof offSynced === 'function') offSynced()
       if (typeof offNew === 'function') offNew()
     }
-  }, [foldersByAccount])
+  }, [])
 }
 
 // Thread/column drag-and-drop: the optimistic cross-column move plus the dnd-kit
