@@ -1326,12 +1326,15 @@ internal suspend fun MeronMobileState.loadUnifiedStarred(
     val page =
         parseStarredItemsPage(
             client.listStarredItems(
-                StarredItemsParams(query = query.trim(), limit = limit, beforeCursor = beforeCursor),
+                StarredItemsParams(
+                    query = query.trim(),
+                    filter = filter.protocolValue(),
+                    limit = limit,
+                    beforeCursor = beforeCursor,
+                ),
             ),
         )
-    // The starred command takes no filter — every row is starred by definition,
-    // so only Unread narrows anything, and it narrows the page in hand.
-    val rows = page.items.map { it.toThreadSummary() }.filter { filter != FilterMode.Unread || it.unread }
+    val rows = page.items.map { it.toThreadSummary() }
     return MailboxLoadResult(
         folders = emptyList(),
         folder = STARRED_FOLDER,

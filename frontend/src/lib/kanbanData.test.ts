@@ -499,7 +499,7 @@ describe('kanban column loading filters', () => {
     expect(calls).toEqual([
       {
         command: 'mail.starredItems',
-        payload: { query: 'quarterly', limit: 50, before_cursor: undefined },
+        payload: { query: 'quarterly', filter: 'all', limit: 50, before_cursor: undefined },
       },
     ])
     expect(kanban$.threads['unified\nstarred'].get().map((item) => item.id)).toEqual(['old', 'new'])

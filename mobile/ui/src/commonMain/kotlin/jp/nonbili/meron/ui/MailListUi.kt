@@ -340,6 +340,7 @@ internal fun MailList(
                 )
             } else {
                 val isRss = threadIdIsRss(thread.id)
+                val isRssItem = isRss && thread.threadId.isNotBlank() && thread.threadId != thread.id
                 val dismissState = rememberSwipeToDismissBoxState()
                 var dismissHandled by remember(thread.id) { mutableStateOf(false) }
                 LaunchedEffect(dismissState.currentValue) {
@@ -365,6 +366,7 @@ internal fun MailList(
                 SwipeToDismissBox(
                     state = dismissState,
                     enableDismissFromStartToEnd = !isRss,
+                    enableDismissFromEndToStart = !isRssItem,
                     backgroundContent = {
                         val direction = dismissState.dismissDirection
                         val deleting = direction == SwipeToDismissBoxValue.EndToStart

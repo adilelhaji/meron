@@ -395,7 +395,11 @@ internal fun MeronMobileState.reloadVisibleMailboxFor(
             eventFolder = eventFolder,
             selectedAccountId = selectedCoreAccountId,
             selectedFolder = selectedCoreFolder,
-            unifiedAccountIds = coreAccounts.filter { it.includedInUnified }.map { it.id }.toSet(),
+            unifiedAccountIds =
+                coreAccounts
+                    .filter { isUnifiedStarredFolder(selectedCoreFolder) || it.includedInUnified }
+                    .map { it.id }
+                    .toSet(),
             unifiedFoldersByAccount = foldersByAccount,
         )
     if (!affected) {
@@ -442,7 +446,7 @@ internal fun MeronMobileState.syncCoreThreads(
         } else {
             coreAccounts.filter { it.id == accountId }
         }
-    if (selectedAccounts.isEmpty()) {
+    if (selectedAccounts.isEmpty() && !unifiedStarred) {
         Log.w("MailLoad", "syncCoreThreads no selected accounts account=$accountId folder=$requestedFolder")
         status = if (accountId == UNIFIED_ACCOUNT_ID) "No accounts are included in Unified inbox." else "No account selected."
         initialThreadsLoaded = true
@@ -712,7 +716,12 @@ internal fun pageableMailAccounts(
     }
 }
 
-internal fun MeronMobileState.pageableCoreAccounts(): List<AccountSummary> = pageableMailAccounts(selectedCoreAccountId, coreAccounts, mailboxCursor)
+internal fun MeronMobileState.pageableCoreAccounts(): List<AccountSummary> =
+    if (selectedCoreAccountId == UNIFIED_ACCOUNT_ID && isUnifiedStarredFolder(selectedCoreFolder)) {
+        coreAccounts.filter { mailboxCursor.isNotBlank() }
+    } else {
+        pageableMailAccounts(selectedCoreAccountId, coreAccounts, mailboxCursor)
+    }
 
 // `quiet` suppresses the "Loaded N older message(s)" status for auto-fired
 // pagination — store reloads (e.g. after a background sync event) shrink the
@@ -986,7 +995,10 @@ internal fun MeronMobileState.hydrateQuickReplyFromTailDraft(
     }
 }
 
-private fun ThreadSummary.backendThreadId(): String = threadId.ifBlank { id }
+internal fun ThreadSummary.backendThreadId(): String = threadId.ifBlank { id }
+
+/** Item keys are present only when a starred RSS row represents one article. */
+internal fun ThreadSummary.rssItemKeys(): List<String> = listOf(id).takeIf { threadIdIsRss(backendThreadId()) && threadId.isNotBlank() && threadId != id }.orEmpty()
 
 // Re-read the currently open thread and replace its message list with the
 // canonical copy from the core. Used after sending a quick reply so the stored
@@ -1313,15 +1325,21 @@ private fun undoSourceThreadId(
 internal fun MeronMobileState.toggleStar(thread: ThreadSummary) {
     val backendThreadId = thread.backendThreadId()
     val isRssThread = threadIdIsRss(backendThreadId)
-    val messageIds = listOf(thread.id).takeIf { backendThreadId != thread.id }
+    val itemIds = listOf(thread.id).takeIf { backendThreadId != thread.id }.orEmpty()
     runCoreThreadAction(
         thread = thread,
         label = if (thread.starred) "Unstar" else "Star",
         action = {
             if (isRssThread) {
-                markRssStarred(RssMarkStarredParams(threadId = backendThreadId, starred = !thread.starred))
+                markRssStarred(
+                    RssMarkStarredParams(
+                        threadId = backendThreadId,
+                        starred = !thread.starred,
+                        itemKeys = thread.rssItemKeys(),
+                    ),
+                )
             } else {
-                markStarred(MarkStarredParams(threadId = backendThreadId, starred = !thread.starred, messageIds = messageIds.orEmpty()))
+                markStarred(MarkStarredParams(threadId = backendThreadId, starred = !thread.starred, messageIds = itemIds))
             }
         },
         update = { threads -> threads.map { if (it.id == thread.id) it.copy(starred = !thread.starred) else it } },
@@ -1329,15 +1347,17 @@ internal fun MeronMobileState.toggleStar(thread: ThreadSummary) {
 }
 
 internal fun MeronMobileState.toggleRead(thread: ThreadSummary) {
-    val isRssThread = threadIdIsRss(thread.id)
+    val backendThreadId = thread.backendThreadId()
+    val isRssThread = threadIdIsRss(backendThreadId)
+    val itemIds = listOf(thread.id).takeIf { backendThreadId != thread.id }.orEmpty()
     runCoreThreadAction(
         thread = thread,
         label = if (thread.unread) "Mark read" else "Mark unread",
         action = {
             if (isRssThread) {
-                markRssRead(RssMarkReadParams(threadId = thread.id, seen = thread.unread))
+                markRssRead(RssMarkReadParams(threadId = backendThreadId, seen = thread.unread, itemKeys = thread.rssItemKeys()))
             } else {
-                markRead(MarkReadParams(threadId = thread.id, seen = thread.unread))
+                markRead(MarkReadParams(threadId = backendThreadId, seen = thread.unread, messageIds = itemIds))
             }
         },
         update = { threads -> threads.map { if (it.id == thread.id) it.copy(unread = !thread.unread) else it } },
@@ -1558,7 +1578,7 @@ internal fun MeronMobileState.markVisibleMailboxAllRead() {
             val account = accountsById[selectedCoreAccountId]
             if (account != null && !accountSummaryIsRss(account)) listOf(selectedCoreAccountId to selectedCoreFolder) else emptyList()
         }
-    val rssTargets = unread.filter { threadIdIsRss(it.id) }
+    val rssTargets = unread.filter { threadIdIsRss(it.backendThreadId()) }
     if (mailTargets.isEmpty() && starredTargets.isEmpty() && rssTargets.isEmpty()) {
         status = "No unread messages."
         return
@@ -1594,8 +1614,16 @@ internal fun MeronMobileState.markVisibleMailboxAllRead() {
                             )
                     }
                 }
-                rssTargets.forEach { thread ->
-                    requireCoreOk(client.markRssRead(RssMarkReadParams(threadId = thread.id, seen = true)))
+                rssTargets.groupBy { it.backendThreadId() }.forEach { (threadId, rows) ->
+                    requireCoreOk(
+                        client.markRssRead(
+                            RssMarkReadParams(
+                                threadId = threadId,
+                                seen = true,
+                                itemKeys = rows.flatMap { it.rssItemKeys() }.distinct(),
+                            ),
+                        ),
+                    )
                 }
                 responses
             }
@@ -1633,7 +1661,7 @@ internal fun MeronMobileState.markKanbanColumnAllRead(column: KanbanColumnSpec) 
             val account = accountsById[column.accountId]
             if (account != null && !accountSummaryIsRss(account)) listOf(column.accountId to emptyList()) else emptyList()
         }
-    val rssTargets = unread.filter { threadIdIsRss(it.id) }
+    val rssTargets = unread.filter { threadIdIsRss(it.backendThreadId()) }
     if (mailTargets.isEmpty() && rssTargets.isEmpty()) {
         status = "No unread cards."
         return
@@ -1675,8 +1703,16 @@ internal fun MeronMobileState.markKanbanColumnAllRead(column: KanbanColumnSpec) 
                         }
                     }
                 }
-                rssTargets.forEach { thread ->
-                    requireCoreOk(client.markRssRead(RssMarkReadParams(threadId = thread.id, seen = true)))
+                rssTargets.groupBy { it.backendThreadId() }.forEach { (threadId, rows) ->
+                    requireCoreOk(
+                        client.markRssRead(
+                            RssMarkReadParams(
+                                threadId = threadId,
+                                seen = true,
+                                itemKeys = rows.flatMap { it.rssItemKeys() }.distinct(),
+                            ),
+                        ),
+                    )
                 }
                 responses
             }
@@ -1801,6 +1837,10 @@ internal fun MeronMobileState.deleteMailFolder(
 
 internal fun MeronMobileState.archiveOrRemove(thread: ThreadSummary) {
     if (threadIdIsRss(thread.id)) {
+        if (thread.rssItemKeys().isNotEmpty()) {
+            status = "RSS items cannot be removed."
+            return
+        }
         runCoreThreadAction(
             thread = thread,
             label = "Remove feed",
@@ -1830,6 +1870,10 @@ internal fun MeronMobileState.archiveOrRemove(thread: ThreadSummary) {
 }
 
 internal fun MeronMobileState.deleteThread(thread: ThreadSummary) {
+    if (threadIdIsRss(thread.backendThreadId())) {
+        status = if (thread.rssItemKeys().isNotEmpty()) "RSS items cannot be deleted." else "Use Remove feed for RSS feeds."
+        return
+    }
     val threadsSnapshot = coreThreads
     val kanbanSnapshot = kanbanColumns
     runCoreThreadAction(

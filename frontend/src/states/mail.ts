@@ -743,7 +743,11 @@ export async function loadThreads(refresh = true, searchStage: ThreadSearchStage
   // rows are ordinary thread cards, so only the fetch is special-cased.
   if (isUnifiedStarred(selectedAcc, selectedFol)) {
     try {
-      const res = await invoke<{ items: Message[]; next_cursor?: string }>('mail.starredItems', { query: q, limit: 50 })
+      const res = await invoke<{ items: Message[]; next_cursor?: string }>('mail.starredItems', {
+        query: q,
+        filter,
+        limit: 50,
+      })
       if (superseded()) return
       allThreads = res.items ?? []
       mail$.threadsCursor.set(res.next_cursor ?? '')
@@ -899,6 +903,7 @@ export async function loadMoreThreads() {
         // The cursor walks the *filtered* set, so later pages must repeat the
         // query or they'd page through items the first page never showed.
         query: q,
+        filter,
         limit: 50,
         before_cursor: cursor,
       })

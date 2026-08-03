@@ -2129,6 +2129,17 @@ fn mobile_protocol_lists_starred_items_from_store() {
     assert_eq!(items[1]["account_id"], "a1@example.com");
     assert_eq!(items[1]["subject"], "Older starred");
 
+    // Filtering happens before the limit is applied, so a newer read row cannot
+    // hide an older unread row on the first page.
+    let unread = invoke_mobile_protocol_json(
+        r#"{"id":75,"method":"mail.starredItems","params":{"filter":"unread","limit":1}}"#,
+        Some(data_dir.to_str().unwrap()),
+    );
+    let unread_items = unread["result"]["items"].as_array().unwrap();
+    assert_eq!(unread_items.len(), 1);
+    assert_eq!(unread_items[0]["subject"], "Older starred");
+    assert!(unread["result"].get("next_cursor").is_none());
+
     let _ = std::fs::remove_dir_all(data_dir);
 }
 

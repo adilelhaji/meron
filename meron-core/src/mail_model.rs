@@ -192,9 +192,13 @@ pub fn allocate_message_id(account_id: &str, draft: bool) -> String {
 pub fn starred_page(
     mut items: Vec<Value>,
     query: &str,
+    filter: &str,
     limit: usize,
     before_cursor: Option<&str>,
 ) -> Value {
+    if filter.eq_ignore_ascii_case("unread") {
+        items.retain(|item| item.get("unread").and_then(Value::as_bool).unwrap_or(false));
+    }
     let query = query.trim().to_lowercase();
     if !query.is_empty() {
         items.retain(|item| {
@@ -460,12 +464,27 @@ mod tests {
             json!({"id":"two","date":200,"subject":"Design review"}),
             json!({"id":"one","date":100,"subject":"Design notes"}),
         ];
-        let first = starred_page(items.clone(), "design", 1, None);
+        let first = starred_page(items.clone(), "design", "all", 1, None);
         assert_eq!(first["items"][0]["id"], "two");
         let cursor = first["next_cursor"].as_str().unwrap();
         assert!(cursor.starts_with("starred:"));
-        let second = starred_page(items, "design", 1, Some(cursor));
+        let second = starred_page(items, "design", "all", 1, Some(cursor));
         assert_eq!(second["items"][0]["id"], "one");
+        assert!(second.get("next_cursor").is_none());
+    }
+
+    #[test]
+    fn starred_page_filters_unread_before_paging() {
+        let items = vec![
+            json!({"id":"read","date":300,"unread":false}),
+            json!({"id":"unread-two","date":200,"unread":true}),
+            json!({"id":"unread-one","date":100,"unread":true}),
+        ];
+        let first = starred_page(items.clone(), "", "unread", 1, None);
+        assert_eq!(first["items"][0]["id"], "unread-two");
+        let cursor = first["next_cursor"].as_str().unwrap();
+        let second = starred_page(items, "", "unread", 1, Some(cursor));
+        assert_eq!(second["items"][0]["id"], "unread-one");
         assert!(second.get("next_cursor").is_none());
     }
 

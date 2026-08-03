@@ -473,12 +473,14 @@ data class ThreadListParams(
 
 data class StarredItemsParams(
     val query: String = "",
+    val filter: String = "all",
     val limit: Int = 50,
     val beforeCursor: String? = null,
 ) {
     fun toJson(): String =
         jsonObject(
             "query" to query.jsonString(),
+            "filter" to filter.jsonString(),
             "limit" to limit.toString(),
             "before_cursor" to beforeCursor?.jsonString(),
         )

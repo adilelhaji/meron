@@ -885,6 +885,10 @@ pub(crate) fn list_mobile_starred_items(data_dir: &str, params: &Value) -> Resul
                 .get("query")
                 .and_then(Value::as_str)
                 .unwrap_or_default(),
+            params
+                .get("filter")
+                .and_then(Value::as_str)
+                .unwrap_or("all"),
             limit as usize,
             params.get("before_cursor").and_then(Value::as_str),
         ))

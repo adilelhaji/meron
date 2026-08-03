@@ -1377,6 +1377,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(mail_model::starred_page(
                 items,
                 &req_str(p, "query").unwrap_or_default(),
+                &req_str(p, "filter").unwrap_or_else(|_| "all".to_string()),
                 limit as usize,
                 p.get("before_cursor").and_then(Value::as_str),
             ))

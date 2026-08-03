@@ -328,6 +328,7 @@ async function fetchColumnThreads(
   if (isUnifiedStarredColumn(column)) {
     const result = await invoke<{ items: Message[]; next_cursor?: string }>('mail.starredItems', {
       query: trimmedQuery,
+      filter,
       limit: COLUMN_LIMIT,
       before_cursor: before?.single,
     })

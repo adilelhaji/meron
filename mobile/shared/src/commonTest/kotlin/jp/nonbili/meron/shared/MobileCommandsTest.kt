@@ -13,11 +13,11 @@ class MobileCommandsTest {
         val core = FakeMeronCore("{}")
         val client = MobileMailCommandClient(core)
         runSuspend {
-            client.listStarredItems(StarredItemsParams(query = "design", limit = 25, beforeCursor = "starred:opaque"))
+            client.listStarredItems(StarredItemsParams(query = "design", filter = "unread", limit = 25, beforeCursor = "starred:opaque"))
         }
         assertEquals(MobileCommand.StarredItems, core.lastCommand)
         assertEquals(
-            """{"query":"design","limit":25,"before_cursor":"starred:opaque"}""",
+            """{"query":"design","filter":"unread","limit":25,"before_cursor":"starred:opaque"}""",
             core.lastPayloadJson,
         )
 
@@ -535,7 +535,7 @@ class MobileCommandsTest {
 
         runSuspend { client.listStarredItems() }
         assertEquals(MobileCommand.StarredItems, core.lastCommand)
-        assertEquals("""{"query":"","limit":50}""", core.lastPayloadJson)
+        assertEquals("""{"query":"","filter":"all","limit":50}""", core.lastPayloadJson)
 
         runSuspend { client.readThread(ThreadReadParams(threadId = "thread1")) }
         assertEquals(MobileCommand.ThreadRead, core.lastCommand)
