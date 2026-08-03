@@ -1,0 +1,3 @@
+- Support switching folders directly from the mail list header
+- Support folder switching for unified Kanban board columns
+- Fix item actions and pagination for Starred items
