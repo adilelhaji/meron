@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Archive
@@ -475,13 +474,13 @@ internal fun MailRouteContent(
     mailSelectionActive: Boolean,
     selectedMailThreads: List<ThreadSummary>,
     importOpml: (PickedFile?) -> Unit,
-    mailListStates: MutableMap<MailboxCacheKey, LazyListState>,
+    mailListStates: MutableMap<MailboxCacheKey, MailListPosition>,
 ) {
     with(state) {
         val mailListKey =
             visibleMailboxKey
                 ?: mailboxCacheKey(selectedCoreAccountId, selectedCoreFolder, mailSearch, mailFilter)
-        val mailListState =
+        val mailListPosition =
             remember(mailListKey) {
                 // Keyed by search text and filter as well as the mailbox, so every
                 // query the user submits leaves a state behind. Evict the
@@ -492,7 +491,7 @@ internal fun MailRouteContent(
                     requestedKey = mailListKey,
                     maxSize = MAX_REMEMBERED_MAIL_LIST_STATES,
                 ).forEach(mailListStates::remove)
-                mailListStates.getOrPut(mailListKey) { LazyListState() }
+                mailListStates.getOrPut(mailListKey) { MailListPosition() }
             }
         ModalNavigationDrawer(
             drawerState = drawerState,
@@ -1209,7 +1208,7 @@ internal fun MailRouteContent(
                                 MailList(
                                     threads = coreThreads,
                                     accounts = coreAccounts,
-                                    listState = mailListState,
+                                    position = mailListPosition,
                                     scrollToTopRequest = mailListScrollToTopRequest,
                                     canLoadMore = pageableCoreAccounts().isNotEmpty(),
                                     loadingMore = loadingMoreThreads,

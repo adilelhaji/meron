@@ -116,6 +116,19 @@ if (skipBinaryUpload && submitForReview) {
   console.log(`Uploading ${pkgPath} to App Store Connect for ${appIdentifier}...`)
 }
 
+// deliver applies reject_if_possible only after it has tried to create the new
+// App Store version, which App Store Connect refuses while an older version is
+// still in review. So cancel first, in its own lane. Note this returns the
+// pending version to "Prepare for Submission" and the upload below renames it,
+// so the version still in review never ships on its own.
+if (rejectIfPossible) {
+  console.log('Cancelling any in-progress review submission first...')
+  await run(['bundle', 'exec', 'fastlane', 'mac', 'cancel_review'], {
+    cwd: mobileDir,
+    env: { MAC_APP_IDENTIFIER: appIdentifier },
+  })
+}
+
 await run(['bundle', 'exec', 'fastlane', 'mac', 'upload_pkg'], {
   cwd: mobileDir,
   env: {

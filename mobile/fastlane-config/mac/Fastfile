@@ -24,6 +24,31 @@ platform :mac do
     )
   end
 
+  desc "Cancel the in-progress Mac review submission, if there is one"
+  lane :cancel_review do |options|
+    # deliver's own reject_if_possible runs *after* it has already tried to
+    # create the new App Store version, which fails while an older version is
+    # still in review ("You cannot create a new version of the App in the
+    # current state"). Skipping the version update lets the rejection happen
+    # first; a separate upload_pkg run then gets an editable version to write
+    # to. A no-op when nothing is in review.
+    upload_to_app_store(
+      api_key: asc_api_key,
+      platform: "osx",
+      app_identifier: options[:app_identifier] || ENV["MAC_APP_IDENTIFIER"] || "jp.nonbili.meron",
+      metadata_path: File.expand_path("../../fastlane/metadata/mac", __dir__),
+      screenshots_path: File.expand_path("../../fastlane/metadata/mac", __dir__),
+      skip_app_version_update: true,
+      skip_metadata: true,
+      skip_screenshots: true,
+      skip_binary_upload: true,
+      ignore_language_directory_validation: true,
+      run_precheck_before_submit: false,
+      reject_if_possible: true,
+      submit_for_review: false
+    )
+  end
+
   desc "Upload a Mac App Store .pkg to App Store Connect"
   lane :upload_pkg do |options|
     api_key = asc_api_key

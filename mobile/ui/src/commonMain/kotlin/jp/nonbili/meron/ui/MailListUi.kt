@@ -259,12 +259,60 @@ internal fun threadListNearBottom(
     return lastVisibleIndex >= threadCount - THREAD_LIST_PAGINATION_MARGIN
 }
 
+/**
+ * A mailbox's retained thread-list position: the scroll state, and the id of the
+ * row that was at the top of the list the last time it was on screen.
+ *
+ * The id has to outlive composition alongside the scroll state. The mail route
+ * is disposed while a conversation is open, so an id remembered inside the list
+ * would come back initialized to whatever arrived meanwhile and read as "no new
+ * mail", while the retained scroll state re-anchors the arrivals off screen.
+ */
+internal class MailListPosition(
+    val listState: LazyListState = LazyListState(),
+) {
+    var lastFirstThreadId: String? = null
+}
+
+/**
+ * Whether a list that just grew at the top should follow the arrivals up.
+ *
+ * New mail is prepended, and the keyed [LazyColumn] pins the viewport to the row
+ * that was showing — so a list sitting at the top has the new rows pushed off
+ * screen above it, with nothing to say they arrived. Only a list that was at the
+ * top follows: anyone who has scrolled keeps their place.
+ *
+ * [previousFirstIndex] is where the old first row sits in the new list, so `> 0`
+ * is the test for a prepend. A row that vanished (-1) or stayed put (0) means
+ * the list was swapped wholesale (folder change, search) or did not grow at the
+ * top, and neither is new mail.
+ *
+ * "Was at the top" is read from the last laid-out frame rather than the scroll
+ * position, because this runs either side of the measure that re-anchors the
+ * keyed list and the two regimes report different indices for the same viewport.
+ * The layout is unambiguous in both: the old first row sits flush with the top
+ * only for a list that was at the top. [firstVisibleKey] is null before anything
+ * has been laid out, and then the untouched scroll position is the same answer.
+ */
+internal fun threadListShouldFollowNewThreads(
+    previousFirstId: String,
+    previousFirstIndex: Int,
+    firstVisibleKey: Any?,
+    firstVisibleOffset: Int,
+    savedFirstVisibleIndex: Int,
+    savedFirstVisibleScrollOffset: Int,
+): Boolean {
+    if (previousFirstIndex <= 0) return false
+    if (firstVisibleKey != null) return firstVisibleKey == previousFirstId && firstVisibleOffset == 0
+    return savedFirstVisibleIndex == 0 && savedFirstVisibleScrollOffset == 0
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MailList(
     threads: List<ThreadSummary>,
     accounts: List<AccountSummary>,
-    listState: LazyListState,
+    position: MailListPosition,
     scrollToTopRequest: Long,
     canLoadMore: Boolean,
     loadingMore: Boolean,
@@ -282,8 +330,31 @@ internal fun MailList(
     showSenderImages: Boolean,
     showAccountBadge: Boolean,
 ) {
+    val listState = position.listState
     LaunchedEffect(scrollToTopRequest) {
         if (scrollToTopRequest > 0) listState.scrollToItem(0)
+    }
+    // Ride mail arriving at the top of a list the user is already sitting at the
+    // top of. Every refresh other than pull-to-refresh leaves the scroll
+    // position alone, so without this the new rows land above the viewport.
+    val firstThreadId = threads.firstOrNull()?.id
+    LaunchedEffect(position, firstThreadId) {
+        val previousId = position.lastFirstThreadId
+        position.lastFirstThreadId = firstThreadId
+        if (previousId == null || previousId == firstThreadId) return@LaunchedEffect
+        val firstVisible = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+        if (
+            threadListShouldFollowNewThreads(
+                previousFirstId = previousId,
+                previousFirstIndex = threads.indexOfFirst { it.id == previousId },
+                firstVisibleKey = firstVisible?.key,
+                firstVisibleOffset = firstVisible?.offset ?: 0,
+                savedFirstVisibleIndex = listState.firstVisibleItemIndex,
+                savedFirstVisibleScrollOffset = listState.firstVisibleItemScrollOffset,
+            )
+        ) {
+            listState.scrollToItem(0)
+        }
     }
     var pendingFeedRemoval by remember { mutableStateOf<ThreadSummary?>(null) }
     val accountsById = remember(accounts) { accounts.associateBy { it.id } }

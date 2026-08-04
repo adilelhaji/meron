@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -750,7 +749,7 @@ private fun MeronMobileScreenContent(
         // MailRouteContent leaves composition while a conversation is open.
         // Keep its per-mailbox list states above the NavHost so returning to
         // the thread list restores the position that was visible on open.
-        val mailListStates = remember { mutableMapOf<MailboxCacheKey, LazyListState>() }
+        val mailListStates = remember { mutableMapOf<MailboxCacheKey, MailListPosition>() }
 
         NavHost(navController = navController, startDestination = startRoute) {
             composable(AppRoutes.Thread) {
