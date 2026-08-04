@@ -63,6 +63,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.4" date="2026-08-04">
+      <description>
+        <ul>
+          <li>Keep new mail automatically updating Kanban columns</li>
+          <li>Expand thread list search to full header while focused</li>
+          <li>Prevent automatically opening conversations when switching thread list views</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-08-03">
       <description>
         <ul>

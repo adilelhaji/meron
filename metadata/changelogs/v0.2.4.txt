@@ -1,0 +1,3 @@
+- Keep new mail automatically updating Kanban columns
+- Expand thread list search to full header while focused
+- Prevent automatically opening conversations when switching thread list views
