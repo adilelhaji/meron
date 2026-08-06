@@ -1,0 +1,2 @@
+- Extract embedded core sidecar with executable extension on Windows
+- Fix text clipping in menu item labels
