@@ -73,6 +73,74 @@ fn entry(account: &str) -> Result<Entry> {
     Entry::new(SERVICE, account).with_context(|| format!("open keychain entry for {account}"))
 }
 
+// ---- Windows blob chunking --------------------------------------------------
+//
+// Credential Manager caps one credential blob at CRED_MAX_CREDENTIAL_BLOB_SIZE
+// (2560 bytes, i.e. 1280 UTF-16 units). A Microsoft OAuth pair alone is bigger
+// than that — Google's fits, which is why only Outlook/Hotmail accounts failed
+// to connect. Oversized blobs are therefore split across numbered companion
+// entries, with the main entry holding a marker naming the chunk count. Blobs
+// that fit are still written verbatim, so existing entries keep loading.
+//
+// An update writes its chunks under the *other* generation and only then swings
+// the marker, so the generation the marker points at is never edited in place: a
+// write that fails partway leaves the previous secrets intact and readable.
+
+/// Chunk payload size, in UTF-16 units, kept under the 1280-unit platform cap.
+const CHUNK_UTF16: usize = 1200;
+
+/// Hard cap on chunks per generation — ~38K of secrets, far past the few
+/// kilobytes an OAuth pair needs. Cleanup sweeps this whole range instead of
+/// stopping at the first missing index, so a delete that failed earlier cannot
+/// hide the chunks after it from every later sweep.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const MAX_CHUNKS: usize = 32;
+
+/// Prefix of the marker written to the main entry, followed by `<generation>:<count>`.
+/// Real blobs are JSON objects, so they never start with this.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+const CHUNKED_MARKER: &str = "meron-chunked:";
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn chunk_account(account: &str, generation: u8, index: usize) -> String {
+    format!("{account}--meron-g{generation}c{index}")
+}
+
+/// Read a main entry as a chunk marker: `Some((generation, count))`, or `None`
+/// for a plain unchunked blob.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn parse_marker(head: &str) -> Option<(u8, usize)> {
+    let (generation, count) = head.strip_prefix(CHUNKED_MARKER)?.split_once(':')?;
+    Some((generation.parse().ok()?, count.parse().ok()?))
+}
+
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn fits_in_credential(blob: &str) -> bool {
+    blob.encode_utf16().count() <= CHUNK_UTF16
+}
+
+/// Split a blob into pieces that each fit one credential, cutting only on char
+/// boundaries so no surrogate pair or multi-byte char is torn in half.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn split_blob(blob: &str) -> Vec<&str> {
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut units = 0;
+    for (offset, ch) in blob.char_indices() {
+        let width = ch.len_utf16();
+        if units + width > CHUNK_UTF16 {
+            chunks.push(&blob[start..offset]);
+            start = offset;
+            units = 0;
+        }
+        units += width;
+    }
+    if start < blob.len() {
+        chunks.push(&blob[start..]);
+    }
+    chunks
+}
+
 #[cfg(target_os = "linux")]
 fn keyring_forced_to(mode: &str) -> bool {
     std::env::var_os("MERON_KEYRING").is_some_and(|v| v == mode)
@@ -155,11 +223,76 @@ fn backend_store(account: &str, blob: &str) -> Result<()> {
     )
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn backend_store(account: &str, blob: &str) -> Result<()> {
+    write_entry(account, blob)
+}
+
+#[cfg(target_os = "windows")]
+fn backend_store(account: &str, blob: &str) -> Result<()> {
+    let live = read_entry(account)?.as_deref().and_then(parse_marker);
+    if fits_in_credential(blob) {
+        write_entry(account, blob)?;
+        // Best-effort cleanup: the secrets are safely stored either way, and a
+        // failure here only leaves an unreferenced entry behind.
+        let _ = sweep_chunks(account);
+        return Ok(());
+    }
+    // Never touch the generation the current marker points at, so the stored
+    // secrets stay loadable until the marker itself is replaced.
+    let generation = live.map_or(0, |(live, _)| live ^ 1);
+    let chunks = split_blob(blob);
+    anyhow::ensure!(
+        chunks.len() <= MAX_CHUNKS,
+        "secrets for {account} need {} keychain chunks, over the {MAX_CHUNKS} limit",
+        chunks.len()
+    );
+    for (index, chunk) in chunks.iter().enumerate() {
+        write_entry(&chunk_account(account, generation, index), chunk)?;
+    }
+    write_entry(
+        account,
+        &format!("{CHUNKED_MARKER}{generation}:{}", chunks.len()),
+    )?;
+    // Best-effort cleanup: the secrets are safely stored either way, and a
+    // failure here only leaves an unreferenced entry behind.
+    let _ = delete_chunks(account, generation ^ 1, 0..MAX_CHUNKS);
+    let _ = delete_chunks(account, generation, chunks.len()..MAX_CHUNKS);
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn write_entry(account: &str, blob: &str) -> Result<()> {
     entry(account)?
         .set_password(blob)
         .with_context(|| format!("write keychain entry for {account}"))
+}
+
+/// Delete a generation's chunk entries over `range` — a stale generation, or the
+/// tail left behind when a value shrinks. Missing entries are fine; a real
+/// failure does not stop the sweep, so one undeletable entry can never hide the
+/// ones after it, and the first such error is returned once the range is done.
+#[cfg(target_os = "windows")]
+fn delete_chunks(account: &str, generation: u8, range: std::ops::Range<usize>) -> Result<()> {
+    let mut failure = None;
+    for index in range {
+        let name = chunk_account(account, generation, index);
+        let deleted = entry(&name).and_then(|e| match e.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(e).with_context(|| format!("delete keychain entry for {name}")),
+        });
+        if let Err(e) = deleted {
+            failure.get_or_insert(e);
+        }
+    }
+    failure.map_or(Ok(()), Err)
+}
+
+/// Drop every chunk entry for an account, in either generation.
+#[cfg(target_os = "windows")]
+fn sweep_chunks(account: &str) -> Result<()> {
+    let zero = delete_chunks(account, 0, 0..MAX_CHUNKS);
+    zero.and(delete_chunks(account, 1, 0..MAX_CHUNKS))
 }
 
 #[cfg(target_os = "linux")]
@@ -182,8 +315,31 @@ fn backend_load(account: &str) -> Result<Option<String>> {
     )
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
 fn backend_load(account: &str) -> Result<Option<String>> {
+    read_entry(account)
+}
+
+#[cfg(target_os = "windows")]
+fn backend_load(account: &str) -> Result<Option<String>> {
+    let Some(head) = read_entry(account)? else {
+        return Ok(None);
+    };
+    let Some((generation, count)) = parse_marker(&head) else {
+        return Ok(Some(head));
+    };
+    let mut blob = String::new();
+    for index in 0..count {
+        let name = chunk_account(account, generation, index);
+        let chunk = read_entry(&name)?
+            .with_context(|| format!("missing keychain chunk {index} for {account}"))?;
+        blob.push_str(&chunk);
+    }
+    Ok(Some(blob))
+}
+
+#[cfg(not(target_os = "linux"))]
+fn read_entry(account: &str) -> Result<Option<String>> {
     match entry(account)?.get_password() {
         Ok(blob) => Ok(Some(blob)),
         Err(keyring::Error::NoEntry) => Ok(None),
@@ -210,8 +366,21 @@ fn backend_delete(account: &str) -> Result<()> {
     )
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
 fn backend_delete(account: &str) -> Result<()> {
+    // Chunks first: while the marker survives, a failed sweep leaves an account
+    // that still loads rather than one pointing at half-deleted secrets.
+    sweep_chunks(account)?;
+    delete_entry(account)
+}
+
+#[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
+fn backend_delete(account: &str) -> Result<()> {
+    delete_entry(account)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn delete_entry(account: &str) -> Result<()> {
     match entry(account)?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e).with_context(|| format!("delete keychain entry for {account}")),
@@ -340,6 +509,61 @@ pub fn delete(account: &str) -> Result<()> {
         return Ok(());
     }
     backend_delete(account)
+}
+
+#[cfg(test)]
+mod chunk_tests {
+    use super::{
+        CHUNK_UTF16, MAX_CHUNKS, chunk_account, fits_in_credential, parse_marker, split_blob,
+    };
+
+    #[test]
+    fn markers_round_trip_and_plain_blobs_are_not_markers() {
+        assert_eq!(parse_marker("meron-chunked:1:4"), Some((1, 4)));
+        assert_eq!(parse_marker(r#"{"password":"hunter2"}"#), None);
+        assert_eq!(parse_marker("meron-chunked:4"), None);
+    }
+
+    #[test]
+    fn generations_use_distinct_entries() {
+        assert_ne!(
+            chunk_account("a@b.com", 0, 0),
+            chunk_account("a@b.com", 1, 0)
+        );
+    }
+
+    #[test]
+    fn short_blobs_are_not_chunked() {
+        let blob = r#"{"password":"hunter2"}"#;
+        assert!(fits_in_credential(blob));
+    }
+
+    #[test]
+    fn chunks_fit_and_rejoin() {
+        // Roughly the size of a Microsoft access + refresh token pair.
+        let blob = format!(r#"{{"access_token":"{}"}}"#, "a".repeat(4000));
+        assert!(!fits_in_credential(&blob));
+        let chunks = split_blob(&blob);
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|c| fits_in_credential(c)));
+        assert_eq!(chunks.concat(), blob);
+    }
+
+    #[test]
+    fn chunk_limit_has_room_for_realistic_secrets() {
+        // Far larger than any password plus OAuth pair we store.
+        let blob = "a".repeat(20_000);
+        assert!(split_blob(&blob).len() <= MAX_CHUNKS);
+    }
+
+    #[test]
+    fn multi_byte_chars_are_not_split() {
+        // Emoji are two UTF-16 units each, so an odd boundary would tear one.
+        let blob = "😀".repeat(CHUNK_UTF16);
+        let chunks = split_blob(&blob);
+        assert!(chunks.iter().all(|c| fits_in_credential(c)));
+        assert_eq!(chunks.concat(), blob);
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]

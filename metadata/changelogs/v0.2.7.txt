@@ -1,0 +1,1 @@
+- Fix Microsoft OAuth account connection on Windows by chunking oversized credentials
