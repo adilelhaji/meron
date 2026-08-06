@@ -228,14 +228,20 @@ var (
 	mailServerResolved string
 )
 
+// sidecarExeSuffix is the extension an executable needs to be spawnable. On
+// Windows a file without it is not executable at all: CreateProcess (and Go's
+// exec, which applies PATHEXT even to an absolute path) refuses it with
+// "executable file not found in %PATH%".
+var sidecarExeSuffix = func() string {
+	if runtime.GOOS == "windows" {
+		return ".exe"
+	}
+	return ""
+}()
+
 // sidecarBinaryName is what the sidecar is called when it ships beside the
 // executable rather than embedded.
-var sidecarBinaryName = func() string {
-	if runtime.GOOS == "windows" {
-		return "meron-core.exe"
-	}
-	return "meron-core"
-}()
+var sidecarBinaryName = "meron-core" + sidecarExeSuffix
 
 func resolveMailServerPath() string {
 	if value := os.Getenv("MERON_CORE_SERVER"); value != "" {
@@ -251,7 +257,7 @@ func resolveMailServerPath() string {
 			fmt.Fprintf(os.Stderr, "meron: failed to extract embedded sidecar: %v\n", err)
 		}
 	}
-	return "meron-core/target/debug/meron-core"
+	return filepath.Join("meron-core", "target", "debug", sidecarBinaryName)
 }
 
 // bundledSidecarPath returns the sidecar shipped next to the running executable,
@@ -288,7 +294,7 @@ func bundledSidecarPathIn(dir string) string {
 // atomic (temp file + rename) to survive concurrent or interrupted launches.
 func extractEmbeddedSidecar() (string, error) {
 	sum := sha256.Sum256(embeddedSidecar)
-	name := "meron-core-" + hex.EncodeToString(sum[:8])
+	name := "meron-core-" + hex.EncodeToString(sum[:8]) + sidecarExeSuffix
 	dir := filepath.Join(appCacheDir(), "bin")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
