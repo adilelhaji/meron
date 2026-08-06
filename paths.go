@@ -204,14 +204,14 @@ func openAppLog() (*log.Logger, *os.File) {
 	if err != nil {
 		return log.New(os.Stderr, "meron: ", log.LstdFlags|log.Lmicroseconds), nil
 	}
-	return log.New(io.MultiWriter(os.Stderr, file), "meron: ", log.LstdFlags|log.Lmicroseconds), file
+	return log.New(logSinks{os.Stderr, file}, "meron: ", log.LstdFlags|log.Lmicroseconds), file
 }
 
 func (a *App) logWriter() io.Writer {
 	if a.logFile == nil {
 		return os.Stderr
 	}
-	return io.MultiWriter(os.Stderr, a.logFile)
+	return logSinks{os.Stderr, a.logFile}
 }
 
 func (a *App) logf(format string, args ...any) {

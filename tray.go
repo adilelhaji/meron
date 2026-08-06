@@ -13,7 +13,7 @@ func (a *App) startTrayPhysical() {
 		return
 	}
 
-	start, stop := systray.RunWithExternalLoop(a.trayReady, func() {
+	start, stop := trayLoop(a.trayReady, func() {
 		a.logf("tray stopped")
 	})
 	a.trayStop = stop
@@ -68,7 +68,13 @@ func (a *App) showMainWindow() {
 		return
 	}
 	wailsRuntime.WindowShow(ctx)
-	wailsRuntime.WindowUnminimise(ctx)
+	// WindowShow already lifts a minimised window, and unminimising on top of
+	// that is not a no-op: it is SW_RESTORE, which drops a maximised window back
+	// to its restored size. Restoring a window hidden while maximised should
+	// bring it back maximised, so only unminimise when it really is minimised.
+	if wailsRuntime.WindowIsMinimised(ctx) {
+		wailsRuntime.WindowUnminimise(ctx)
+	}
 }
 
 func (a *App) hideMainWindow() {

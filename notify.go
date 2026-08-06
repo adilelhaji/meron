@@ -105,8 +105,7 @@ func (a *App) openThreadFromNotification(account, threadID string) {
 		return
 	}
 	a.logf("notification clicked: account=%s, threadID=%s", account, threadID)
-	wailsRuntime.WindowShow(a.ctx)
-	wailsRuntime.WindowUnminimise(a.ctx)
+	a.showMainWindow()
 	wailsRuntime.EventsEmit(a.ctx, "notification-clicked", map[string]string{
 		"account":   account,
 		"threadId":  threadID,

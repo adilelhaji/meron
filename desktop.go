@@ -115,8 +115,7 @@ func (a *App) openMailtoURL(raw string) {
 		a.queueStartupMailtoURLs([]string{raw})
 		return
 	}
-	wailsRuntime.WindowShow(a.ctx)
-	wailsRuntime.WindowUnminimise(a.ctx)
+	a.showMainWindow()
 	wailsRuntime.EventsEmit(a.ctx, "mailto.open", raw)
 }
 

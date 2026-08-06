@@ -59,6 +59,7 @@ func (s *Sidecar) Start(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(runCtx, s.path)
 	cmd.Env = sidecarEnv()
+	hideSidecarConsole(cmd)
 	cmd.Stderr = s.stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

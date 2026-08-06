@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -14,6 +15,23 @@ import (
 // maxLogViewLines caps how much of meron.log the in-app viewer and the export
 // include; the newest lines matter for troubleshooting.
 const maxLogViewLines = 1000
+
+// logSinks fans a log line out to every sink, ignoring the ones that fail.
+// io.MultiWriter is the wrong tool here: it stops at the first writer that
+// errors, so on a Windows GUI build — where the process has no console and
+// os.Stderr is an invalid handle whose every Write fails — pairing stderr with
+// the log file left meron.log empty, exactly when a user needs it most.
+type logSinks []io.Writer
+
+func (sinks logSinks) Write(p []byte) (int, error) {
+	for _, sink := range sinks {
+		if sink == nil {
+			continue
+		}
+		_, _ = sink.Write(p)
+	}
+	return len(p), nil
+}
 
 var logEmailRegexp = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
 
