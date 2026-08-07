@@ -1,0 +1,4 @@
+- Show per-message new-mail notifications with direct thread navigation
+- Add inline Archive and Mark as Read actions to new-mail notifications
+- Preview themes and swatches in the theme picker and settings
+- Automatically scroll new incoming mail into view when at top of the list
