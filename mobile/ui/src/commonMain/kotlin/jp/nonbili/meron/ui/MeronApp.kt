@@ -378,6 +378,20 @@ private fun MeronMobileScreenContent(
                                 }
                             }
 
+                            // A mailbox changed outside the UI — a notification's
+                            // Archive or Mark as read. The mail is already gone
+                            // from the server, so the open list is stale in
+                            // exactly the way a sync would have corrected.
+                            "mail.mailboxChanged" -> {
+                                val eventAccount = event.detailJson.jsonStringValue("account")
+                                val eventFolder = event.detailJson.jsonStringValue("folder")
+                                scope.launch {
+                                    reloadVisibleMailboxFor(eventAccount, eventFolder)
+                                    refreshKanbanColumnsForMailEvent(eventAccount, eventFolder)
+                                    refreshOpenThreadFor(eventAccount)
+                                }
+                            }
+
                             // The deferred sync tail (body prefetch, Sent/Drafts
                             // headers) never changes the open folder's thread
                             // list, so only the open thread needs a refresh —

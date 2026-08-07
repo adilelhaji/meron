@@ -208,6 +208,7 @@ import jp.nonbili.meron.shared.isPotentialOAuthCallbackUrl
 import jp.nonbili.meron.shared.messageEditAsNewDraft
 import jp.nonbili.meron.shared.messageForwardDraft
 import jp.nonbili.meron.shared.newDraftMessageId
+import jp.nonbili.meron.shared.notificationThreadId
 import jp.nonbili.meron.shared.ownAddressList
 import jp.nonbili.meron.shared.parseAccountListResponse
 import jp.nonbili.meron.shared.parseAttachmentDataResponse
@@ -239,8 +240,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.io.encoding.Base64
-import kotlin.io.encoding.ExperimentalEncodingApi
 import kotlin.math.abs
 
 // Header pages fetched from the server per folder sync. A mailbox with no local
@@ -1094,7 +1093,7 @@ internal fun MeronMobileState.openNotificationThread(target: NotificationThreadT
                 val account =
                     accounts.firstOrNull { it.id == target.accountId }
                         ?: error("Account not found: ${target.accountId}")
-                val expectedThreadId = notificationThreadId(target)
+                val expectedThreadId = notificationThreadId(target.accountId, target.folder, target.threadKey)
                 var result =
                     loadAccountInbox(
                         client = client,
@@ -1194,16 +1193,6 @@ private fun MeronMobileState.openNotificationMailbox(target: NotificationThreadT
             status = "Could not open notification: ${it.message}"
         }
     }
-}
-
-@OptIn(ExperimentalEncodingApi::class)
-private fun notificationThreadId(target: NotificationThreadTarget): String {
-    val folder = if (target.folder.equals(INBOX_FOLDER, ignoreCase = true)) "INBOX" else target.folder
-    target.threadKey.removePrefix("uid:").takeIf { target.threadKey.startsWith("uid:") }?.let { uid ->
-        return "${target.accountId}#$folder#$uid"
-    }
-    val encoded = Base64.UrlSafe.encode(target.threadKey.encodeToByteArray()).trimEnd('=')
-    return "${target.accountId}#$folder#t.$encoded"
 }
 
 internal fun MeronMobileState.loadMoreThreadMessages() {

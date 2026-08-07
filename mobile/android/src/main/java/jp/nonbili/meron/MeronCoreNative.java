@@ -105,6 +105,24 @@ final class MeronCoreNative {
 
     @SuppressWarnings("unused")
     private static void dispatchCoreEventFromNative(String eventJson) {
+        dispatchEvent(eventJson);
+    }
+
+    /**
+     * Delivers an event that this process raised itself, to the same listeners a
+     * core-raised event reaches.
+     *
+     * <p>Mutations made outside the UI — a notification's Archive button, say —
+     * are invisible to a running app otherwise: core emits nothing for a thread
+     * move, so the open thread list would keep showing mail that is no longer
+     * there. Listeners cannot tell this apart from a core event, which is the
+     * point: they already know how to refresh.
+     */
+    static void dispatchLocalEvent(String eventJson) {
+        dispatchEvent(eventJson);
+    }
+
+    private static void dispatchEvent(String eventJson) {
         for (CoreEventListener listener : EVENT_LISTENERS) {
             listener.onCoreEventJson(eventJson);
         }

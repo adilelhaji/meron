@@ -25,6 +25,12 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- Archive / Mark as read / Undo on a new-mail notification. Not
+             exported: only this app's own notifications trigger it. -->
+        <receiver
+            android:name=".AndroidNotificationActionReceiver"
+            android:exported="false" />
+
         <!-- specialUse instead of dataSync: Android 15 caps dataSync services
              at ~6h/day, but live mail push must hold IMAP IDLE connections
              open indefinitely while the user has it enabled. -->
