@@ -330,6 +330,38 @@ private val Ember =
 
 val LocalChatColors = staticCompositionLocalOf { chatColors(IndigoLight) }
 
+/** The handful of colors a theme swatch paints, mirroring desktop's ThemeSwatch. */
+internal data class ThemePreviewColors(
+    val dark: Boolean,
+    val bgApp: Color,
+    val bgSideNav: Color,
+    val bgChats: Color,
+    val border: Color,
+    val textPrimary: Color,
+    val bubbleIn: Color,
+    val bubbleOut: Color,
+    val accent: Color,
+)
+
+/** Swatch colors for [mode], so a theme can be previewed without being applied. */
+internal fun themePreviewColors(
+    mode: AppAppearanceMode,
+    systemDark: Boolean = false,
+): ThemePreviewColors =
+    mobileThemeSpec(mode, systemDark).let { spec ->
+        ThemePreviewColors(
+            dark = spec.dark,
+            bgApp = spec.bgApp,
+            bgSideNav = spec.sidebar,
+            bgChats = spec.bgChats,
+            border = spec.border,
+            textPrimary = spec.textPrimary,
+            bubbleIn = spec.bubbleIn,
+            bubbleOut = spec.bubbleOut,
+            accent = spec.accent,
+        )
+    }
+
 @Composable
 fun MeronTheme(
     appearanceMode: AppAppearanceMode = AppAppearanceMode.System,
