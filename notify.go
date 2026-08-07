@@ -115,7 +115,7 @@ func (a *App) openThreadFromNotification(account, threadID string) {
 
 func (a *App) notifyNewMail(detail any) {
 	count := 1
-	var account, accountName, folder, from, subject, threadKey string
+	var account, accountName, folder, from, subject, preview, threadKey string
 	if m, ok := detail.(map[string]any); ok {
 		// Muted accounts still sync (the UI refreshes), they just don't raise an
 		// OS notification. The sidecar resolves the mute pref onto each event.
@@ -130,6 +130,7 @@ func (a *App) notifyNewMail(detail any) {
 		folder, _ = m["folder"].(string)
 		from, _ = m["from"].(string)
 		subject, _ = m["subject"].(string)
+		preview, _ = m["preview"].(string)
 		threadKey, _ = m["threadKey"].(string)
 	}
 
@@ -144,6 +145,11 @@ func (a *App) notifyNewMail(detail any) {
 	if count == 1 {
 		title = firstNonEmpty(from, accountName, "New message")
 		body = firstNonEmpty(subject, "(no subject)")
+		// The body snippet, when the sidecar managed to fetch it in time, so
+		// the notification shows the mail itself and not just its subject.
+		if preview != "" {
+			body = fmt.Sprintf("%s — %s", body, preview)
+		}
 		if accountName != "" && title != accountName {
 			title = fmt.Sprintf("%s - %s", title, accountName)
 		}

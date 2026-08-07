@@ -515,7 +515,8 @@ private fun Intent.toNotificationThreadTarget(): jp.nonbili.meron.ui.Notificatio
     val account = getStringExtra(AndroidNotificationService.EXTRA_ACCOUNT_ID).orEmpty()
     val folder = getStringExtra(AndroidNotificationService.EXTRA_FOLDER).orEmpty()
     val threadKey = getStringExtra(AndroidNotificationService.EXTRA_THREAD_KEY).orEmpty()
-    if (account.isBlank() || folder.isBlank() || threadKey.isBlank()) return null
+    // The group summary carries no thread key: it opens the folder, not a thread.
+    if (account.isBlank() || folder.isBlank()) return null
     return jp.nonbili.meron.ui
         .NotificationThreadTarget(accountId = account, folder = folder, threadKey = threadKey)
 }

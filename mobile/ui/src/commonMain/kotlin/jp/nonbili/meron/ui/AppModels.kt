@@ -74,10 +74,12 @@ internal data class ImagePreview(
     }
 }
 
+/** Where a tapped notification lands. A blank [threadKey] — what a group
+ *  summary carries — opens the folder without selecting a thread. */
 data class NotificationThreadTarget(
     val accountId: String,
     val folder: String,
-    val threadKey: String,
+    val threadKey: String = "",
     val nonce: Long = currentTimeMillis(),
 )
 

@@ -506,14 +506,17 @@ fn record_observed_mail_identities(
     Ok(new_identities)
 }
 
-/// Unread INBOX messages in the UID range that appeared during the last sync.
-pub fn new_unread_inbox_summary(
+/// Unread INBOX messages in the UID range that appeared during the last sync,
+/// newest first. Returns the whole batch rather than just its latest message so
+/// notifications can post one entry per arrival; `None` when nothing new and
+/// unread landed.
+pub fn new_unread_inbox_messages(
     conn: &Connection,
     account: &str,
     uid_next_before: u32,
     uid_next_after: u32,
     synced_messages: &[MessageHeader],
-) -> Result<Option<(u32, MessageHeader)>> {
+) -> Result<Option<Vec<MessageHeader>>> {
     if uid_next_before == 0 || uid_next_after <= uid_next_before {
         return Ok(None);
     }
@@ -545,10 +548,24 @@ pub fn new_unread_inbox_summary(
         .into_iter()
         .filter(|header| newly_observed.contains(&message_identity(header, "INBOX")))
         .collect::<Vec<_>>();
-    let Some(latest) = headers.first().cloned() else {
+    if headers.is_empty() {
         return Ok(None);
-    };
-    Ok(Some((headers.len() as u32, latest)))
+    }
+    Ok(Some(headers))
+}
+
+/// One-line body snippet for a cached message, or `None` when the body hasn't
+/// been fetched yet. Notifications use it to show the mail itself rather than
+/// the subject alone; a miss degrades to a subject-only notification.
+pub fn cached_body_preview(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    uid: u32,
+) -> Option<String> {
+    let message = get_cached_message(conn, account, folder, uid).ok()??;
+    let preview = crate::parse::preview_of(&message.body);
+    (!preview.trim().is_empty()).then_some(preview)
 }
 
 /// Flatten `To`/`Cc` into the plain text `messages.recipients` indexes. The

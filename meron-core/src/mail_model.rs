@@ -13,6 +13,73 @@ pub fn canon_folder(folder: &str) -> String {
     }
 }
 
+/// How many of a batch's arrivals are described individually in a
+/// `mail.newMessages` detail. Clients post one notification per entry, and a
+/// notification shade can't usefully show more than a handful; `count` still
+/// reports the true size of the batch.
+pub const NEW_MESSAGES_DETAIL_MAX: usize = 8;
+
+/// The `mail.newMessages` payload for a batch of arrivals, newest first.
+///
+/// `from`/`subject`/`threadKey` describe the newest message and are what a
+/// single-notification client (desktop) reads; `messages` carries the same
+/// fields per arrival plus a body snippet, for clients that post one
+/// notification per mail. Snippets come from cached bodies, so a message whose
+/// body hasn't been fetched yet contributes an empty `preview` rather than
+/// holding up the event.
+pub fn new_messages_detail(
+    conn: &Connection,
+    account_id: &str,
+    account_name: &str,
+    muted: bool,
+    headers: &[MessageHeader],
+) -> Option<Value> {
+    let latest = headers.first()?;
+    let messages: Vec<Value> = headers
+        .iter()
+        .take(NEW_MESSAGES_DETAIL_MAX)
+        .map(|header| {
+            json!({
+                "uid": header.uid,
+                "from": display_from(header),
+                "subject": header.subject,
+                "preview": store::cached_body_preview(conn, account_id, "INBOX", header.uid)
+                    .unwrap_or_default(),
+                "threadKey": store::card_thread_key(header),
+                "date": header.date,
+            })
+        })
+        .collect();
+    Some(json!({
+        "account": account_id,
+        "accountName": account_name,
+        "folder": "inbox",
+        "count": headers.len(),
+        "muted": muted,
+        "from": display_from(latest),
+        "subject": latest.subject,
+        "preview": messages
+            .first()
+            .and_then(|message| message.get("preview"))
+            .and_then(Value::as_str)
+            .unwrap_or_default(),
+        // Branch-aware card key so a notification tap opens the exact list card
+        // the grouping produced.
+        "threadKey": store::card_thread_key(latest),
+        "messages": messages,
+    }))
+}
+
+/// Sender name for notifications, falling back to the address when the envelope
+/// carries no display name.
+pub fn display_from(header: &MessageHeader) -> String {
+    if !header.from_name.trim().is_empty() {
+        header.from_name.trim().to_string()
+    } else {
+        header.from_addr.trim().to_string()
+    }
+}
+
 /// Gate for deleting a folder on the server. Both clients call this so the rule
 /// lives in one place: special-use mailboxes are off limits (the app routes mail
 /// through Inbox/Sent/Drafts/Trash/Junk/Archive, and the server keeps no copy

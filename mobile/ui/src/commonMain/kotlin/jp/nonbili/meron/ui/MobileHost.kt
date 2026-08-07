@@ -95,15 +95,11 @@ interface MobileHost {
      *  never sees it; the log line is the only signal. */
     fun noteCoreCrash(summary: String) {}
 
-    fun notifyNewMail(
-        accountName: String,
-        from: String,
-        subject: String,
-        count: Int,
-        accountId: String,
-        folder: String,
-        threadKey: String,
-    )
+    /** Post OS notifications for a `mail.newMessages` event. Takes the detail
+     *  JSON rather than its fields because platforms differ in how much of a
+     *  batch they show — Android posts one notification per message in
+     *  `messages`, so flattening to the newest one here would lose the rest. */
+    fun notifyNewMail(detailJson: String)
 
     /** Outlook OAuth client id baked into the build (empty when unset). */
     val outlookClientId: String
@@ -177,15 +173,7 @@ open class DefaultMobileHost(
 
     override fun runBackgroundRefreshOnce() {}
 
-    override fun notifyNewMail(
-        accountName: String,
-        from: String,
-        subject: String,
-        count: Int,
-        accountId: String,
-        folder: String,
-        threadKey: String,
-    ) {}
+    override fun notifyNewMail(detailJson: String) {}
 
     override val supportsGoogleDeviceAuth: Boolean = false
 

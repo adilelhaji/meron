@@ -39,6 +39,42 @@ fn prefetch_mobile_bodies(
     }
 }
 
+/// Longest a `mail.sync` waits on the body fetch its notification snippets
+/// need. Past this the response goes back with whatever bodies are cached, so a
+/// slow server costs a subject-only notification rather than a missed sync.
+const NOTIFY_PREVIEW_TIMEOUT_SECS: u64 = 8;
+
+/// Cache the bodies of new arrivals so the notification can show a snippet of
+/// each. Best-effort: a failure only costs the snippets.
+fn fetch_notification_bodies(
+    data_dir: &str,
+    engine: &std::sync::Arc<crate::engine::Engine>,
+    account_id: &str,
+    headers: &[crate::imap::MessageHeader],
+) {
+    let uids: Vec<u32> = headers
+        .iter()
+        .take(crate::mail_model::NEW_MESSAGES_DETAIL_MAX)
+        .map(|header| header.uid)
+        .collect();
+    let media_root = std::path::PathBuf::from(data_dir).join("attachments");
+    let result = crate::ffi::engine_block_on(async {
+        tokio::time::timeout(
+            std::time::Duration::from_secs(NOTIFY_PREVIEW_TIMEOUT_SECS),
+            crate::engine::fetch_bodies_for_uids(engine, account_id, "INBOX", &uids, media_root),
+        )
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out"))?
+    });
+    if let Err(err) = result {
+        crate::mlog!(
+            crate::log::Level::Warn,
+            "mail.sync",
+            "Notification body fetch failed for {account_id}: {err}"
+        );
+    }
+}
+
 /// Inbox syncs whose non-gating tail (`finish_mobile_sync`) is still running on
 /// a detached thread, keyed by `account/folder`, so overlapping pull-to-refresh
 /// calls don't stack a second prefetch behind the first.
@@ -384,13 +420,20 @@ pub(crate) fn sync_mobile_mail(data_dir: &str, params: &Value) -> Result<Value, 
     let messages_ms = messages_started.elapsed().as_millis();
     let new_messages = if is_inbox {
         let after = crate::ffi::mobile_inbox_uid_next(data_dir, &account_id).unwrap_or(0);
-        crate::ffi::mobile_new_messages_detail(
+        crate::ffi::mobile_new_unread_inbox_messages(
             data_dir,
             &account_id,
             inbox_uid_next_before,
             after,
             &synced.messages,
         )
+        .and_then(|headers| {
+            // Fetch the arrivals' own bodies before building the detail: the
+            // notification shows a snippet of each, and the general prefetch in
+            // the sync tail runs too late (and may be deferred entirely).
+            fetch_notification_bodies(data_dir, &engine, &account_id, &headers);
+            crate::ffi::mobile_new_messages_detail(data_dir, &account_id, &headers)
+        })
     } else {
         None
     };

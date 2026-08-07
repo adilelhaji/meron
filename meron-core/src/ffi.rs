@@ -782,36 +782,19 @@ async fn mobile_sync_and_notify(data_dir: &str, account: &str, folder: &str) -> 
     Ok(())
 }
 
-/// `mail.newMessages` detail for inbox messages that arrived between the two
-/// `uid_next` snapshots, or None when nothing new and unread did. Shared by the
-/// IDLE watch event and the `mail.sync` response so background workers — which
-/// have no live event listener — can notify from the response alone.
+/// `mail.newMessages` detail for `headers` (the arrivals from
+/// [`mobile_new_unread_inbox_messages`]). Shared by the IDLE watch event and the
+/// `mail.sync` response so background workers — which have no live event
+/// listener — can notify from the response alone.
 pub(crate) fn mobile_new_messages_detail(
     data_dir: &str,
     account: &str,
-    uid_next_before: u32,
-    uid_next_after: u32,
-    synced_messages: &[crate::imap::MessageHeader],
+    headers: &[crate::imap::MessageHeader],
 ) -> Option<Value> {
-    let (count, latest) = mobile_new_unread_summary(
-        data_dir,
-        account,
-        uid_next_before,
-        uid_next_after,
-        synced_messages,
-    )?;
-    Some(json!({
-        "account": account,
-        "accountName": mobile_account_label(data_dir, account),
-        "folder": "inbox",
-        "count": count,
-        "muted": mobile_account_muted(data_dir, account),
-        "from": display_from(&latest),
-        "subject": latest.subject,
-        // Branch-aware card key so a notification tap opens the exact list
-        // card the grouping produced.
-        "threadKey": crate::store::card_thread_key(&latest),
-    }))
+    let account_name = mobile_account_label(data_dir, account);
+    let muted = mobile_account_muted(data_dir, account);
+    let conn = mobile_db(data_dir).ok()?;
+    crate::mail_model::new_messages_detail(&conn, account, &account_name, muted, headers)
 }
 
 pub(crate) fn mobile_inbox_uid_next(data_dir: &str, account: &str) -> Option<u32> {
@@ -822,15 +805,17 @@ pub(crate) fn mobile_inbox_uid_next(data_dir: &str, account: &str) -> Option<u32
         .map(|(_, uid_next)| uid_next)
 }
 
-fn mobile_new_unread_summary(
+/// Inbox messages that arrived between the two `uid_next` snapshots and are
+/// still unread, newest first; None when nothing new landed.
+pub(crate) fn mobile_new_unread_inbox_messages(
     data_dir: &str,
     account: &str,
     uid_next_before: u32,
     uid_next_after: u32,
     synced_messages: &[crate::imap::MessageHeader],
-) -> Option<(u32, crate::imap::MessageHeader)> {
+) -> Option<Vec<crate::imap::MessageHeader>> {
     let conn = mobile_db(data_dir).ok()?;
-    crate::store::new_unread_inbox_summary(
+    crate::store::new_unread_inbox_messages(
         &conn,
         account,
         uid_next_before,
@@ -867,14 +852,6 @@ fn mobile_account_muted(data_dir: &str, account: &str) -> bool {
         .ok()
         .and_then(|conn| crate::store::account_muted(&conn, account).ok())
         .unwrap_or(false)
-}
-
-fn display_from(header: &crate::imap::MessageHeader) -> String {
-    if !header.from_name.trim().is_empty() {
-        header.from_name.trim().to_string()
-    } else {
-        header.from_addr.trim().to_string()
-    }
 }
 
 unsafe extern "C" fn android_event_callback(event_json: *const c_char, _user_data: *mut c_void) {

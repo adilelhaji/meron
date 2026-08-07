@@ -357,15 +357,7 @@ private fun MeronMobileScreenContent(
                         when (event.name) {
                             "mail.newMessages" -> {
                                 if (!liveMailPushEnabled) {
-                                    mobileHost.notifyNewMail(
-                                        accountName = event.detailJson.jsonStringValue("accountName"),
-                                        from = event.detailJson.jsonStringValue("from"),
-                                        subject = event.detailJson.jsonStringValue("subject"),
-                                        count = event.detailJson.jsonIntValue("count", 1),
-                                        accountId = event.detailJson.jsonStringValue("account"),
-                                        folder = event.detailJson.jsonStringValue("folder"),
-                                        threadKey = event.detailJson.jsonStringValue("threadKey"),
-                                    )
+                                    mobileHost.notifyNewMail(event.detailJson)
                                 }
                                 val eventAccount = event.detailJson.jsonStringValue("account")
                                 val eventFolder = event.detailJson.jsonStringValue("folder")

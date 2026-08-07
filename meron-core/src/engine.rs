@@ -1353,6 +1353,50 @@ pub async fn prefetch_bodies_with_options(
         .await
 }
 
+/// Fetch and cache the bodies of specific UIDs, skipping any already cached.
+///
+/// Unlike [`prefetch_bodies`] this takes the UIDs from the caller instead of a
+/// server-side SEARCH, because the caller (new-mail notification) already knows
+/// exactly which messages it needs and awaits the result — a SEARCH round trip
+/// per arrival would add latency to the notification for nothing.
+pub async fn fetch_bodies_for_uids(
+    engine: &Arc<Engine>,
+    account: &str,
+    folder: &str,
+    uids: &[u32],
+    media_root: PathBuf,
+) -> anyhow::Result<usize> {
+    let pending: Vec<u32> = {
+        let db = engine.db.lock().unwrap();
+        uids.iter()
+            .copied()
+            .filter(|uid| !store::has_cached_body(&db, account, folder, *uid).unwrap_or(false))
+            .collect()
+    };
+    if pending.is_empty() {
+        return Ok(0);
+    }
+    engine
+        .with_read_session(account, |session| {
+            let engine = engine.clone();
+            let account = account.to_string();
+            let folder = folder.to_string();
+            let pending = pending.clone();
+            let media_root = media_root.clone();
+            Box::pin(async move {
+                let fetched =
+                    imap::fetch_bodies(session, &folder, &pending, media_root, &account).await?;
+                let count = fetched.len();
+                let db = engine.db.lock().unwrap();
+                for (uid, message) in fetched {
+                    let _ = store::save_cached_message(&db, &account, &folder, uid, &message);
+                }
+                anyhow::Ok(count)
+            })
+        })
+        .await
+}
+
 /// Warm a folder's bodies in the background (deduped per account/folder). Stays
 /// silent: this is an optimization, so failures go to stderr rather than
 /// surfacing as UI error toasts. The stored data it fills is observed lazily when the

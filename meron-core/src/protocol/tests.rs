@@ -930,8 +930,10 @@ fn mobile_new_messages_detail_summarizes_new_unread_inbox_mail() {
     drop(conn);
     let dir = data_dir.to_str().unwrap();
 
-    let detail =
-        crate::ffi::mobile_new_messages_detail(dir, "me@example.com", 2, 4, &messages).unwrap();
+    let arrivals =
+        crate::ffi::mobile_new_unread_inbox_messages(dir, "me@example.com", 2, 4, &messages)
+            .unwrap();
+    let detail = crate::ffi::mobile_new_messages_detail(dir, "me@example.com", &arrivals).unwrap();
     assert_eq!(detail["account"], "me@example.com");
     assert_eq!(detail["accountName"], "me@example.com");
     assert_eq!(detail["folder"], "inbox");
@@ -943,10 +945,25 @@ fn mobile_new_messages_detail_summarizes_new_unread_inbox_mail() {
     // opens the exact card the thread-list grouping mints.
     assert_eq!(detail["threadKey"], "fresh#Fresh");
 
+    // One entry per arrival, so the client can post a notification per mail.
+    let listed = detail["messages"].as_array().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0]["uid"], 3);
+    assert_eq!(listed[0]["from"], "Aki");
+    assert_eq!(listed[0]["subject"], "Fresh");
+    assert_eq!(listed[0]["threadKey"], "fresh#Fresh");
+    // No body cached yet, so the snippet is empty rather than the event waiting.
+    assert_eq!(listed[0]["preview"], "");
+    assert_eq!(detail["preview"], "");
+
     // First sync of a mailbox (no prior uid_next) must not summarize the backlog.
-    assert!(crate::ffi::mobile_new_messages_detail(dir, "me@example.com", 0, 4, &[]).is_none());
+    assert!(
+        crate::ffi::mobile_new_unread_inbox_messages(dir, "me@example.com", 0, 4, &[]).is_none()
+    );
     // No uid growth means nothing new arrived.
-    assert!(crate::ffi::mobile_new_messages_detail(dir, "me@example.com", 4, 4, &[]).is_none());
+    assert!(
+        crate::ffi::mobile_new_unread_inbox_messages(dir, "me@example.com", 4, 4, &[]).is_none()
+    );
 
     let _ = std::fs::remove_dir_all(data_dir);
 }

@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.io.File
 
 class AndroidPlatformServices(
@@ -293,16 +294,8 @@ class AndroidMobileHost(
         AndroidCrashLog.clearPending(activity)
     }
 
-    override fun notifyNewMail(
-        accountName: String,
-        from: String,
-        subject: String,
-        count: Int,
-        accountId: String,
-        folder: String,
-        threadKey: String,
-    ) {
-        AndroidNotificationService.notifyNewMail(activity, accountName, from, subject, count, accountId, folder, threadKey)
+    override fun notifyNewMail(detailJson: String) {
+        AndroidNotificationService.notifyNewMail(activity, JSONObject(detailJson))
     }
 
     override fun connectGoogleDeviceAccount(onResult: (GoogleDeviceAccountResult) -> Unit) {

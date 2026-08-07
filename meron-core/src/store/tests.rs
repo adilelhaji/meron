@@ -593,7 +593,7 @@ fn get_recent_page_can_return_only_unread_messages() {
 }
 
 #[test]
-fn new_unread_inbox_summary_counts_uid_window_and_latest_unread() {
+fn new_unread_inbox_messages_counts_uid_window_and_latest_unread() {
     let conn = test_conn();
     let inbox_messages = vec![
         MessageHeader {
@@ -650,10 +650,11 @@ fn new_unread_inbox_summary_counts_uid_window_and_latest_unread() {
     .unwrap();
 
     let synced = inbox_messages[1..4].to_vec();
-    let (count, latest) = new_unread_inbox_summary(&conn, "acct", 2, 5, &synced)
+    let arrivals = new_unread_inbox_messages(&conn, "acct", 2, 5, &synced)
         .unwrap()
         .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(arrivals.len(), 2);
+    let latest = &arrivals[0];
     assert_eq!(latest.uid, 4);
     assert_eq!(latest.subject, "Latest unread");
     assert_eq!(latest.thread_key, "fresh");
@@ -667,15 +668,68 @@ fn new_unread_inbox_summary_counts_uid_window_and_latest_unread() {
         ..Default::default()
     }];
     upsert_messages(&conn, "acct", "INBOX", &lower).unwrap();
-    let (_, lower_bound) = new_unread_inbox_summary(&conn, "acct", 2, 3, &lower)
+    let lower_bound = new_unread_inbox_messages(&conn, "acct", 2, 3, &lower)
         .unwrap()
-        .unwrap();
+        .unwrap()
+        .remove(0);
     assert_eq!(lower_bound.uid, 2);
     assert_eq!(lower_bound.thread_key, "uid:2");
 }
 
 #[test]
-fn new_unread_inbox_summary_ignores_empty_or_non_growing_windows() {
+fn cached_body_preview_collapses_body_and_misses_without_a_cached_body() {
+    let conn = test_conn();
+    upsert_messages(
+        &conn,
+        "acct",
+        "INBOX",
+        &[MessageHeader {
+            uid: 7,
+            subject: "Lunch".to_string(),
+            from_addr: "aki@example.com".to_string(),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+
+    // Header only: no snippet to show yet.
+    assert!(cached_body_preview(&conn, "acct", "INBOX", 7).is_none());
+
+    save_cached_message(
+        &conn,
+        "acct",
+        "INBOX",
+        7,
+        &Message {
+            subject: "Lunch".into(),
+            body: "  Are we still on\n\n  for lunch?  ".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        cached_body_preview(&conn, "acct", "INBOX", 7).unwrap(),
+        "Are we still on for lunch?"
+    );
+
+    // A whitespace-only body is a miss, not an empty snippet line.
+    save_cached_message(
+        &conn,
+        "acct",
+        "INBOX",
+        7,
+        &Message {
+            subject: "Lunch".into(),
+            body: "   \n  ".into(),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(cached_body_preview(&conn, "acct", "INBOX", 7).is_none());
+}
+
+#[test]
+fn new_unread_inbox_messages_ignores_empty_or_non_growing_windows() {
     let conn = test_conn();
     upsert_messages(
         &conn,
@@ -692,24 +746,24 @@ fn new_unread_inbox_summary_ignores_empty_or_non_growing_windows() {
     .unwrap();
 
     assert!(
-        new_unread_inbox_summary(&conn, "acct", 0, 2, &[])
+        new_unread_inbox_messages(&conn, "acct", 0, 2, &[])
             .unwrap()
             .is_none()
     );
     assert!(
-        new_unread_inbox_summary(&conn, "acct", 2, 2, &[])
+        new_unread_inbox_messages(&conn, "acct", 2, 2, &[])
             .unwrap()
             .is_none()
     );
     assert!(
-        new_unread_inbox_summary(&conn, "acct", 3, 2, &[])
+        new_unread_inbox_messages(&conn, "acct", 3, 2, &[])
             .unwrap()
             .is_none()
     );
 }
 
 #[test]
-fn new_unread_inbox_summary_ignores_observed_gmail_message_restored_with_new_uid() {
+fn new_unread_inbox_messages_ignores_observed_gmail_message_restored_with_new_uid() {
     let conn = test_conn();
     let old = vec![MessageHeader {
         uid: 10,
@@ -734,14 +788,14 @@ fn new_unread_inbox_summary_ignores_observed_gmail_message_restored_with_new_uid
     upsert_messages(&conn, "acct", "INBOX", &restored).unwrap();
 
     assert!(
-        new_unread_inbox_summary(&conn, "acct", 20, 21, &restored)
+        new_unread_inbox_messages(&conn, "acct", 20, 21, &restored)
             .unwrap()
             .is_none()
     );
 }
 
 #[test]
-fn new_unread_inbox_summary_ignores_observed_message_id_restored_with_new_uid() {
+fn new_unread_inbox_messages_ignores_observed_message_id_restored_with_new_uid() {
     let conn = test_conn();
     let old = vec![MessageHeader {
         uid: 10,
@@ -766,7 +820,7 @@ fn new_unread_inbox_summary_ignores_observed_message_id_restored_with_new_uid() 
     upsert_messages(&conn, "acct", "INBOX", &restored).unwrap();
 
     assert!(
-        new_unread_inbox_summary(&conn, "acct", 20, 21, &restored)
+        new_unread_inbox_messages(&conn, "acct", 20, 21, &restored)
             .unwrap()
             .is_none()
     );

@@ -1070,16 +1070,20 @@ internal suspend fun MeronMobileState.refreshOpenThreadFor(eventAccount: String)
     runCatching { reloadCurrentThreadMessages() }
 }
 
+/** Opens the conversation a tapped notification names, layered over whatever
+ *  the user was looking at: the mailbox behind it keeps its account, folder,
+ *  search and filter, so backing out returns to the Mail or Kanban view the tap
+ *  interrupted rather than to the notification's own folder. The thread list is
+ *  loaded only to find the thread and is then discarded. */
 internal fun MeronMobileState.openNotificationThread(target: NotificationThreadTarget) {
     if (!coreLoaded) {
         status = coreUnavailableMessage
         return
     }
-    mailSearch = ""
-    mailFilter = FilterMode.All
-    selectedCoreAccountId = target.accountId
-    selectedCoreFolder = target.folder
-    syncing = true
+    if (target.threadKey.isBlank()) {
+        openNotificationMailbox(target)
+        return
+    }
     scope.launch {
         runCatching {
             withContext(ioDispatcher) {
@@ -1116,6 +1120,53 @@ internal fun MeronMobileState.openNotificationThread(target: NotificationThreadT
                 Triple(accounts, result, thread ?: error("Thread not found"))
             }
         }.onSuccess { (accounts, result, thread) ->
+            // Only what the thread view itself needs, never the mailbox state:
+            // the account list a cold start has not fetched yet, and the folder
+            // names the notification's account is filed under.
+            if (coreAccounts.isEmpty()) {
+                coreAccounts = accounts
+            }
+            if (result.folders.isNotEmpty()) {
+                foldersByAccount = foldersByAccount + result.folders.groupBy { it.accountId }
+            }
+            readCoreThread(thread)
+        }.onFailure {
+            status = "Could not open notification: ${it.message}"
+        }
+    }
+}
+
+/** A group summary names an account and folder but no conversation, so this one
+ *  does navigate the mailbox. Hiding an account from the side nav only drops it
+ *  from the drawer list; its mail is still reachable, including from here. */
+private fun MeronMobileState.openNotificationMailbox(target: NotificationThreadTarget) {
+    mailSearch = ""
+    mailFilter = FilterMode.All
+    selectedCoreAccountId = target.accountId
+    selectedCoreFolder = target.folder
+    syncing = true
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                val client = MobileMailCommandClient(core)
+                val accounts =
+                    coreAccounts.takeIf { accounts -> accounts.any { it.id == target.accountId } }
+                        ?: parseAccountListResponse(client.listAccounts())
+                val account =
+                    accounts.firstOrNull { it.id == target.accountId }
+                        ?: error("Account not found: ${target.accountId}")
+                val result =
+                    loadAccountInbox(
+                        client = client,
+                        account = account,
+                        requestedFolder = target.folder,
+                        query = "",
+                        filter = FilterMode.All,
+                        syncFirst = false,
+                    )
+                accounts to result
+            }
+        }.onSuccess { (accounts, result) ->
             if (coreAccounts.isEmpty()) {
                 coreAccounts = accounts
             }
@@ -1132,7 +1183,12 @@ internal fun MeronMobileState.openNotificationThread(target: NotificationThreadT
             syncing = false
             initialThreadsLoaded = true
             selectedMailThreadIds = emptySet()
-            readCoreThread(thread)
+            // Loading the mailbox is not enough on its own: nothing else on this
+            // path moves the app off the screen it was on, so the tap would land
+            // behind Settings, Kanban, Compose, or a thread left open.
+            selectedCoreThread = null
+            previousTopScreen = Screen.Mail
+            screen = Screen.Mail
         }.onFailure {
             syncing = false
             status = "Could not open notification: ${it.message}"

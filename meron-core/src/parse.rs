@@ -910,7 +910,7 @@ fn find_text_part(part: &ParsedMail, mime: &str) -> Option<String> {
     None
 }
 
-fn preview_of(body: &str) -> String {
+pub(crate) fn preview_of(body: &str) -> String {
     let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut preview: String = collapsed.chars().take(200).collect();
     if collapsed.chars().count() > 200 {

@@ -200,32 +200,17 @@ fn spawn_message_sync(
                 } else {
                     0
                 };
-                if let Some((count, latest)) = new_unread_inbox_summary(
+                let new_inbox = new_unread_inbox_messages(
                     &engine,
                     &account,
                     uid_next_before,
                     uid_next_after,
                     &synced.messages,
-                ) {
-                    // Branch-aware card key so the notification click opens the
-                    // exact list card the grouping produced.
-                    let thread_key = store::card_thread_key(&latest);
-                    let (from, subject) = (display_from(&latest), latest.subject);
-                    emit(
-                        &out,
-                        "mail.newMessages",
-                        json!({
-                            "account": account,
-                            "accountName": account_label(&engine, &account),
-                            "folder": "inbox",
-                            "count": count,
-                            "muted": engine.is_muted(&account),
-                            "from": from,
-                            "subject": subject,
-                            "threadKey": thread_key,
-                        }),
-                    )
-                    .await;
+                );
+                if let Some(headers) = new_inbox
+                    && let Some(detail) = new_messages_detail(&engine, &account, &headers).await
+                {
+                    emit(&out, "mail.newMessages", detail).await;
                     return;
                 }
                 emit(
@@ -377,15 +362,15 @@ const IDLE_LIMIT: u32 = 50;
 /// Unread messages in the UID range that appeared during the last sync.
 /// Startup syncs can advance UIDNEXT for messages that were already read on the
 /// server; those should refresh the UI without raising a desktop notification.
-fn new_unread_inbox_summary(
+fn new_unread_inbox_messages(
     engine: &Arc<Engine>,
     account: &str,
     uid_next_before: u32,
     uid_next_after: u32,
     synced_messages: &[imap::MessageHeader],
-) -> Option<(u32, imap::MessageHeader)> {
+) -> Option<Vec<imap::MessageHeader>> {
     let db = engine.db.lock().unwrap();
-    store::new_unread_inbox_summary(
+    store::new_unread_inbox_messages(
         &db,
         account,
         uid_next_before,
@@ -394,6 +379,36 @@ fn new_unread_inbox_summary(
     )
     .ok()
     .flatten()
+}
+
+/// Longest a notification waits on the body fetch its snippets need. Past this
+/// the event goes out with whatever bodies are cached: a late notification is
+/// worse than one showing subjects alone, and the general prefetch fills the
+/// rest in anyway.
+const NOTIFY_PREVIEW_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// `mail.newMessages` detail for a batch of arrivals, with the arrivals' bodies
+/// fetched first so the notification can show the mail itself.
+async fn new_messages_detail(
+    engine: &Arc<Engine>,
+    account: &str,
+    headers: &[imap::MessageHeader],
+) -> Option<Value> {
+    let uids: Vec<u32> = headers
+        .iter()
+        .take(mail_model::NEW_MESSAGES_DETAIL_MAX)
+        .map(|header| header.uid)
+        .collect();
+    let fetch = fetch_bodies_for_uids(engine, account, "INBOX", &uids, parse::media_root());
+    match tokio::time::timeout(NOTIFY_PREVIEW_TIMEOUT, fetch).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => eprintln!("meron-core: notification bodies for {account}: {err:#}"),
+        Err(_) => eprintln!("meron-core: notification bodies for {account}: timed out"),
+    }
+    let account_name = account_label(engine, account);
+    let muted = engine.is_muted(account);
+    let db = engine.db.lock().unwrap();
+    mail_model::new_messages_detail(&db, account, &account_name, muted, headers)
 }
 
 /// Newest stored RSS item for an account, or None if the store is empty
@@ -446,16 +461,6 @@ fn account_label(engine: &Arc<Engine>, account: &str) -> String {
         }
     }
     account.to_string()
-}
-
-/// Friendly sender label: the From display name if present, else the address,
-/// else an empty string. Mirrors how the message list renders the From column.
-fn display_from(h: &imap::MessageHeader) -> String {
-    let name = h.from_name.trim();
-    if !name.is_empty() {
-        return name.to_string();
-    }
-    h.from_addr.trim().to_string()
 }
 
 /// Cached UIDNEXT for an account's INBOX (0 if unknown). Used to detect whether
@@ -557,7 +562,7 @@ async fn sync_and_notify(
     };
 
     let new_inbox = if is_inbox {
-        new_unread_inbox_summary(
+        new_unread_inbox_messages(
             engine,
             account,
             uid_next_before,
@@ -568,26 +573,15 @@ async fn sync_and_notify(
         None
     };
 
-    if let Some((count, latest)) = new_inbox {
-        // New arrivals: warm their bodies so the first open is instant.
+    if let Some(headers) = new_inbox {
+        // Building the detail fetches the arrivals' own bodies (the notification
+        // shows a snippet of each); warm the rest of the backlog behind it so the
+        // first open of anything else is instant too.
+        let detail = new_messages_detail(engine, account, &headers).await;
         spawn_body_prefetch(engine.clone(), account.to_string(), "INBOX".to_string());
-        let (from, subject, thread_key) =
-            (display_from(&latest), latest.subject, latest.thread_key);
-        emit(
-            out,
-            "mail.newMessages",
-            json!({
-                "account": account,
-                "accountName": account_label(engine, account),
-                "folder": "inbox",
-                "count": count,
-                "muted": engine.is_muted(account),
-                "from": from,
-                "subject": subject,
-                "threadKey": thread_key,
-            }),
-        )
-        .await;
+        if let Some(detail) = detail {
+            emit(out, "mail.newMessages", detail).await;
+        }
     } else {
         if !is_inbox {
             spawn_body_prefetch(engine.clone(), account.to_string(), folder.to_string());
