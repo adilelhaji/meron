@@ -1,0 +1,15 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Debug source set only: lets `adb shell am broadcast` post a fake
+             new-mail batch. Exported because the adb shell user cannot reach a
+             private receiver; it never ships in a release build. -->
+        <receiver
+            android:name=".DebugNotificationReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="jp.nonbili.meron.DEBUG_NEW_MAIL" />
+                <action android:name="jp.nonbili.meron.DEBUG_MAILBOX_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
