@@ -1,0 +1,4 @@
+- Support traditional conversation view
+- Show a loading spinner instead of empty state while threads load
+- Preserve selected folder when navigating away from Kanban board
+- Fix duplicate listing for starred threads
