@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { Check, Mail } from 'lucide-react'
+import { Check, SquareChevronRight } from 'lucide-react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
@@ -80,7 +80,7 @@ export function CommandPalette() {
         onKeyDown={onKeyDown}
       >
         <div className="flex items-center gap-2.5 border-b border-border px-4 py-3">
-          <Mail size={16} className="shrink-0 text-secondary" />
+          <SquareChevronRight size={16} className="shrink-0 text-secondary" />
           <input
             ref={inputRef}
             value={query}

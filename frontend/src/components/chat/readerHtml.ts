@@ -37,6 +37,16 @@ const READER_CSS = `
   table, pre {
     max-width: 100% !important;
   }
+  /* \`anywhere\` on the body also drops a cell's min-content floor to a single
+     glyph, so a column with a small declared width breaks its label one letter
+     per line. Cells keep whole words; anchors opt back in so long URLs still
+     let the table shrink. */
+  td, th {
+    overflow-wrap: break-word;
+  }
+  :is(td, th) a {
+    overflow-wrap: anywhere;
+  }
   pre {
     display: block;
     overflow-x: auto;

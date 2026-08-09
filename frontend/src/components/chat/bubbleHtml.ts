@@ -58,6 +58,13 @@ export function prepareBubbleHtml(html: string, font: MessageFrameFont = DEFAULT
       }
       img { cursor: zoom-in; }
       table, pre { max-width: 100% !important; }
+      /* \`anywhere\` lets a word break mid-character *and* drops the cell's
+         min-content floor to one glyph, so a column with a small declared
+         width (GitHub's 24px "Status" header) shreds its label vertically.
+         Cells keep whole words; long URLs still compress because the anchor
+         opts back in, and a table that can't fit gets a horizontal scroller. */
+      td, th { overflow-wrap: break-word; }
+      :is(td, th) a { overflow-wrap: anywhere; }
       pre {
         overflow-x: auto;
         white-space: pre;
