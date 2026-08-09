@@ -36,6 +36,12 @@ const FRAME_FALLBACK = "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemF
 export const DEFAULT_FONT_SCALE = 100
 export const MIN_FONT_SCALE = 80
 export const MAX_FONT_SCALE = 150
+/**
+ * Message bodies stretch much further than the app-wide size: the frames zoom
+ * and reflow, so a large-print reading size stays usable, while the chrome
+ * (side nav, thread list, dialogs) has to keep fitting on screen.
+ */
+export const MAX_MESSAGE_FONT_SCALE = 400
 
 /** Root font size the rem-based text utilities are sized against at 100%. */
 export const BASE_ROOT_FONT_SIZE = 16
@@ -43,8 +49,6 @@ export const BASE_ROOT_FONT_SIZE = 16
 /** Base sizes the message surfaces are drawn at before any scaling. */
 export const BUBBLE_HTML_BASE_PX = 14
 export const BUBBLE_CODE_BASE_PX = 12.5
-export const READER_HTML_BASE_PX = 16
-export const READER_CODE_BASE_PX = 13
 
 /** Whether a stored choice names one of the built-in stacks. */
 export function isBuiltinFont(value: string): boolean {
@@ -74,21 +78,24 @@ export function messageFontStack(messageValue: string, uiValue: string): string 
 }
 
 /**
- * Size a message body inside a sandboxed frame, which inherits neither the
- * app's root font size nor the message text scale. Both percentages apply: the
- * app-wide size scales everything, the message size adjusts bodies on top.
+ * How much a sandboxed body frame scales its content, as a CSS `zoom` factor.
+ * The frame inherits neither the app's root font size nor the message text
+ * scale, and a baked-in `font-size` would only move the bodies that don't set
+ * their own — which most HTML mail does. Zooming the body scales the email's
+ * own sizes, spacing and images with it. Both percentages apply: the app-wide
+ * size scales everything, the message size adjusts bodies on top.
  */
-export function messageFontSizePx(basePx: number, fontScale: number, messageFontScale: number): number {
-  const px = basePx * (clampFontScale(fontScale) / 100) * (clampFontScale(messageFontScale) / 100)
-  return Math.round(px * 100) / 100
+export function messageFrameZoom(fontScale: number, messageFontScale: number): number {
+  const zoom = (clampFontScale(fontScale) / 100) * (clampMessageFontScale(messageFontScale) / 100)
+  return Math.round(zoom * 1000) / 1000
 }
 
 /** Typography baked into a message frame's stylesheet. */
 export type MessageFrameFont = {
   /** Family list, or null to keep the frame's own default stack. */
   family: string | null
-  bodyPx: number
-  codePx: number
+  /** CSS `zoom` for the body; 1 leaves the frame at its own base sizes. */
+  zoom: number
 }
 
 export type FontPreferences = {
@@ -98,11 +105,10 @@ export type FontPreferences = {
   messageFontScale: number
 }
 
-export function messageFrameFont(prefs: FontPreferences, bodyBasePx: number, codeBasePx: number): MessageFrameFont {
+export function messageFrameFont(prefs: FontPreferences): MessageFrameFont {
   return {
     family: messageFontStack(prefs.messageFontFamily, prefs.fontFamily),
-    bodyPx: messageFontSizePx(bodyBasePx, prefs.fontScale, prefs.messageFontScale),
-    codePx: messageFontSizePx(codeBasePx, prefs.fontScale, prefs.messageFontScale),
+    zoom: messageFrameZoom(prefs.fontScale, prefs.messageFontScale),
   }
 }
 
@@ -122,12 +128,17 @@ export function sanitizeFontChoice(raw: unknown): string | null {
     .trim()
 }
 
-export function clampFontScale(scale: number): number {
+export function clampFontScale(scale: number, max: number = MAX_FONT_SCALE): number {
   if (!Number.isFinite(scale)) return DEFAULT_FONT_SCALE
-  return Math.round(Math.min(MAX_FONT_SCALE, Math.max(MIN_FONT_SCALE, scale)))
+  return Math.round(Math.min(max, Math.max(MIN_FONT_SCALE, scale)))
 }
 
-export function sanitizeFontScale(raw: unknown): number | null {
+/** `clampFontScale` against the wider range message bodies allow. */
+export function clampMessageFontScale(scale: number): number {
+  return clampFontScale(scale, MAX_MESSAGE_FONT_SCALE)
+}
+
+export function sanitizeFontScale(raw: unknown, max: number = MAX_FONT_SCALE): number | null {
   if (typeof raw !== 'number' || !Number.isFinite(raw)) return null
-  return clampFontScale(raw)
+  return clampFontScale(raw, max)
 }

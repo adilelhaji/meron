@@ -357,7 +357,14 @@ function GeneralSection() {
     <div className="flex flex-col gap-4">
       <SettingsGroup title={t('settings.pages.appearance')}>
         <ThemeSettingsSection />
-        <FontSettingsSection />
+        <SegmentedRow
+          icon={<MessagesSquare size={15} />}
+          title={t('settings.appearance.conversationLayout')}
+          hint={t('settings.appearance.conversationLayoutHint')}
+          value={conversationLayout}
+          options={CONVERSATION_LAYOUT_OPTIONS(t)}
+          onChange={(value) => settings$.conversationLayout.set(value)}
+        />
         <ToggleRow
           icon={<ImageIcon size={15} />}
           title={t('settings.appearance.showSenderImages')}
@@ -372,14 +379,10 @@ function GeneralSection() {
           checked={showUnreadAccountBadge}
           onChange={() => settings$.showUnreadAccountBadge.set(!showUnreadAccountBadge)}
         />
-        <SegmentedRow
-          icon={<MessagesSquare size={15} />}
-          title={t('settings.appearance.conversationLayout')}
-          hint={t('settings.appearance.conversationLayoutHint')}
-          value={conversationLayout}
-          options={CONVERSATION_LAYOUT_OPTIONS(t)}
-          onChange={(value) => settings$.conversationLayout.set(value)}
-        />
+      </SettingsGroup>
+
+      <SettingsGroup title={t('settings.sections.typography')}>
+        <FontSettingsSection />
       </SettingsGroup>
 
       <SettingsGroup title={t('settings.language.label')}>

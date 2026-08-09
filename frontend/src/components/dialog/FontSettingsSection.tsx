@@ -3,8 +3,10 @@ import { ALargeSmall, CaseSensitive, MessagesSquare } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import {
+  DEFAULT_FONT_SCALE,
   FONT_OPTIONS,
   MAX_FONT_SCALE,
+  MAX_MESSAGE_FONT_SCALE,
   MIN_FONT_SCALE,
   clampFontScale,
   isBuiltinFont,
@@ -49,23 +51,31 @@ function CustomFontRow({ value, onChange }: { value: string; onChange: (value: s
 
 /**
  * A percentage row that holds what's in the field while it's focused, so
- * clearing it to retype doesn't snap the value to the minimum mid-edit. Only
- * an in-range number is committed; leaving the field restores the stored one.
+ * clearing it to retype doesn't snap the value to the minimum mid-edit. Only an
+ * in-range number is committed as it's typed. A number outside the range flags
+ * the field and spells the range out next to it while it's still being typed,
+ * so the clamp that lands on blur is one the row already announced.
  */
 function ScaleRow({
   icon,
   title,
   hint,
   value,
+  max,
   onChange,
 }: {
   icon: ReactNode
   title: string
   hint: string
   value: number
+  max: number
   onChange: (value: number) => void
 }) {
+  const { t } = useTranslation()
   const [draft, setDraft] = useState<string | null>(null)
+
+  const typed = draft === null || draft.trim() === '' ? null : Number(draft)
+  const outOfRange = typed !== null && (!Number.isFinite(typed) || typed < MIN_FONT_SCALE || typed > max)
 
   return (
     <NumberRow
@@ -73,18 +83,35 @@ function ScaleRow({
       title={title}
       hint={hint}
       value={draft ?? String(value)}
+      invalid={outOfRange}
+      note={outOfRange ? `${MIN_FONT_SCALE}–${max}%` : undefined}
+      reset={
+        value === DEFAULT_FONT_SCALE
+          ? undefined
+          : {
+              title: t('common.resetToDefault'),
+              onReset: () => {
+                setDraft(null)
+                onChange(DEFAULT_FONT_SCALE)
+              },
+            }
+      }
       min={MIN_FONT_SCALE}
-      max={MAX_FONT_SCALE}
+      max={max}
       step={5}
       suffix="%"
       onChange={(next) => {
         setDraft(next)
         const scale = Number(next)
         if (next.trim() === '' || !Number.isFinite(scale)) return
-        if (scale < MIN_FONT_SCALE || scale > MAX_FONT_SCALE) return
-        onChange(clampFontScale(scale))
+        if (scale < MIN_FONT_SCALE || scale > max) return
+        onChange(clampFontScale(scale, max))
       }}
-      onBlur={() => setDraft(null)}
+      onBlur={() => {
+        setDraft(null)
+        if (typed === null || !Number.isFinite(typed)) return
+        onChange(clampFontScale(typed, max))
+      }}
     />
   )
 }
@@ -138,6 +165,7 @@ export function FontSettingsSection() {
         title={t('settings.appearance.textSize')}
         hint={t('settings.appearance.textSizeHint')}
         value={fontScale}
+        max={MAX_FONT_SCALE}
         onChange={(value) => settings$.fontScale.set(value)}
       />
       <SelectRow
@@ -156,6 +184,7 @@ export function FontSettingsSection() {
         title={t('settings.appearance.messageTextSize')}
         hint={t('settings.appearance.messageTextSizeHint')}
         value={messageFontScale}
+        max={MAX_MESSAGE_FONT_SCALE}
         onChange={(value) => settings$.messageFontScale.set(value)}
       />
     </>

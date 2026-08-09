@@ -1,4 +1,4 @@
-import { Columns3, Info, Plus, RefreshCw, Search, Settings } from 'lucide-react'
+import { Columns3, Info, Plus, RefreshCw, Settings, SquareChevronRight } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { syncMail } from '../../states/mail'
@@ -53,7 +53,7 @@ export function QuickSettingsMenu({
         }}
       >
         <MenuItem
-          icon={<Search size={13} className="text-secondary" />}
+          icon={<SquareChevronRight size={13} className="text-secondary" />}
           label={t('palette.label')}
           trailing={<Hint id="palette.open" />}
           onClick={() => {

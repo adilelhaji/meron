@@ -14,7 +14,9 @@ import { sanitizeChatWallpaper } from '../lib/wallpapers'
 import {
   BASE_ROOT_FONT_SIZE,
   DEFAULT_FONT_SCALE,
+  MAX_MESSAGE_FONT_SCALE,
   clampFontScale,
+  clampMessageFontScale,
   fontStack,
   sanitizeFontChoice,
   sanitizeFontScale,
@@ -243,7 +245,7 @@ function applyFontSelection(fonts: FontSelection) {
   // Message bodies multiply their own size on top (the app-wide size already
   // reaches them through the root font size). The frames can't see this var —
   // they get a pixel size baked into their stylesheet instead.
-  const messageScale = clampFontScale(fonts.messageFontScale)
+  const messageScale = clampMessageFontScale(fonts.messageFontScale)
   if (messageScale === DEFAULT_FONT_SCALE) root.style.removeProperty('--me-message-scale')
   else root.style.setProperty('--me-message-scale', String(messageScale / 100))
 }
@@ -257,7 +259,7 @@ function bootstrapFontSelection(): FontSelection {
         fontFamily: sanitizeFontChoice(parsed.fontFamily) ?? '',
         messageFontFamily: sanitizeFontChoice(parsed.messageFontFamily) ?? '',
         fontScale: sanitizeFontScale(parsed.fontScale) ?? DEFAULT_FONT_SCALE,
-        messageFontScale: sanitizeFontScale(parsed.messageFontScale) ?? DEFAULT_FONT_SCALE,
+        messageFontScale: sanitizeFontScale(parsed.messageFontScale, MAX_MESSAGE_FONT_SCALE) ?? DEFAULT_FONT_SCALE,
       }
     }
   } catch {
@@ -568,7 +570,7 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
     if (messageFontFamily !== null) settings$.messageFontFamily.set(messageFontFamily)
     const fontScale = sanitizeFontScale(prefs[DB_KEY.fontScale])
     if (fontScale !== null) settings$.fontScale.set(fontScale)
-    const messageFontScale = sanitizeFontScale(prefs[DB_KEY.messageFontScale])
+    const messageFontScale = sanitizeFontScale(prefs[DB_KEY.messageFontScale], MAX_MESSAGE_FONT_SCALE)
     if (messageFontScale !== null) settings$.messageFontScale.set(messageFontScale)
 
     if (typeof prefs[DB_KEY.showRealAvatars] === 'boolean') {

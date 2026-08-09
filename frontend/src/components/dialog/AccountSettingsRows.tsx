@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { RotateCcw } from 'lucide-react'
 import { InfoTip } from '../tooltip/InfoTip'
 import { SelectInput, TextInput } from '../field/Field'
 
@@ -125,6 +126,9 @@ export function NumberRow({
   suffix,
   onChange,
   onBlur,
+  reset,
+  invalid = false,
+  note,
 }: {
   icon?: ReactNode
   title: string
@@ -137,6 +141,14 @@ export function NumberRow({
   onChange: (value: string) => void
   /** Fires when editing ends, for rows that hold a half-typed value while focused. */
   onBlur?: () => void
+  /** Optional one-click way back to the default, shown only while off it. */
+  reset?: { title: string; onReset: () => void }
+  /**
+   * Flags the field and shows `note` beside it — for a value the row won't keep
+   * as typed, so the correction the row makes on blur isn't a silent one.
+   */
+  invalid?: boolean
+  note?: string
 }) {
   return (
     <SettingRow
@@ -144,19 +156,39 @@ export function NumberRow({
       title={title}
       hint={hint}
       control={
-        <label className="flex items-center gap-1.5">
-          <TextInput
-            type="number"
-            min={min}
-            max={max}
-            step={step}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            onBlur={onBlur}
-            className="w-20 font-semibold"
-          />
-          <span className="text-[0.65625rem] font-bold text-secondary">{suffix}</span>
-        </label>
+        <div className="flex items-center gap-2">
+          {note && (
+            <span className={`text-[0.65625rem] font-semibold ${invalid ? 'text-rose-500' : 'text-secondary'}`}>
+              {note}
+            </span>
+          )}
+          {reset && (
+            <button
+              type="button"
+              onClick={reset.onReset}
+              title={reset.title}
+              aria-label={reset.title}
+              className="flex h-6 w-6 items-center justify-center rounded-lg text-secondary hover:bg-active hover:text-primary cursor-pointer transition-colors"
+            >
+              <RotateCcw size={13} />
+            </button>
+          )}
+          <label className="flex items-center gap-1.5">
+            <TextInput
+              type="number"
+              min={min}
+              max={max}
+              step={step}
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              onBlur={onBlur}
+              invalid={invalid}
+              aria-invalid={invalid}
+              className="w-20 font-semibold"
+            />
+            <span className="text-[0.65625rem] font-bold text-secondary">{suffix}</span>
+          </label>
+        </div>
       }
     />
   )

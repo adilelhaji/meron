@@ -1,12 +1,11 @@
-import { READER_CODE_BASE_PX, READER_HTML_BASE_PX, type MessageFrameFont } from '../../lib/fonts'
+import { type MessageFrameFont } from '../../lib/fonts'
 
 const READER_STYLE_ID = 'meron-reader-style'
 const READER_FONT_STYLE_ID = 'meron-reader-font'
 
 export const DEFAULT_READER_FONT: MessageFrameFont = {
   family: null,
-  bodyPx: READER_HTML_BASE_PX,
-  codePx: READER_CODE_BASE_PX,
+  zoom: 1,
 }
 
 const READER_CSS = `
@@ -47,7 +46,7 @@ const READER_CSS = `
     border-radius: 8px;
     background: #f1f5f9;
     color: #1e293b;
-    font: var(--meron-code-size, 13px) / 1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+    font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
     white-space: pre;
     overflow-y: hidden;
     scrollbar-gutter: stable;
@@ -212,16 +211,13 @@ export function stripTrackingPixels(html: string): string {
  * Paint a reader frame with the user's message typography. Declarations are
  * only emitted when a preference is actually set, so by default the email's own
  * fonts (and the browser default) render exactly as before. No `!important`
- * either: an email that names its own fonts keeps them.
+ * either: an email that names its own fonts keeps them. The text size arrives as
+ * a body `zoom` so it also moves the emails that size their own text.
  */
 export function applyReaderFont(doc: Document, font: MessageFrameFont) {
-  const root = doc.documentElement
-  if (font.codePx === DEFAULT_READER_FONT.codePx) root.style.removeProperty('--meron-code-size')
-  else root.style.setProperty('--meron-code-size', `${font.codePx}px`)
-
   const rules: string[] = []
   if (font.family) rules.push(`font-family: ${font.family};`)
-  if (font.bodyPx !== DEFAULT_READER_FONT.bodyPx) rules.push(`font-size: ${font.bodyPx}px;`)
+  if (font.zoom !== 1) rules.push(`zoom: ${font.zoom};`)
 
   let style = doc.getElementById(READER_FONT_STYLE_ID)
   if (rules.length === 0) {
@@ -231,7 +227,7 @@ export function applyReaderFont(doc: Document, font: MessageFrameFont) {
   if (!style) {
     style = doc.createElement('style')
     style.id = READER_FONT_STYLE_ID
-    ;(doc.head ?? root).appendChild(style)
+    ;(doc.head ?? doc.documentElement).appendChild(style)
   }
   style.textContent = `body { ${rules.join(' ')} }`
 }

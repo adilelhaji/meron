@@ -5,7 +5,6 @@ import { HtmlFrame } from './HtmlFrame'
 import { LinkHoverPreview } from './LinkHoverPreview'
 import { htmlReferencesMedia, isImage, mediaSrc } from './messageHelpers'
 import { applyReaderFont, applyReaderLayout, stripTrackingPixels } from './readerHtml'
-import { READER_CODE_BASE_PX, READER_HTML_BASE_PX } from '../../lib/fonts'
 import { useMessageFrameFont } from './useMessageFrameFont'
 
 const readerScrollPositions = new Map<string, number>()
@@ -34,7 +33,7 @@ interface HtmlMessageViewProps {
 export function HtmlMessageView({ scrollKey, title, html, text, attachments, viewMode }: HtmlMessageViewProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const textRef = useRef<HTMLDivElement | null>(null)
-  const messageFont = useMessageFrameFont(READER_HTML_BASE_PX, READER_CODE_BASE_PX)
+  const messageFont = useMessageFrameFont()
   const [hoveredLink, setHoveredLink] = useState<string | null>(null)
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([])
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null)

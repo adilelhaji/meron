@@ -3,7 +3,6 @@ import { useTranslation } from '../../lib/i18n'
 import { Gallery, type GalleryItem } from './Gallery'
 import { HtmlFrame } from './HtmlFrame'
 import { prepareBubbleHtml } from './bubbleHtml'
-import { BUBBLE_CODE_BASE_PX, BUBBLE_HTML_BASE_PX } from '../../lib/fonts'
 import { useMessageFrameFont } from './useMessageFrameFont'
 
 const MIN_FRAME_HEIGHT = 80
@@ -29,13 +28,13 @@ function clampHeight(height: number) {
 // the frame grows to fit while the bubble wrapper owns scrolling.
 export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHover?: (url: string | null) => void }) {
   const { t } = useTranslation()
-  const messageFont = useMessageFrameFont(BUBBLE_HTML_BASE_PX, BUBBLE_CODE_BASE_PX)
+  const messageFont = useMessageFrameFont()
   // Re-preparing the document is what re-renders the frame with new typography.
   const prepareHtml = useCallback((raw: string) => prepareBubbleHtml(raw, messageFont), [messageFont])
   // Typography is part of the key: the same HTML measures to a different height
   // once the message font or text size changes.
   const cacheKey = useMemo(
-    () => `${messageFont.family ?? ''}:${messageFont.bodyPx}:${cacheKeyForHtml(html)}`,
+    () => `${messageFont.family ?? ''}:${messageFont.zoom}:${cacheKeyForHtml(html)}`,
     [html, messageFont],
   )
   const cachedHeight = measuredHeights.get(cacheKey)
@@ -137,14 +136,15 @@ export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHov
         wrapOverflowingTables()
         const bodyRect = doc.body?.getBoundingClientRect()
         const bodyHeight = bodyRect ? bodyRect.top + bodyRect.height : 0
+        // Every term here is in the frame's own coordinate space: rects always
+        // include zoom, and the root element is never zoomed (only the body is,
+        // for the message text size). The body's scrollHeight / offsetHeight are
+        // deliberately left out — engines disagree on whether those report the
+        // zoomed or the unzoomed box, so mixing them in would size the frame off
+        // by the zoom factor in one direction or the other. Content overflowing
+        // the body is still covered: the root's scrollHeight spans it.
         const nextHeight = clampHeight(
-          Math.max(
-            bodyHeight,
-            doc.body?.scrollHeight ?? 0,
-            doc.documentElement?.scrollHeight ?? 0,
-            doc.body?.offsetHeight ?? 0,
-            doc.documentElement?.offsetHeight ?? 0,
-          ),
+          Math.max(bodyHeight, doc.documentElement?.scrollHeight ?? 0, doc.documentElement?.offsetHeight ?? 0),
         )
         commitHeight(nextHeight)
       }

@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'bun:test'
 import {
-  BUBBLE_HTML_BASE_PX,
   DEFAULT_FONT_SCALE,
   FONT_OPTIONS,
   MAX_FONT_SCALE,
+  MAX_MESSAGE_FONT_SCALE,
   MIN_FONT_SCALE,
   clampFontScale,
+  clampMessageFontScale,
   fontStack,
   isBuiltinFont,
-  messageFontSizePx,
+  messageFrameZoom,
   messageFontStack,
   messageFrameFont,
   sanitizeFontChoice,
@@ -57,6 +58,13 @@ describe('font scale', () => {
     expect(clampFontScale(Number.NaN)).toBe(DEFAULT_FONT_SCALE)
   })
 
+  it('lets message bodies scale past the app-wide cap', () => {
+    expect(clampMessageFontScale(999)).toBe(MAX_MESSAGE_FONT_SCALE)
+    expect(clampMessageFontScale(380)).toBe(380)
+    expect(clampFontScale(180)).toBe(MAX_FONT_SCALE)
+    expect(sanitizeFontScale(380, MAX_MESSAGE_FONT_SCALE)).toBe(380)
+  })
+
   it('only accepts stored numbers', () => {
     expect(sanitizeFontScale('120')).toBeNull()
     expect(sanitizeFontScale(120)).toBe(120)
@@ -70,21 +78,21 @@ describe('message typography', () => {
     expect(messageFontStack('georgia', 'Fira Sans')).toStartWith("Georgia, 'Times New Roman', ")
   })
 
-  it('multiplies the app size and the message size', () => {
-    expect(messageFontSizePx(14, 100, 100)).toBe(14)
-    expect(messageFontSizePx(14, 150, 100)).toBe(21)
-    expect(messageFontSizePx(14, 100, 150)).toBe(21)
-    expect(messageFontSizePx(14, 150, 150)).toBe(31.5)
+  it('multiplies the app size and the message size into one zoom', () => {
+    expect(messageFrameZoom(100, 100)).toBe(1)
+    expect(messageFrameZoom(150, 100)).toBe(1.5)
+    expect(messageFrameZoom(100, 400)).toBe(4)
+    expect(messageFrameZoom(150, 150)).toBe(2.25)
   })
 
   it('builds a frame font from the stored preferences', () => {
-    const font = messageFrameFont(
-      { fontFamily: '', messageFontFamily: 'georgia', fontScale: 100, messageFontScale: 120 },
-      BUBBLE_HTML_BASE_PX,
-      12.5,
-    )
+    const font = messageFrameFont({
+      fontFamily: '',
+      messageFontFamily: 'georgia',
+      fontScale: 100,
+      messageFontScale: 120,
+    })
     expect(font.family).toStartWith('Georgia, ')
-    expect(font.bodyPx).toBe(16.8)
-    expect(font.codePx).toBe(15)
+    expect(font.zoom).toBe(1.2)
   })
 })

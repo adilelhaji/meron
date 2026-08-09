@@ -2,8 +2,7 @@ import { BUBBLE_CODE_BASE_PX, BUBBLE_HTML_BASE_PX, type MessageFrameFont } from 
 
 const DEFAULT_MESSAGE_FRAME_FONT: MessageFrameFont = {
   family: null,
-  bodyPx: BUBBLE_HTML_BASE_PX,
-  codePx: BUBBLE_CODE_BASE_PX,
+  zoom: 1,
 }
 
 // Sanitises and styles an email's HTML body before it's rendered inside the
@@ -12,8 +11,9 @@ const DEFAULT_MESSAGE_FRAME_FONT: MessageFrameFont = {
 // own JS, plus a base stylesheet that scopes typography and code-block styling.
 //
 // `font` carries the user's message typography: the frame can't reach the app's
-// CSS vars or root font size, so the family and the scaled pixel sizes are baked
-// into the stylesheet (see lib/fonts).
+// CSS vars or root font size, so the family is baked into the stylesheet and the
+// text size arrives as a body `zoom` — a baked font-size would only move the
+// bodies that don't set their own, which most HTML mail does (see lib/fonts).
 export function prepareBubbleHtml(html: string, font: MessageFrameFont = DEFAULT_MESSAGE_FRAME_FONT) {
   try {
     const parser = new DOMParser()
@@ -42,11 +42,13 @@ export function prepareBubbleHtml(html: string, font: MessageFrameFont = DEFAULT
         padding: 0 !important;
         background: transparent !important;
         color: #0f172a;
-        font: ${font.bodyPx}px/1.45 ${font.family ?? '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'};
+        font: ${BUBBLE_HTML_BASE_PX}px/1.45 ${font.family ?? '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'};
         overflow-wrap: anywhere;
         overflow: hidden !important;
       }
-      body { max-width: 100% !important; }
+      /* Zoom sits on the body, not the root: the frame self-sizes off the
+         document's height, which only tracks the scaled content that way. */
+      body { max-width: 100% !important;${font.zoom === 1 ? '' : ` zoom: ${font.zoom};`} }
       *, *::before, *::after { box-sizing: border-box; }
       img, video {
         max-width: 100% !important;
@@ -65,7 +67,7 @@ export function prepareBubbleHtml(html: string, font: MessageFrameFont = DEFAULT
         border-radius: 8px;
         background: #f1f5f9;
         color: #1e293b;
-        font: ${font.codePx}px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font: ${BUBBLE_CODE_BASE_PX}px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       }
       pre code {
         display: block;
