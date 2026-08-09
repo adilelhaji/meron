@@ -35,6 +35,7 @@ import { compose$, openComposeTab, openReplyInFullEditor, closeMessageTab } from
 import {
   isBareShortcut,
   matchShortcut,
+  shortcutForChord,
   RAIL_SHORTCUT_IDS,
   type RailShortcutId,
   type ShortcutId,
@@ -217,7 +218,13 @@ export function AppHotkeys() {
         return
       }
 
+      const action = matchShortcut(event)
+
+      // Built-in list navigation on the arrow and Delete keys. No default chord
+      // uses them, but a user can rebind a shortcut onto one — that binding wins,
+      // so the row below never runs behind its back.
       if (
+        !action &&
         !event.metaKey &&
         !event.ctrlKey &&
         !event.altKey &&
@@ -230,7 +237,6 @@ export function AppHotkeys() {
         return
       }
 
-      const action = matchShortcut(event)
       if (!action) return
 
       if (handleRailShortcut(action)) {
@@ -373,11 +379,23 @@ export function AppHotkeys() {
       }
     }
 
+    // Keys forwarded out of an HTML message iframe, which the global keydown
+    // listener never sees. HtmlFrame only forwards bare ArrowUp/ArrowDown, so
+    // the chord is fully described by the key alone.
     const onFrameKeyDown = (event: Event) => {
       const detail = (event as CustomEvent<{ key?: string }>).detail
-      if (detail?.key && handleKanbanArrowNavigation(detail.key, null)) {
+      if (!detail?.key) return
+
+      // A shortcut rebound onto the arrow key wins over list navigation, same
+      // precedence as in the main handler. Replaying it as a real keydown runs
+      // it through the one switch above instead of duplicating the dispatch.
+      if (shortcutForChord({ key: detail.key })) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: detail.key }))
         event.preventDefault()
+        return
       }
+
+      if (handleKanbanArrowNavigation(detail.key, null)) event.preventDefault()
     }
 
     window.addEventListener('keydown', onKeyDown)

@@ -11,6 +11,13 @@ import {
   type ThemeDef,
 } from '../lib/themes'
 import { sanitizeChatWallpaper } from '../lib/wallpapers'
+import {
+  sanitizeShortcutOverrides,
+  setShortcutOverrides,
+  type Chord,
+  type ShortcutId,
+  type ShortcutOverrides,
+} from '../lib/shortcuts'
 import type { Account, ChatWallpaper } from '../types'
 import { normalizeI18nLanguage, resolveI18nLanguageFromWebLocale, type SupportedI18nLanguage } from '../lib/i18n'
 
@@ -96,6 +103,8 @@ export type Settings = {
   /** Version whose update banner the user dismissed, so it doesn't nag. */
   dismissedUpdateVersion: string | null
   language: SupportedI18nLanguage | null
+  /** Rebound keyboard shortcuts, keyed by shortcut id (see lib/shortcuts.ts). */
+  shortcutOverrides: ShortcutOverrides
   /**
    * App-wide proxy for mail sockets, feed fetches and OAuth calls. Accounts
    * follow this unless they carry their own override (see AccountProxyCard).
@@ -127,6 +136,7 @@ const DB_KEY = {
   autoUpdateCheck: 'auto_update_check',
   dismissedUpdateVersion: 'dismissed_update_version',
   language: 'language',
+  shortcutOverrides: 'shortcut_overrides',
   proxy: 'proxy',
 } satisfies Record<keyof Settings, string>
 
@@ -225,8 +235,13 @@ export const settings$ = observable<Settings>({
   autoUpdateCheck: true,
   dismissedUpdateVersion: null,
   language: null,
+  shortcutOverrides: {},
   proxy: EMPTY_PROXY,
 })
+
+// lib/shortcuts resolves chords from a local mirror, so keep it in step with the
+// persisted overrides (hydration included — onChange fires for those too).
+settings$.shortcutOverrides.onChange(({ value }) => setShortcutOverrides(value))
 
 // Suppress persistence while applying values loaded from the DB, so hydration
 // doesn't immediately echo them back.
@@ -405,6 +420,27 @@ export function visibleSideNavAccounts(accounts: Account[]): Account[] {
   return accounts.filter((account) => !hidden.has(account.id))
 }
 
+/** Rebind a shortcut. Binding it back to its default clears the override. */
+export function setShortcutBinding(id: ShortcutId, chord: Chord) {
+  const next = { ...settings$.shortcutOverrides.peek(), [id]: chord }
+  settings$.shortcutOverrides.set(sanitizeShortcutOverrides(next) ?? {})
+}
+
+/** Restore one shortcut's default chord. */
+export function resetShortcutBinding(id: ShortcutId) {
+  const current = settings$.shortcutOverrides.peek()
+  if (!current[id]) return
+  const next = { ...current }
+  delete next[id]
+  settings$.shortcutOverrides.set(next)
+}
+
+/** Restore every shortcut's default chord. */
+export function resetAllShortcutBindings() {
+  if (Object.keys(settings$.shortcutOverrides.peek()).length === 0) return
+  settings$.shortcutOverrides.set({})
+}
+
 export function setUnifiedInboxSideNavVisible(visible: boolean) {
   settings$.showUnifiedInboxInSideNav.set(visible)
 }
@@ -485,6 +521,9 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
 
     const language = normalizeI18nLanguage(prefs[DB_KEY.language] as string | null | undefined)
     settings$.language.set(language)
+
+    const shortcutOverrides = sanitizeShortcutOverrides(prefs[DB_KEY.shortcutOverrides])
+    if (shortcutOverrides) settings$.shortcutOverrides.set(shortcutOverrides)
   } finally {
     hydrating = false
   }

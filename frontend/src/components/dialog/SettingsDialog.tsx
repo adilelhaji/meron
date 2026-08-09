@@ -21,6 +21,7 @@ import {
   ScrollText,
   RefreshCw,
   MessagesSquare,
+  Keyboard,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { importOpml, exportOpml } from '../../states/feeds'
@@ -444,6 +445,22 @@ function GeneralSection() {
           value={sendShortcut}
           options={SEND_SHORTCUT_OPTIONS}
           onChange={(value) => settings$.sendShortcut.set(value)}
+        />
+      </SettingsGroup>
+
+      <SettingsGroup title={t('shortcuts.title')}>
+        <SettingRow
+          title={t('shortcuts.title')}
+          hint={t('shortcuts.customizeHint')}
+          control={
+            <button
+              onClick={() => ui$.shortcutsOpen.set(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[10px] cursor-pointer transition-colors"
+            >
+              <Keyboard size={12} />
+              {t('shortcuts.customize')}
+            </button>
+          }
         />
       </SettingsGroup>
 

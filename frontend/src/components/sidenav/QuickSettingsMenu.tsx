@@ -1,9 +1,19 @@
-import { Columns3, Info, Plus, RefreshCw, Settings } from 'lucide-react'
+import { Columns3, Info, Plus, RefreshCw, Search, Settings } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { syncMail } from '../../states/mail'
-import { ui$ } from '../../states/ui'
+import { openCommandPalette, ui$ } from '../../states/ui'
+import { formatShortcut, isMac, type ShortcutId } from '../../lib/shortcuts'
 import { MenuItem } from '../menu/MenuItem'
+
+/** The chord a menu row triggers, so the keystroke is learnable from the menu. */
+function Hint({ id }: { id: ShortcutId }) {
+  return (
+    <kbd className="shrink-0 rounded border border-border bg-app px-1.5 py-0.5 text-[10px] font-medium text-secondary">
+      {formatShortcut(id).join(isMac ? '' : '+')}
+    </kbd>
+  )
+}
 
 /**
  * Popover with common app actions. Shared by the desktop side navigation 3-dot menu and
@@ -33,7 +43,7 @@ export function QuickSettingsMenu({
         }}
       />
       <div
-        className={`fixed z-50 w-52 rounded-lg border border-border bg-chats p-2 shadow-2xl animate-fade-in text-primary ${
+        className={`fixed z-50 w-60 rounded-lg border border-border bg-chats p-2 shadow-2xl animate-fade-in text-primary ${
           anchor.placement === 'up' ? '-translate-y-full' : ''
         }`}
         style={{ left: anchor.x, top: anchor.placement === 'up' ? anchor.y - 4 : anchor.y + 4 }}
@@ -42,6 +52,15 @@ export function QuickSettingsMenu({
           e.stopPropagation()
         }}
       >
+        <MenuItem
+          icon={<Search size={13} className="text-secondary" />}
+          label={t('palette.label')}
+          trailing={<Hint id="palette.open" />}
+          onClick={() => {
+            onClose()
+            openCommandPalette()
+          }}
+        />
         <MenuItem
           icon={<Plus size={13} className="text-secondary" />}
           label={t('accounts.actions.addAccount')}
@@ -63,11 +82,13 @@ export function QuickSettingsMenu({
         <MenuItem
           icon={<RefreshCw size={13} className={busy ? 'animate-spin text-accent' : 'text-secondary'} />}
           label={busy ? t('threads.actions.syncing') : t('threads.actions.syncMailbox')}
+          trailing={<Hint id="mail.sync" />}
           onClick={() => syncMail()}
         />
         <MenuItem
           icon={<Settings size={13} className="text-secondary" />}
           label={t('settings.label')}
+          trailing={<Hint id="settings.open" />}
           onClick={() => {
             ui$.settingsOpen.set(true)
             onClose()
