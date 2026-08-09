@@ -7,7 +7,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ButtonSize = 'sm' | 'md'
 
 const SIZES: Record<ButtonSize, { box: string; icon: number }> = {
-  sm: { box: 'h-8 px-3 text-[11px]', icon: 13 },
+  sm: { box: 'h-8 px-3 text-[0.6875rem]', icon: 13 },
   md: { box: 'h-9 px-3.5 text-xs', icon: 14 },
 }
 

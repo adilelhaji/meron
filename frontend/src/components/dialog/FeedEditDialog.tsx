@@ -49,8 +49,8 @@ export function FeedEditDialog() {
               <Rss size={17} />
             </div>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-bold tracking-tight leading-tight truncate">{feed.name}</h2>
-              <p className="text-[10.5px] text-secondary mt-1 font-medium truncate">
+              <h2 className="text-[0.9375rem] font-bold tracking-tight leading-tight truncate">{feed.name}</h2>
+              <p className="text-[0.65625rem] text-secondary mt-1 font-medium truncate">
                 {feed.url || t('feeds.manageSubscription')}
               </p>
             </div>
@@ -61,9 +61,9 @@ export function FeedEditDialog() {
         {/* Feed URL */}
         {feed.url && (
           <div className="flex flex-col gap-2">
-            <label className="text-[11px] font-semibold text-secondary px-1">{t('feeds.url')}</label>
+            <label className="text-[0.6875rem] font-semibold text-secondary px-1">{t('feeds.url')}</label>
             <div className="flex items-center gap-2 rounded-xl bg-hover px-3 py-2">
-              <span className="flex-1 min-w-0 truncate text-[11px] font-medium text-primary">{feed.url}</span>
+              <span className="flex-1 min-w-0 truncate text-[0.6875rem] font-medium text-primary">{feed.url}</span>
               <button
                 onClick={onCopy}
                 className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg hover:bg-active text-secondary transition-colors cursor-pointer"
@@ -77,8 +77,8 @@ export function FeedEditDialog() {
 
         {/* Danger zone */}
         <div className="flex flex-col gap-2">
-          <label className="text-[11px] font-semibold text-secondary px-1">{t('feeds.actions.deleteFeed')}</label>
-          <p className="text-[10.5px] text-secondary px-1 leading-relaxed font-medium">{t('feeds.deleteHint')}</p>
+          <label className="text-[0.6875rem] font-semibold text-secondary px-1">{t('feeds.actions.deleteFeed')}</label>
+          <p className="text-[0.65625rem] text-secondary px-1 leading-relaxed font-medium">{t('feeds.deleteHint')}</p>
         </div>
 
         {/* Footer */}

@@ -40,7 +40,7 @@ export function BoardDialog({
           <h2 className="text-sm font-bold text-primary">{t('kanban.actions.addBoard')}</h2>
           <IconButton icon={X} iconSize={15} label={t('buttons.close')} size="sm" radius="lg" onClick={onClose} />
         </div>
-        <label className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-secondary">
+        <label className="mb-1.5 block text-[0.6875rem] font-bold uppercase tracking-wide text-secondary">
           {t('kanban.board.name')}
         </label>
         <TextInput

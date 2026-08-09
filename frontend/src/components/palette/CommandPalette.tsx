@@ -100,7 +100,7 @@ export function CommandPalette() {
                   key={command.id}
                   onMouseEnter={() => ui$.paletteIndex.set(i)}
                   onClick={() => command.run()}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[13px] transition-colors cursor-pointer ${
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-left text-[0.8125rem] transition-colors cursor-pointer ${
                     selected ? 'bg-accent/10 text-primary' : 'text-primary hover:bg-hover'
                   }`}
                 >
@@ -108,7 +108,7 @@ export function CommandPalette() {
                   <span className="flex-1 truncate">{command.label}</span>
                   {command.active && <Check size={14} className="shrink-0 text-accent" />}
                   {command.shortcut && (
-                    <kbd className="shrink-0 rounded border border-border bg-app px-1.5 py-0.5 text-[10px] font-medium text-secondary">
+                    <kbd className="shrink-0 rounded border border-border bg-app px-1.5 py-0.5 text-[0.625rem] font-medium text-secondary">
                       {formatShortcut(command.shortcut).join(isMac ? '' : '+')}
                     </kbd>
                   )}
@@ -118,7 +118,7 @@ export function CommandPalette() {
           )}
         </div>
 
-        <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-[10px] text-secondary">
+        <div className="flex items-center gap-4 border-t border-border px-4 py-2 text-[0.625rem] text-secondary">
           <Hint keys="Enter" label={t('palette.hints.run')} />
           <Hint keys="↑↓" label={t('palette.hints.navigate')} />
           <Hint keys="Esc" label={t('palette.hints.close')} />

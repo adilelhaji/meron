@@ -46,6 +46,7 @@ import { IconButton } from '../button/IconButton'
 import { NumberRow, SegmentedRow, SettingRow, SettingsGroup, ToggleRow, SelectRow } from './AccountSettingsRows'
 import { supportedI18nLanguages, languageNativeNames, type SupportedI18nLanguage } from '../../lib/i18n'
 import { ThemeSettingsSection } from './ThemeSettingsSection'
+import { FontSettingsSection } from './FontSettingsSection'
 import { AccountProxyCard, ProxySettingsSection } from './ProxySettingsCard'
 import { AccountProfileGroup } from './AccountProfileGroup'
 import { useAccountAvatar } from './useAccountAvatar'
@@ -247,7 +248,7 @@ function AccountGroup({
   return (
     <>
       <div className="mt-5 mb-1.5 flex items-center justify-between px-3">
-        <span className="text-[11px] font-semibold text-secondary">{label}</span>
+        <span className="text-[0.6875rem] font-semibold text-secondary">{label}</span>
         <button
           onClick={onAdd}
           title={t('accounts.actions.addAccount')}
@@ -257,7 +258,7 @@ function AccountGroup({
         </button>
       </div>
       {accounts.length === 0 ? (
-        <p className="px-3 py-1 text-[10.5px] text-secondary font-medium">{emptyLabel}</p>
+        <p className="px-3 py-1 text-[0.65625rem] text-secondary font-medium">{emptyLabel}</p>
       ) : (
         accounts.map((account) => {
           const { displayName, subtitle } = accountMeta(account, t)
@@ -312,7 +313,7 @@ function BoardGroup({
   return (
     <>
       <div className="mt-5 mb-1.5 flex items-center justify-between px-3">
-        <span className="text-[11px] font-semibold text-secondary">{t('settings.sections.kanbanBoards')}</span>
+        <span className="text-[0.6875rem] font-semibold text-secondary">{t('settings.sections.kanbanBoards')}</span>
         <button
           onClick={() => onSelect(createKanbanBoard())}
           title={t('kanban.actions.addBoard')}
@@ -322,7 +323,7 @@ function BoardGroup({
         </button>
       </div>
       {boards.length === 0 ? (
-        <p className="px-3 py-1 text-[10.5px] text-secondary font-medium">{t('settings.sections.noBoards')}</p>
+        <p className="px-3 py-1 text-[0.65625rem] text-secondary font-medium">{t('settings.sections.noBoards')}</p>
       ) : (
         boards.map((board) => (
           <NavItem key={board.id} active={activeKey === board.id} onClick={() => onSelect(board.id)}>
@@ -356,6 +357,7 @@ function GeneralSection() {
     <div className="flex flex-col gap-4">
       <SettingsGroup title={t('settings.pages.appearance')}>
         <ThemeSettingsSection />
+        <FontSettingsSection />
         <ToggleRow
           icon={<ImageIcon size={15} />}
           title={t('settings.appearance.showSenderImages')}
@@ -455,7 +457,7 @@ function GeneralSection() {
           control={
             <button
               onClick={() => ui$.shortcutsOpen.set(true)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[10px] cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[0.625rem] cursor-pointer transition-colors"
             >
               <Keyboard size={12} />
               {t('shortcuts.customize')}
@@ -567,7 +569,7 @@ function StorageGroup() {
           <button
             onClick={clearCache}
             disabled={clearing || (usage?.cacheBytes ?? 0) === 0}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold text-[10px] cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold text-[0.625rem] cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
               confirming ? 'bg-red-500 hover:bg-red-600 text-white' : 'bg-hover hover:bg-active text-primary'
             }`}
           >
@@ -591,7 +593,7 @@ function LogsGroup() {
         control={
           <button
             onClick={() => setViewerOpen(true)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[10px] cursor-pointer transition-colors"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[0.625rem] cursor-pointer transition-colors"
           >
             <ScrollText size={12} />
             {t('settings.viewSyncLog')}
@@ -667,7 +669,7 @@ function LogViewerDialog({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => void exportLog()}
               disabled={!log}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[10px] cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[0.625rem] cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download size={12} />
               {t('common.export')}
@@ -681,7 +683,7 @@ function LogViewerDialog({ onClose }: { onClose: () => void }) {
           ) : log === '' ? (
             <p className="text-xs text-secondary">{t('settings.syncLogEmpty')}</p>
           ) : (
-            <pre className="whitespace-pre-wrap break-all font-mono text-[11px] leading-4 text-primary">{log}</pre>
+            <pre className="whitespace-pre-wrap break-all font-mono text-[0.6875rem] leading-4 text-primary">{log}</pre>
           )}
         </div>
       </div>
@@ -700,14 +702,14 @@ function OpmlGroup({ account }: { account: string }) {
           <div className="flex items-center gap-2">
             <button
               onClick={() => importOpml(account)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[10px] cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[0.625rem] cursor-pointer transition-colors"
             >
               <Upload size={12} />
               {t('common.import')}
             </button>
             <button
               onClick={() => exportOpml(account)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[10px] cursor-pointer transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[0.625rem] cursor-pointer transition-colors"
             >
               <Download size={12} />
               {t('common.export')}
@@ -769,8 +771,8 @@ function AccountPanel({ account }: { account: Account }) {
           />
         )}
         <div className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-bold tracking-tight leading-tight truncate">{displayName}</h2>
-          <p className="text-[10.5px] text-secondary mt-0.5 font-medium truncate">{subtitle}</p>
+          <h2 className="text-[0.9375rem] font-bold tracking-tight leading-tight truncate">{displayName}</h2>
+          <p className="text-[0.65625rem] text-secondary mt-0.5 font-medium truncate">{subtitle}</p>
         </div>
       </div>
 
@@ -785,7 +787,7 @@ function AccountPanel({ account }: { account: Account }) {
               <button
                 type="button"
                 onClick={reconnectAccount}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-accent hover:bg-accent-hover text-white font-bold text-[10px] cursor-pointer transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-accent hover:bg-accent-hover text-white font-bold text-[0.625rem] cursor-pointer transition-colors"
               >
                 <KeyRound size={12} />
                 {t('settings.account.reconnectButton', { defaultValue: 'Reconnect' })}

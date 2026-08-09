@@ -16,7 +16,7 @@ export function ConversationSubject({
       <button
         type="button"
         onClick={onCopy}
-        className="block max-w-full truncate rounded-sm text-left text-[15.5px] font-bold leading-snug tracking-wide text-primary outline-none transition-colors cursor-copy hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/40"
+        className="block max-w-full truncate rounded-sm text-left text-[0.96875rem] font-bold leading-snug tracking-wide text-primary outline-none transition-colors cursor-copy hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/40"
         aria-label={copyLabel}
         aria-describedby={tooltipId}
       >

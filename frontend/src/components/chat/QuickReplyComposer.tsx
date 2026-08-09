@@ -53,7 +53,7 @@ export function QuickReplyComposer() {
             placeholder={t('composer.placeholders.quickMessage')}
             rows={1}
             spellCheck={spellCheck}
-            className="flex-1 py-[7px] px-1 max-h-[254px] min-h-8.5 bg-transparent text-[15px] text-primary resize-none placeholder-secondary border-none outline-none leading-5"
+            className="flex-1 py-[7px] px-1 max-h-[254px] min-h-8.5 bg-transparent text-[0.9375rem] text-primary resize-none placeholder-secondary border-none outline-none leading-5"
             onKeyDown={handleComposerKeyDown}
             onPaste={handleComposerPaste}
           />

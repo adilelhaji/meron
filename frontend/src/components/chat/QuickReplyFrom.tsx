@@ -35,7 +35,7 @@ export function QuickReplyFrom() {
           setMenu({ x: rect.left, y: rect.top - menuHeight - MENU_GAP_PX })
         }}
         title={t('composer.actions.chooseSendAddress')}
-        className="flex max-w-full items-center gap-1 self-start rounded-lg px-1.5 py-0.5 text-[11px] text-secondary hover:bg-active hover:text-primary transition-colors cursor-pointer"
+        className="flex max-w-full items-center gap-1 self-start rounded-lg px-1.5 py-0.5 text-[0.6875rem] text-secondary hover:bg-active hover:text-primary transition-colors cursor-pointer"
       >
         <span className="font-semibold">{t('composer.fields.from')}</span>
         <span className="truncate">{label}</span>

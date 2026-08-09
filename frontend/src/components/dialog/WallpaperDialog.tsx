@@ -69,7 +69,7 @@ export function WallpaperDialog({
         <div className="flex items-center justify-between gap-3 border-b border-border/70 px-6 py-4 shrink-0">
           <div className="flex items-center gap-2">
             <ImageIcon className="text-accent" size={16} />
-            <h3 className="text-[14px] font-bold leading-tight">{title}</h3>
+            <h3 className="text-[0.875rem] font-bold leading-tight">{title}</h3>
           </div>
           <IconButton icon={X} iconSize={15} label={t('buttons.close')} size="sm" onClick={onClose} />
         </div>
@@ -100,7 +100,7 @@ export function WallpaperDialog({
                 )}
                 <span className="relative flex flex-col items-center gap-1 rounded-lg bg-chats/90 px-3 py-2 border border-border/30 shadow-xs">
                   <Upload size={15} />
-                  <span className="text-[10px] font-bold leading-none">
+                  <span className="text-[0.625rem] font-bold leading-none">
                     {busy ? t('wallpaper.uploading') : t('wallpaper.uploadCustom')}
                   </span>
                 </span>
@@ -153,23 +153,23 @@ export function WallpaperDialog({
 
               {/* Chat bubbles container */}
               <div className="relative z-10 flex-1 flex flex-col justify-end p-3.5 gap-3">
-                <div className="mx-auto select-none rounded-full bg-active border border-border/30 px-2.5 py-0.8 text-center text-[9px] font-bold text-secondary/80">
+                <div className="mx-auto select-none rounded-full bg-active border border-border/30 px-2.5 py-0.8 text-center text-[0.5625rem] font-bold text-secondary/80">
                   Today
                 </div>
 
                 {/* Left Bubble (Incoming) */}
                 <div className="flex items-end gap-1.5 max-w-[85%] self-start">
-                  <div className="h-5 w-5 rounded-full bg-accent/80 flex items-center justify-center text-[8.5px] font-bold text-white shadow-xs">
+                  <div className="h-5 w-5 rounded-full bg-accent/80 flex items-center justify-center text-[0.53125rem] font-bold text-white shadow-xs">
                     {previewName ? previewName.slice(0, 1) : 'U'}
                   </div>
-                  <div className="rounded-2xl rounded-bl-sm border border-border bg-chats p-2.5 text-[11px] leading-normal text-primary shadow-xs">
+                  <div className="rounded-2xl rounded-bl-sm border border-border bg-chats p-2.5 text-[0.6875rem] leading-normal text-primary shadow-xs">
                     How does this chat wallpaper look on your screen?
                   </div>
                 </div>
 
                 {/* Right Bubble (Outgoing) */}
                 <div className="flex flex-col max-w-[80%] self-end">
-                  <div className="rounded-2xl rounded-br-sm border border-accent/20 bg-accent text-white p-2.5 text-[11px] leading-normal shadow-xs">
+                  <div className="rounded-2xl rounded-br-sm border border-accent/20 bg-accent text-white p-2.5 text-[0.6875rem] leading-normal shadow-xs">
                     Looks fantastic! The text contrast and background pattern are perfectly balanced.
                   </div>
                 </div>

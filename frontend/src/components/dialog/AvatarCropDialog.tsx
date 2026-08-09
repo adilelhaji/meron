@@ -177,8 +177,8 @@ export function AvatarCropDialog({
       <div className="w-full max-w-sm rounded-3xl border border-border bg-chats text-primary shadow-2xl animate-slide-up overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-4">
           <div className="min-w-0">
-            <h3 className="text-[14px] font-bold leading-tight">{t('avatar.edit')}</h3>
-            <p className="mt-0.5 truncate text-[10.5px] font-medium text-secondary">{file.name}</p>
+            <h3 className="text-[0.875rem] font-bold leading-tight">{t('avatar.edit')}</h3>
+            <p className="mt-0.5 truncate text-[0.65625rem] font-medium text-secondary">{file.name}</p>
           </div>
           <IconButton
             icon={X}

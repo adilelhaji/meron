@@ -91,13 +91,13 @@ export function MessageRow({
           className="flex items-center gap-0.5 text-red-500 hover:text-red-600 cursor-pointer"
         >
           <AlertCircle size={12} />
-          <span className="text-[10px] font-semibold">{t('chat.retry')}</span>
+          <span className="text-[0.625rem] font-semibold">{t('chat.retry')}</span>
         </button>
       ) : null
     ) : null
 
   const draftBadge = isDraft ? (
-    <span className="rounded-full border border-accent/35 bg-accent/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-accent">
+    <span className="rounded-full border border-accent/35 bg-accent/10 px-1.5 py-0.5 text-[0.59375rem] font-bold uppercase tracking-wide text-accent">
       {t('chat.draft')}
     </span>
   ) : null
@@ -119,12 +119,12 @@ export function MessageRow({
       >
         <Avatar name={view.avatarName} email={view.avatarEmail} src={view.avatarSrc} size={26} className="shrink-0" />
         <span
-          className={`shrink-0 max-w-[30%] truncate text-[13px] text-primary ${message.unread ? 'font-bold' : 'font-semibold'}`}
+          className={`shrink-0 max-w-[30%] truncate text-[0.8125rem] text-primary ${message.unread ? 'font-bold' : 'font-semibold'}`}
         >
           {outgoing && recipientSummary ? t('chat.toRecipients', { recipients: recipientSummary }) : senderName}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[12.5px] text-secondary/80">{collapsedPreview(message)}</span>
-        <div className="flex shrink-0 items-center gap-1.5 text-[10.5px] text-secondary/80">
+        <span className="min-w-0 flex-1 truncate text-[0.78125rem] text-secondary/80">{collapsedPreview(message)}</span>
+        <div className="flex shrink-0 items-center gap-1.5 text-[0.65625rem] text-secondary/80">
           {draftBadge}
           {message.has_attachments && <Paperclip size={12} />}
           {message.starred && <Star size={12} className="fill-amber-500 text-amber-500" />}
@@ -158,15 +158,15 @@ export function MessageRow({
             title={t('chat.collapseMessage')}
             className="flex cursor-pointer items-baseline gap-1.5"
           >
-            <span className="truncate text-[13.5px] font-semibold text-primary">{senderName}</span>
-            <span className="truncate text-[11.5px] text-secondary/80">{message.from_addr}</span>
+            <span className="truncate text-[0.84375rem] font-semibold text-primary">{senderName}</span>
+            <span className="truncate text-[0.71875rem] text-secondary/80">{message.from_addr}</span>
           </div>
           {/* The details toggle trails the recipients, the way the chat bubble
               puts it right after the header line it expands. */}
           <div className="flex min-w-0 items-center gap-1">
             {allRecipientSummary && (
               <span
-                className="truncate text-[11.5px] text-secondary/80"
+                className="truncate text-[0.71875rem] text-secondary/80"
                 title={[toRaw, ccRaw].filter(Boolean).join(', ')}
               >
                 {t('chat.toRecipients', { recipients: allRecipientSummary })}
@@ -182,7 +182,7 @@ export function MessageRow({
             </button>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5 text-[10.5px] text-secondary/80">
+        <div className="flex shrink-0 items-center gap-1.5 text-[0.65625rem] text-secondary/80">
           {draftBadge}
           {message.starred && <Star size={12} className="fill-amber-500 text-amber-500" />}
           <span title={fullStamp}>{stamp}</span>

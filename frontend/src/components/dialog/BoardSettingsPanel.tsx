@@ -111,7 +111,7 @@ function BoardWallpaperCard({ board }: { board: KanbanBoard }) {
       title={t('kanban.board.background')}
       control={
         <div className="flex items-center gap-3 select-none">
-          <span className="text-[11px] font-semibold text-secondary truncate max-w-32">{presetName}</span>
+          <span className="text-[0.6875rem] font-semibold text-secondary truncate max-w-32">{presetName}</span>
           <div
             className={`h-7 w-11 rounded-lg border border-border/80 overflow-hidden relative shadow-inner shrink-0 ${previewInfo.className}`}
             style={previewInfo.style}
@@ -188,8 +188,8 @@ export function BoardPanel({ board }: { board: KanbanBoard }) {
           />
         )}
         <div className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-bold tracking-tight leading-tight truncate">{board.name}</h2>
-          <p className="text-[10.5px] text-secondary mt-0.5 font-medium truncate">
+          <h2 className="text-[0.9375rem] font-bold tracking-tight leading-tight truncate">{board.name}</h2>
+          <p className="text-[0.65625rem] text-secondary mt-0.5 font-medium truncate">
             {t('kanban.board.subtitle', { count: columnCount })}
           </p>
         </div>

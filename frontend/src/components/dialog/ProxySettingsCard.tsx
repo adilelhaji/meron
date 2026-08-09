@@ -86,7 +86,7 @@ export function ProxySettingsSection() {
           onChange={(next) => settings$.proxy.set({ ...next, mode: proxy.mode } as ProxySettings)}
         />
       )}
-      {incomplete && <p className="px-3.5 py-2 text-[11px] text-secondary">{t('settings.network.incomplete')}</p>}
+      {incomplete && <p className="px-3.5 py-2 text-[0.6875rem] text-secondary">{t('settings.network.incomplete')}</p>}
     </SettingsGroup>
   )
 }
@@ -145,7 +145,7 @@ export function AccountProxyCard({ account }: { account: Account }) {
         onChange={(next) => save(next as AccountProxy['mode'], endpoint)}
       />
       {custom && <EndpointRows value={endpoint} onChange={(next) => save(mode, next)} />}
-      {incomplete && <p className="px-3.5 py-2 text-[11px] text-secondary">{t('settings.network.incomplete')}</p>}
+      {incomplete && <p className="px-3.5 py-2 text-[0.6875rem] text-secondary">{t('settings.network.incomplete')}</p>}
     </SettingsGroup>
   )
 }

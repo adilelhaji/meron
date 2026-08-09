@@ -82,7 +82,7 @@ export function AccountSection({
       <div className="flex items-center gap-1 rounded-lg px-2 pb-1 pt-2 hover:bg-hover">
         <button
           type="button"
-          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left text-[10px] font-bold tracking-wide text-secondary hover:text-primary"
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-1 text-left text-[0.625rem] font-bold tracking-wide text-secondary hover:text-primary"
           onClick={() => setExpanded((open) => !open)}
           title={expanded ? t('accounts.actions.collapseAccount') : t('accounts.actions.expandAccount')}
         >
@@ -145,9 +145,9 @@ export function AccountSection({
                 />
               </div>
               {error ? (
-                <div className="mt-1.5 px-1 text-[11px] font-medium text-rose-500">{error}</div>
+                <div className="mt-1.5 px-1 text-[0.6875rem] font-medium text-rose-500">{error}</div>
               ) : (
-                <div className="mx-1 flex items-center gap-1.5 rounded-md bg-hover/60 px-2 py-1 text-[10px] font-medium leading-4 text-secondary/75">
+                <div className="mx-1 flex items-center gap-1.5 rounded-md bg-hover/60 px-2 py-1 text-[0.625rem] font-medium leading-4 text-secondary/75">
                   <CornerDownRight size={11} strokeWidth={1.75} className="shrink-0 text-accent/70" aria-hidden />
                   <span>{t('folders.subfolderHint', { delimiter })}</span>
                 </div>

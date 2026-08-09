@@ -106,11 +106,11 @@ export function ConversationDetailsPanel({
               <h3 className="truncate text-sm font-bold text-primary">
                 {view === 'media' ? t('chat.media') : t('chat.files')}
               </h3>
-              <p className="mt-0.5 truncate text-[11px] font-medium text-secondary" title={scopeTitle}>
+              <p className="mt-0.5 truncate text-[0.6875rem] font-medium text-secondary" title={scopeTitle}>
                 {scopeTitle}
               </p>
               {scopeSubtitle && (
-                <p className="truncate text-[10px] text-secondary/80" title={scopeSubtitle}>
+                <p className="truncate text-[0.625rem] text-secondary/80" title={scopeSubtitle}>
                   {scopeSubtitle}
                 </p>
               )}
@@ -207,7 +207,7 @@ export function ConversationDetailsPanel({
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs font-semibold text-primary">{file.filename}</p>
-                      <p className="text-[10px] text-secondary">{formatFileSize(file.size)}</p>
+                      <p className="text-[0.625rem] text-secondary">{formatFileSize(file.size)}</p>
                     </div>
                     {downloadable && (
                       <Download
@@ -277,7 +277,7 @@ function Overview({
         </div>
       )}
       <div className="p-3">
-        <div className="mb-2 flex items-center gap-2 px-2 text-[11px] font-bold uppercase tracking-wide text-secondary">
+        <div className="mb-2 flex items-center gap-2 px-2 text-[0.6875rem] font-bold uppercase tracking-wide text-secondary">
           <Users size={15} />
           <span>{t('chat.people', { count: participants.length })}</span>
         </div>
@@ -335,12 +335,12 @@ function PeopleList({
             <p className="flex items-center gap-1.5 truncate text-xs font-semibold text-primary selectable-text">
               <span className="truncate">{person.name}</span>
               {person.isSelf && (
-                <span className="shrink-0 rounded-full bg-accent/15 px-1.5 py-px text-[9px] font-bold uppercase tracking-wide text-accent">
+                <span className="shrink-0 rounded-full bg-accent/15 px-1.5 py-px text-[0.5625rem] font-bold uppercase tracking-wide text-accent">
                   {t('chat.you')}
                 </span>
               )}
             </p>
-            <p className="truncate text-[11px] text-secondary selectable-text">{person.email}</p>
+            <p className="truncate text-[0.6875rem] text-secondary selectable-text">{person.email}</p>
           </div>
           <button
             type="button"

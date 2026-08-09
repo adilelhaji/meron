@@ -4,7 +4,9 @@ import { Gallery, type GalleryItem } from './Gallery'
 import { HtmlFrame } from './HtmlFrame'
 import { LinkHoverPreview } from './LinkHoverPreview'
 import { htmlReferencesMedia, isImage, mediaSrc } from './messageHelpers'
-import { applyReaderLayout, stripTrackingPixels } from './readerHtml'
+import { applyReaderFont, applyReaderLayout, stripTrackingPixels } from './readerHtml'
+import { READER_CODE_BASE_PX, READER_HTML_BASE_PX } from '../../lib/fonts'
+import { useMessageFrameFont } from './useMessageFrameFont'
 
 const readerScrollPositions = new Map<string, number>()
 
@@ -32,6 +34,7 @@ interface HtmlMessageViewProps {
 export function HtmlMessageView({ scrollKey, title, html, text, attachments, viewMode }: HtmlMessageViewProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const textRef = useRef<HTMLDivElement | null>(null)
+  const messageFont = useMessageFrameFont(READER_HTML_BASE_PX, READER_CODE_BASE_PX)
   const [hoveredLink, setHoveredLink] = useState<string | null>(null)
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([])
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null)
@@ -131,11 +134,18 @@ export function HtmlMessageView({ scrollKey, title, html, text, attachments, vie
 
   const handleFrameReady = useCallback(
     (doc: Document) => {
-      applyReaderLayout(doc)
+      applyReaderLayout(doc, messageFont)
       requestAnimationFrame(restoreScrollPosition)
     },
-    [restoreScrollPosition],
+    [messageFont, restoreScrollPosition],
   )
+
+  // The frame only re-runs `onReady` when its document is replaced, so repaint
+  // the live document when the typography settings change under it.
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument
+    if (doc?.body) applyReaderFont(doc, messageFont)
+  }, [messageFont, html, viewMode])
 
   useLayoutEffect(() => {
     if (viewMode !== 'plain' && html) return
@@ -150,7 +160,7 @@ export function HtmlMessageView({ scrollKey, title, html, text, attachments, vie
           {attachmentImages.length > 0 && (
             <AttachmentImageGrid images={attachmentImages} onOpen={openAttachmentImage} />
           )}
-          <div className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-primary select-text tracking-[0.01em]">
+          <div className="whitespace-pre-wrap break-words font-message text-[calc(0.9375rem*var(--me-message-scale))] leading-relaxed text-primary select-text tracking-[0.01em]">
             {text || (attachmentImages.length > 0 ? '' : '(no content)')}
           </div>
         </div>

@@ -84,14 +84,14 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
         <div className="relative flex items-center justify-between gap-2 mb-1.5">
           <div className="relative flex items-center gap-1 min-w-0">
             {!outgoing ? (
-              <span className="text-[12.5px] font-bold text-accent select-none truncate tracking-wide">
+              <span className="text-[0.78125rem] font-bold text-accent select-none truncate tracking-wide">
                 {message.from_name || message.from_addr}
               </span>
             ) : (
               recipientSummary && (
                 <span
                   title={[toRaw, ccRaw].filter(Boolean).join(', ')}
-                  className="text-[11px] font-normal text-secondary/70 select-none truncate"
+                  className="text-[0.6875rem] font-normal text-secondary/70 select-none truncate"
                 >
                   {t('chat.toRecipients', { recipients: recipientSummary })}
                 </span>
@@ -106,9 +106,9 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
               <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
             </button>
           </div>
-          <div className="flex items-center gap-1 text-[10.5px] text-secondary/80 select-none shrink-0">
+          <div className="flex items-center gap-1 text-[0.65625rem] text-secondary/80 select-none shrink-0">
             {isDraft && (
-              <span className="rounded-full border border-accent/35 bg-accent/10 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-accent">
+              <span className="rounded-full border border-accent/35 bg-accent/10 px-1.5 py-0.5 text-[0.59375rem] font-bold uppercase tracking-wide text-accent">
                 {t('chat.draft')}
               </span>
             )}
@@ -128,7 +128,7 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
                   className="flex items-center gap-0.5 text-red-500 hover:text-red-600 cursor-pointer"
                 >
                   <AlertCircle size={12} />
-                  <span className="text-[10px] font-semibold">{t('chat.retry')}</span>
+                  <span className="text-[0.625rem] font-semibold">{t('chat.retry')}</span>
                 </button>
               ) : (
                 <Check size={12} className="text-accent opacity-90" />

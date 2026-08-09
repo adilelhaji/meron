@@ -37,7 +37,9 @@ describe('shouldShowUpdateBanner', () => {
     expect(shouldShowUpdateBanner(status({ supported: true, state: 'available', latestVersion: '0.1.13' }), null)).toBe(
       true,
     )
-    expect(shouldShowUpdateBanner(status({ supported: true, state: 'ready', latestVersion: '0.1.13' }), null)).toBe(true)
+    expect(shouldShowUpdateBanner(status({ supported: true, state: 'ready', latestVersion: '0.1.13' }), null)).toBe(
+      true,
+    )
   })
 
   it('stays hidden once that version is dismissed', () => {
@@ -50,7 +52,10 @@ describe('shouldShowUpdateBanner', () => {
 
   it('stays hidden where updates cannot be applied', () => {
     expect(
-      shouldShowUpdateBanner(status({ supported: false, managed: true, state: 'available', latestVersion: '0.1.13' }), null),
+      shouldShowUpdateBanner(
+        status({ supported: false, managed: true, state: 'available', latestVersion: '0.1.13' }),
+        null,
+      ),
     ).toBe(false)
   })
 

@@ -3,6 +3,8 @@ import { useTranslation } from '../../lib/i18n'
 import { Gallery, type GalleryItem } from './Gallery'
 import { HtmlFrame } from './HtmlFrame'
 import { prepareBubbleHtml } from './bubbleHtml'
+import { BUBBLE_CODE_BASE_PX, BUBBLE_HTML_BASE_PX } from '../../lib/fonts'
+import { useMessageFrameFont } from './useMessageFrameFont'
 
 const MIN_FRAME_HEIGHT = 80
 const DEFAULT_FRAME_HEIGHT = 120
@@ -27,7 +29,15 @@ function clampHeight(height: number) {
 // the frame grows to fit while the bubble wrapper owns scrolling.
 export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHover?: (url: string | null) => void }) {
   const { t } = useTranslation()
-  const cacheKey = useMemo(() => cacheKeyForHtml(html), [html])
+  const messageFont = useMessageFrameFont(BUBBLE_HTML_BASE_PX, BUBBLE_CODE_BASE_PX)
+  // Re-preparing the document is what re-renders the frame with new typography.
+  const prepareHtml = useCallback((raw: string) => prepareBubbleHtml(raw, messageFont), [messageFont])
+  // Typography is part of the key: the same HTML measures to a different height
+  // once the message font or text size changes.
+  const cacheKey = useMemo(
+    () => `${messageFont.family ?? ''}:${messageFont.bodyPx}:${cacheKeyForHtml(html)}`,
+    [html, messageFont],
+  )
   const cachedHeight = measuredHeights.get(cacheKey)
   const [height, setHeight] = useState(() => cachedHeight ?? DEFAULT_FRAME_HEIGHT)
   const [measured, setMeasured] = useState(() => cachedHeight !== undefined)
@@ -236,7 +246,7 @@ export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHov
         {nearViewport && (
           <HtmlFrame
             html={html}
-            prepareHtml={prepareBubbleHtml}
+            prepareHtml={prepareHtml}
             title={t('chat.messageHtml')}
             className="block w-full border-0 bg-transparent"
             style={{ height, overflow: 'hidden', visibility: measured ? 'visible' : 'hidden' }}

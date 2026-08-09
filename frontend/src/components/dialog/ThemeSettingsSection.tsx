@@ -28,7 +28,7 @@ export function ThemeSettingsSection() {
       title={translate('common.theme')}
       control={
         <div className="flex items-center gap-3 select-none">
-          <span className="text-[11px] font-semibold text-secondary truncate max-w-32">{active.name}</span>
+          <span className="text-[0.6875rem] font-semibold text-secondary truncate max-w-32">{active.name}</span>
           <div
             className="h-7 w-11 rounded-lg border border-border/80 overflow-hidden relative shadow-inner shrink-0 flex"
             style={{ background: t.bgApp }}

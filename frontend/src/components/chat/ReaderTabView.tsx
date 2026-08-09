@@ -30,13 +30,15 @@ export function ReaderTabView({ tab }: { tab: MessageTab }) {
             {tab.subject}
           </h2>
           {tab.date && (
-            <p className="truncate text-[10.5px] text-secondary mt-0.5 font-medium">{formatFullTimestamp(tab.date)}</p>
+            <p className="truncate text-[0.65625rem] text-secondary mt-0.5 font-medium">
+              {formatFullTimestamp(tab.date)}
+            </p>
           )}
         </div>
         <div className="flex items-center gap-1 rounded-lg bg-hover p-0.5">
           <button
             onClick={() => setTabViewMode(tab.id, 'html')}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold cursor-pointer ${
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[0.6875rem] font-semibold cursor-pointer ${
               tab.viewMode === 'html' ? 'bg-chats text-accent shadow-sm' : 'text-secondary hover:text-primary'
             }`}
             title={t('chat.htmlView')}
@@ -45,7 +47,7 @@ export function ReaderTabView({ tab }: { tab: MessageTab }) {
           </button>
           <button
             onClick={() => setTabViewMode(tab.id, 'plain')}
-            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-semibold cursor-pointer ${
+            className={`flex items-center gap-1 rounded-md px-2.5 py-1 text-[0.6875rem] font-semibold cursor-pointer ${
               tab.viewMode === 'plain' ? 'bg-chats text-accent shadow-sm' : 'text-secondary hover:text-primary'
             }`}
             title={t('chat.plainView')}

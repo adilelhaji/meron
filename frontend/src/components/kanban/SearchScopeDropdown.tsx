@@ -48,7 +48,7 @@ export function SearchScopeDropdown({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="flex h-full items-center gap-1.5 px-3.5 text-[11px] font-semibold text-secondary hover:text-primary transition-colors cursor-pointer select-none rounded-r-xl outline-none border-0"
+        className="flex h-full items-center gap-1.5 px-3.5 text-[0.6875rem] font-semibold text-secondary hover:text-primary transition-colors cursor-pointer select-none rounded-r-xl outline-none border-0"
         title={t('kanban.searchScope.label')}
       >
         <span className="truncate max-w-[130px]">{selectedLabel}</span>
@@ -104,7 +104,7 @@ export function SearchScopeDropdown({
                 />
                 <div className="min-w-0 flex-1 text-left">
                   <div className="truncate font-semibold">{folderLabel(column, folders, accounts, t)}</div>
-                  <div className="truncate text-[10px] text-secondary font-medium">
+                  <div className="truncate text-[0.625rem] text-secondary font-medium">
                     {column.accountId === 'unified' ? t('accounts.unified') : columnAccountLabel}
                   </div>
                 </div>

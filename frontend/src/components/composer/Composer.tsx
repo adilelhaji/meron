@@ -62,7 +62,7 @@ export function Composer({ tabId }: { tabId: string }) {
             onPaste={handlePaste}
             placeholder={t('composer.placeholders.message')}
             spellCheck={spellCheck}
-            className="h-full min-h-[240px] w-full resize-none bg-transparent text-[14px] leading-relaxed text-primary placeholder-secondary outline-none"
+            className="h-full min-h-[240px] w-full resize-none bg-transparent text-[0.875rem] leading-relaxed text-primary placeholder-secondary outline-none"
           />
         )}
       </div>
@@ -72,7 +72,7 @@ export function Composer({ tabId }: { tabId: string }) {
         onRemove={(id) => update({ attachments: draft.attachments.filter((a) => a.id !== id) })}
       />
 
-      {error && <p className="shrink-0 px-4 pb-1 text-[11px] font-medium text-rose-500">{error}</p>}
+      {error && <p className="shrink-0 px-4 pb-1 text-[0.6875rem] font-medium text-rose-500">{error}</p>}
 
       <ComposerFooter
         rich={draft.rich}

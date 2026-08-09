@@ -44,7 +44,7 @@ export function AccountDialogCustom({
       />
       {(discovering || discoverNote) && (
         <p
-          className={`flex items-center gap-1.5 px-1 -mt-2 text-[11px] font-medium ${discovering ? 'text-secondary' : discoverNote.startsWith("Couldn't") ? 'text-amber-600 dark:text-amber-400' : 'text-accent'}`}
+          className={`flex items-center gap-1.5 px-1 -mt-2 text-[0.6875rem] font-medium ${discovering ? 'text-secondary' : discoverNote.startsWith("Couldn't") ? 'text-amber-600 dark:text-amber-400' : 'text-accent'}`}
         >
           {discovering && <RefreshCw size={11} className="animate-spin" />}
           {discovering ? t('accounts.discovery.lookingUp') : discoverNote}
@@ -58,7 +58,7 @@ export function AccountDialogCustom({
         labelClassName={fieldLabelClass}
       />
       <label className="flex flex-col gap-1.5 w-full">
-        <span className={`pl-0.5 ${fieldLabelClass ?? 'text-[11px] font-semibold text-secondary'}`}>
+        <span className={`pl-0.5 ${fieldLabelClass ?? 'text-[0.6875rem] font-semibold text-secondary'}`}>
           {t('accounts.fields.password')}
         </span>
         <span className="relative flex items-center">
@@ -92,7 +92,7 @@ export function AccountDialogCustom({
 
       {appPasswordHint && (
         <div
-          className={`${isSetup ? 'rounded-2xl p-4 text-sm gap-3' : 'rounded-xl p-3 text-[11px] gap-2'} flex items-start bg-accent/[0.06] border border-accent/15 leading-relaxed text-secondary -mt-1`}
+          className={`${isSetup ? 'rounded-2xl p-4 text-sm gap-3' : 'rounded-xl p-3 text-[0.6875rem] gap-2'} flex items-start bg-accent/[0.06] border border-accent/15 leading-relaxed text-secondary -mt-1`}
         >
           <Info size={isSetup ? 16 : 14} className="shrink-0 mt-0.5 text-accent" />
           <p className="flex-1 font-medium">{t('accounts.appPasswordHint', { provider: appPasswordHint.provider })}</p>
@@ -102,7 +102,7 @@ export function AccountDialogCustom({
       <button
         type="button"
         onClick={() => setAdvancedOpen((v) => !v)}
-        className="flex items-center gap-1 self-start px-1 text-[11px] font-semibold text-secondary hover:text-primary transition-colors cursor-pointer"
+        className="flex items-center gap-1 self-start px-1 text-[0.6875rem] font-semibold text-secondary hover:text-primary transition-colors cursor-pointer"
       >
         <ChevronRight size={12} className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`} />
         {t('accounts.advancedServerSettings')}

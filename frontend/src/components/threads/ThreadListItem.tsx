@@ -114,14 +114,19 @@ export function ThreadListItem({
 
         <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
           <div className="flex items-center gap-2 min-w-0">
-            <span className={clsx('text-[13px] font-semibold truncate', unread ? 'text-primary' : 'text-primary/85')}>
+            <span
+              className={clsx('text-[0.8125rem] font-semibold truncate', unread ? 'text-primary' : 'text-primary/85')}
+            >
               {thread.from_name || thread.from_addr.split('@')[0]}
               {!!thread.recipient_overflow && (
                 <span className="ml-1 font-normal text-secondary/80">+{thread.recipient_overflow}</span>
               )}
             </span>
             <time
-              className={clsx('ml-auto shrink-0 text-[11px] font-normal', unread ? 'text-accent' : 'text-secondary/65')}
+              className={clsx(
+                'ml-auto shrink-0 text-[0.6875rem] font-normal',
+                unread ? 'text-accent' : 'text-secondary/65',
+              )}
             >
               {formatThreadDate(thread.date)}
             </time>
@@ -129,7 +134,9 @@ export function ThreadListItem({
 
           <div className="flex items-center gap-1.5 min-w-0">
             {!bulkSelectable && thread.starred && <Star size={11} className="fill-amber-500 text-amber-500 shrink-0" />}
-            <p className={clsx('flex-1 truncate text-[12px] leading-snug', unread ? 'font-semibold' : 'font-normal')}>
+            <p
+              className={clsx('flex-1 truncate text-[0.75rem] leading-snug', unread ? 'font-semibold' : 'font-normal')}
+            >
               {hasDraft && <span className="mr-1 font-normal text-rose-500">{t('chat.draft')}</span>}
               <span className={clsx(unread ? 'text-primary' : 'text-primary/85')}>{threadTitle}</span>
               {thread.preview && (
@@ -142,7 +149,7 @@ export function ThreadListItem({
             {unread && bulkSelectable ? (
               <span className="h-2 w-2 shrink-0 rounded-full bg-accent" />
             ) : unread ? (
-              <span className="h-4 min-w-4 px-1 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-bold shadow-sm shadow-accent/20 leading-none shrink-0">
+              <span className="h-4 min-w-4 px-1 flex items-center justify-center rounded-full bg-accent text-white text-[0.625rem] font-bold shadow-sm shadow-accent/20 leading-none shrink-0">
                 {thread.unread_count ?? 1}
               </span>
             ) : null}

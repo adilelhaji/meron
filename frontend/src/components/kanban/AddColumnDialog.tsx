@@ -65,7 +65,7 @@ export function AddColumnDialog({
           <h2 className="text-sm font-bold text-primary">{t('kanban.actions.addColumns')}</h2>
           <IconButton icon={X} label={t('buttons.close')} size="sm" radius="lg" onClick={onClose} />
         </div>
-        <p className="shrink-0 px-4 pt-3 text-[11px] font-medium text-secondary">{t('kanban.addColumnsHint')}</p>
+        <p className="shrink-0 px-4 pt-3 text-[0.6875rem] font-medium text-secondary">{t('kanban.addColumnsHint')}</p>
         <div className="min-h-0 flex-1 overflow-y-auto p-2">
           {topOptions.map((option) => {
             const Icon = option.icon === 'star' ? Star : Inbox

@@ -92,7 +92,7 @@ export function BoardMenu({
           onClick={(event) => event.stopPropagation()}
         >
           <div className="@min-[640px]:hidden">
-            <div className="px-3 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-secondary">
+            <div className="px-3 pb-1 pt-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-secondary">
               {t('filters.label')}
             </div>
             {filterItem('all', t('filters.all'), <Inbox size={13} className="text-secondary shrink-0" />)}

@@ -505,7 +505,7 @@ export function ThreadContextMenu({
             >
               {copyAccountGroups.map(({ account, folders, excluded }) => (
                 <div key={account.id}>
-                  <div className="px-3 pb-1 pt-2 text-[11px] font-semibold text-secondary">
+                  <div className="px-3 pb-1 pt-2 text-[0.6875rem] font-semibold text-secondary">
                     {account.display_name || account.email || account.id}
                   </div>
                   {folders.length === 0 && (

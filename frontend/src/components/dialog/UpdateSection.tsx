@@ -107,7 +107,9 @@ export function UpdateSection() {
             </Button>
           </div>
           {status.error && (
-            <p className="mt-2 break-words text-[11px] leading-4 text-rose-600 dark:text-rose-400">{status.error}</p>
+            <p className="mt-2 break-words text-[0.6875rem] leading-4 text-rose-600 dark:text-rose-400">
+              {status.error}
+            </p>
           )}
         </div>
       )}
@@ -132,7 +134,7 @@ export function UpdateSection() {
         status.releasesUrl && (
           <button
             type="button"
-            className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-secondary hover:text-primary"
+            className="mt-2 inline-flex items-center gap-1 text-[0.6875rem] font-semibold text-secondary hover:text-primary"
             onClick={() => openExternal(status.releasesUrl)}
           >
             {t('updates.downloadManually')}
@@ -141,7 +143,7 @@ export function UpdateSection() {
         )}
 
       {status.state === 'ready' && status.channel === 'nsis' && (
-        <p className="mt-2 text-[11px] leading-4 text-secondary">{t('updates.windowsPermissionHint')}</p>
+        <p className="mt-2 text-[0.6875rem] leading-4 text-secondary">{t('updates.windowsPermissionHint')}</p>
       )}
     </div>
   )

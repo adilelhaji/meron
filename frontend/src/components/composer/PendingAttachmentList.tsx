@@ -55,8 +55,8 @@ export function PendingAttachmentList({
           >
             <AttIcon size={13} className="shrink-0 text-accent" />
             <div className="flex min-w-0 flex-1 flex-col">
-              <span className="truncate text-[11px] font-bold text-primary">{att.filename}</span>
-              <span className="text-[9px] text-secondary">{formatFileSize(att.size)}</span>
+              <span className="truncate text-[0.6875rem] font-bold text-primary">{att.filename}</span>
+              <span className="text-[0.5625rem] text-secondary">{formatFileSize(att.size)}</span>
             </div>
             <button
               type="button"

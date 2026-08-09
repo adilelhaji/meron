@@ -51,8 +51,8 @@ export function AddFeedDialog() {
               <Rss size={17} />
             </div>
             <div className="min-w-0">
-              <h2 className="text-[15px] font-bold tracking-tight leading-tight">{t('feeds.actions.addFeed')}</h2>
-              <p className="text-[10.5px] text-secondary mt-1 font-medium truncate">
+              <h2 className="text-[0.9375rem] font-bold tracking-tight leading-tight">{t('feeds.actions.addFeed')}</h2>
+              <p className="text-[0.65625rem] text-secondary mt-1 font-medium truncate">
                 {t('feeds.subscribeUnder', { account: accountName })}
               </p>
             </div>
@@ -62,7 +62,7 @@ export function AddFeedDialog() {
 
         {/* Content */}
         <div className="flex flex-col gap-2">
-          <label className="text-[11px] font-semibold text-secondary px-1">{t('feeds.url')}</label>
+          <label className="text-[0.6875rem] font-semibold text-secondary px-1">{t('feeds.url')}</label>
           <input
             autoFocus
             value={url}
@@ -72,10 +72,10 @@ export function AddFeedDialog() {
               if (event.key === 'Escape') onClose()
             }}
             placeholder="https://example.com/feed.xml"
-            className="w-full rounded-xl bg-hover px-3.5 py-2.5 text-[13px] text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:bg-chats border border-transparent transition-all duration-150"
+            className="w-full rounded-xl bg-hover px-3.5 py-2.5 text-[0.8125rem] text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:bg-chats border border-transparent transition-all duration-150"
           />
-          <p className="text-[10.5px] text-secondary px-1 leading-relaxed font-medium">{t('feeds.urlHint')}</p>
-          {error && <p className="text-[11px] text-rose-500 px-1 font-medium">{error}</p>}
+          <p className="text-[0.65625rem] text-secondary px-1 leading-relaxed font-medium">{t('feeds.urlHint')}</p>
+          {error && <p className="text-[0.6875rem] text-rose-500 px-1 font-medium">{error}</p>}
         </div>
 
         {/* Footer */}

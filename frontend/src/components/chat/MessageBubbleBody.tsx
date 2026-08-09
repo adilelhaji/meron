@@ -101,7 +101,7 @@ export function MessageBubbleBody({
 
   return (
     <div
-      className={`${boxClass} -mr-3.5 pr-3.5 text-[15px] leading-relaxed break-words whitespace-pre-wrap select-text font-normal tracking-[0.01em]`}
+      className={`${boxClass} -mr-3.5 pr-3.5 font-message text-[calc(0.9375rem*var(--me-message-scale))] leading-relaxed break-words whitespace-pre-wrap select-text font-normal tracking-[0.01em]`}
       style={boxStyle}
     >
       {blocks.map((block, blockIndex) => {
@@ -116,7 +116,7 @@ export function MessageBubbleBody({
               >
                 <Copy size={13} />
               </button>
-              <pre className="m-0 max-w-full overflow-x-auto rounded-lg border border-border/60 bg-black/5 px-3 py-2.5 pr-11 pb-2 font-mono text-[13px] leading-relaxed text-primary shadow-inner dark:bg-white/10">
+              <pre className="m-0 max-w-full overflow-x-auto rounded-lg border border-border/60 bg-black/5 px-3 py-2.5 pr-11 pb-2 font-mono text-[calc(0.8125rem*var(--me-message-scale))] leading-relaxed text-primary shadow-inner dark:bg-white/10">
                 <code className="block min-w-max whitespace-pre">{block.content}</code>
               </pre>
             </div>

@@ -38,13 +38,23 @@
      family per platform (macOS / Windows / Linux), and only the installed one
      matches — macOS has no Noto Sans CJK, Linux has no PingFang, etc. The
      <html lang> attribute that drives :lang() is set in settings bootstrap. */
+  /* --me-font-ui / --me-font-message are the user's font choices, written
+     inline on <html> by applyFontSelection in states/settings.ts; unset means
+     the default face. Message bodies fall back to the interface font. */
   --font-sans:
-    'Inter', var(--font-cjk), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    var(--me-font-ui, 'Inter'), var(--font-cjk), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    'Segoe UI', sans-serif;
+  --font-message:
+    var(--me-font-message, var(--me-font-ui, 'Inter')), var(--font-cjk), ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
 /* Default CJK stack (Simplified Chinese), overridden by locale below. */
 :root {
   --font-cjk: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Source Han Sans SC', sans-serif;
+  /* Multiplier for message body text, overridden inline on <html> when the user
+     picks a message text size (see states/settings.ts). */
+  --me-message-scale: 1;
 }
 :root:lang(zh-Hant) {
   --font-cjk: 'PingFang TC', 'PingFang HK', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Source Han Sans TC', sans-serif;

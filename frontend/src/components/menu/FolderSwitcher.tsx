@@ -206,7 +206,7 @@ export function FolderSwitcher({
                 if (event.key === 'Escape') close()
               }}
               placeholder={t('folders.searchPlaceholder')}
-              className="mb-1 h-8 w-full shrink-0 rounded-lg bg-hover px-2 text-[13px] text-primary outline-none placeholder-secondary focus:ring-1 focus:ring-accent/40"
+              className="mb-1 h-8 w-full shrink-0 rounded-lg bg-hover px-2 text-[0.8125rem] text-primary outline-none placeholder-secondary focus:ring-1 focus:ring-accent/40"
             />
           )}
           <div className="min-h-0 flex-1 overflow-y-auto">

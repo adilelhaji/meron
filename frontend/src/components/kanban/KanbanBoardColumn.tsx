@@ -349,7 +349,7 @@ function KanbanColumnContent({
               <Loader2 size={13} className="shrink-0 animate-spin text-accent" />
             )}
             {unreadCount > 0 && (
-              <span className="h-4.5 min-w-4.5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[10px] font-bold shadow-sm shadow-accent/20 leading-none shrink-0">
+              <span className="h-4.5 min-w-4.5 px-1.5 flex items-center justify-center rounded-full bg-accent text-white text-[0.625rem] font-bold shadow-sm shadow-accent/20 leading-none shrink-0">
                 {unreadCount}
               </span>
             )}

@@ -1,11 +1,5 @@
 import { observable } from '@legendapp/state'
-import {
-  checkForUpdate,
-  downloadUpdate,
-  fetchUpdateStatus,
-  installUpdate,
-  type UpdateStatus,
-} from '../lib/update'
+import { checkForUpdate, downloadUpdate, fetchUpdateStatus, installUpdate, type UpdateStatus } from '../lib/update'
 import { settings$ } from './settings'
 
 // In-app updater state. The Go side owns the state machine and pushes the whole

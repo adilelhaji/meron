@@ -91,7 +91,7 @@ export function ThemeEditorDialog({
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 dark:bg-black/65 backdrop-blur-[3px] p-4 animate-fade-in">
       <div className="w-full max-w-lg rounded-3xl border border-border bg-chats text-primary shadow-2xl animate-slide-up overflow-hidden">
         <div className="flex items-center justify-between gap-3 border-b border-border/70 px-5 py-4">
-          <h3 className="text-[14px] font-bold leading-tight">{initial ? t('theme.edit') : t('theme.new')}</h3>
+          <h3 className="text-[0.875rem] font-bold leading-tight">{initial ? t('theme.edit') : t('theme.new')}</h3>
           <IconButton icon={X} iconSize={15} label={t('buttons.cancel')} size="sm" onClick={onClose} />
         </div>
 
@@ -111,7 +111,7 @@ export function ThemeEditorDialog({
                   key={mode}
                   type="button"
                   onClick={() => setAppearance(mode)}
-                  className={`rounded-md px-2.5 py-1 text-[10.5px] font-bold capitalize transition-colors cursor-pointer ${
+                  className={`rounded-md px-2.5 py-1 text-[0.65625rem] font-bold capitalize transition-colors cursor-pointer ${
                     input.appearance === mode ? 'bg-chats text-accent shadow-sm' : 'text-secondary hover:text-primary'
                   }`}
                 >
@@ -166,8 +166,8 @@ function ColorRow({
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl bg-raised border border-border/50 px-3 py-2">
       <div className="min-w-0">
-        <span className="block text-[11px] font-bold text-primary">{label}</span>
-        <span className="block text-[10px] text-secondary font-medium truncate">{hint}</span>
+        <span className="block text-[0.6875rem] font-bold text-primary">{label}</span>
+        <span className="block text-[0.625rem] text-secondary font-medium truncate">{hint}</span>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         <input
@@ -183,7 +183,7 @@ function ColorRow({
           spellCheck={false}
           onChange={(event) => onChange(event.target.value)}
           invalid={invalid}
-          className="w-24 px-2 py-1.5 text-[11px] font-mono font-semibold"
+          className="w-24 px-2 py-1.5 text-[0.6875rem] font-mono font-semibold"
         />
       </div>
     </div>
@@ -206,28 +206,28 @@ function ThemePreview({ tokens }: { tokens: ReturnType<typeof deriveThemeTokens>
         </div>
         <div className="w-28 shrink-0 border-r border-border bg-chats p-1.5 flex flex-col gap-1">
           <div className="rounded-lg bg-accent/15 px-1.5 py-1">
-            <div className="text-[8px] font-bold text-accent">Alice</div>
-            <div className="text-[7px] text-secondary truncate">See you tomorrow!</div>
+            <div className="text-[0.5rem] font-bold text-accent">Alice</div>
+            <div className="text-[0.4375rem] text-secondary truncate">See you tomorrow!</div>
           </div>
           <div className="px-1.5 py-1">
-            <div className="text-[8px] font-bold text-primary">Bob</div>
-            <div className="text-[7px] text-secondary truncate">Thanks for the update</div>
+            <div className="text-[0.5rem] font-bold text-primary">Bob</div>
+            <div className="text-[0.4375rem] text-secondary truncate">Thanks for the update</div>
           </div>
         </div>
         <div className="flex min-w-0 flex-1 flex-col bg-chat">
-          <div className="border-b border-border bg-header px-2 py-1 text-[8px] font-bold text-primary">Alice</div>
+          <div className="border-b border-border bg-header px-2 py-1 text-[0.5rem] font-bold text-primary">Alice</div>
           <div className="flex flex-1 flex-col justify-end gap-1 p-2">
-            <div className="self-start rounded-lg bg-bubble-in px-1.5 py-1 text-[7.5px] text-bubble-in-text shadow-bubble-in">
+            <div className="self-start rounded-lg bg-bubble-in px-1.5 py-1 text-[0.46875rem] text-bubble-in-text shadow-bubble-in">
               Are we still on for lunch?
             </div>
-            <div className="self-end rounded-lg bg-bubble-out px-1.5 py-1 text-[7.5px] text-bubble-out-text shadow-bubble-out">
+            <div className="self-end rounded-lg bg-bubble-out px-1.5 py-1 text-[0.46875rem] text-bubble-out-text shadow-bubble-out">
               Yes — see you tomorrow!
             </div>
           </div>
           <div className="border-t border-composer-border bg-composer-bg px-2 py-1 flex items-center justify-between">
-            <span className="text-[7.5px] text-secondary">Message</span>
+            <span className="text-[0.46875rem] text-secondary">Message</span>
             <span
-              className="rounded-full px-1.5 py-0.5 text-[7px] font-bold"
+              className="rounded-full px-1.5 py-0.5 text-[0.4375rem] font-bold"
               style={{ background: tokens.accent, color: onAccent }}
             >
               Send

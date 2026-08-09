@@ -38,7 +38,7 @@ export function AccountProviderGrid({
               }`}
             >
               <span className="shrink-0">{p.icon(iconSize)}</span>
-              <span className="min-w-0 text-[13px] font-semibold leading-tight">{p.label}</span>
+              <span className="min-w-0 text-[0.8125rem] font-semibold leading-tight">{p.label}</span>
             </button>
           )
         })}
@@ -65,8 +65,8 @@ export function AccountProviderGrid({
               {p.icon(iconSize)}
             </span>
             <span className="flex min-w-0 flex-col">
-              <span className="font-bold leading-tight text-primary text-[12px]">{p.label}</span>
-              <span className="truncate font-medium text-secondary text-[10px]">
+              <span className="font-bold leading-tight text-primary text-[0.75rem]">{p.label}</span>
+              <span className="truncate font-medium text-secondary text-[0.625rem]">
                 {t(p.descriptionKey, { defaultValue: p.defaultDescription })}
               </span>
             </span>

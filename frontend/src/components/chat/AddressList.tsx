@@ -19,7 +19,7 @@ export function AddressPill({ name, original }: AddressItem) {
     <button
       type="button"
       onClick={handleCopy}
-      className="group relative inline-flex max-w-[180px] min-w-0 items-center gap-1 rounded-md border border-accent/10 bg-accent/5 px-2 py-1 text-[10px] font-normal text-primary outline-none transition-all duration-150 hover:border-accent/25 hover:bg-accent/10 active:scale-[0.98] dark:bg-accent/15 dark:hover:bg-accent/25 cursor-pointer select-none"
+      className="group relative inline-flex max-w-[180px] min-w-0 items-center gap-1 rounded-md border border-accent/10 bg-accent/5 px-2 py-1 text-[0.625rem] font-normal text-primary outline-none transition-all duration-150 hover:border-accent/25 hover:bg-accent/10 active:scale-[0.98] dark:bg-accent/15 dark:hover:bg-accent/25 cursor-pointer select-none"
       aria-label={t('chat.copyFullAddress')}
       title={original}
     >
@@ -44,8 +44,8 @@ export function AddressRow({ label, rawList }: { label: string; rawList: string 
   const visibleItems = expanded || !showMore ? items : items.slice(0, threshold)
 
   return (
-    <div className="grid grid-cols-[56px_minmax(0,1fr)] items-start gap-2 text-[10.5px]">
-      <span className="mt-1.5 shrink-0 whitespace-nowrap text-[9px] font-semibold uppercase tracking-wider text-secondary/70">
+    <div className="grid grid-cols-[56px_minmax(0,1fr)] items-start gap-2 text-[0.65625rem]">
+      <span className="mt-1.5 shrink-0 whitespace-nowrap text-[0.5625rem] font-semibold uppercase tracking-wider text-secondary/70">
         {label}:
       </span>
       <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
@@ -56,7 +56,7 @@ export function AddressRow({ label, rawList }: { label: string; rawList: string 
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}
-            className="inline-flex min-w-0 items-center justify-center rounded-md bg-accent/10 px-2 py-1 text-[9px] font-bold text-accent outline-none transition-colors duration-150 hover:bg-accent/20 dark:bg-accent/25 dark:hover:bg-accent/35 cursor-pointer select-none"
+            className="inline-flex min-w-0 items-center justify-center rounded-md bg-accent/10 px-2 py-1 text-[0.5625rem] font-bold text-accent outline-none transition-colors duration-150 hover:bg-accent/20 dark:bg-accent/25 dark:hover:bg-accent/35 cursor-pointer select-none"
           >
             {expanded ? t('common.showLess') : t('common.moreCount', { count: items.length - threshold })}
           </button>

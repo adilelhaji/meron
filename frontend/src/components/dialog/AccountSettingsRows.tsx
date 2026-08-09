@@ -27,7 +27,7 @@ function Switch({ checked, onChange }: { checked: boolean; onChange: () => void 
 export function SettingsGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 px-1 text-[12px] font-semibold text-secondary">{title}</h3>
+      <h3 className="mb-2 px-1 text-[0.75rem] font-semibold text-secondary">{title}</h3>
       <div className="rounded-2xl bg-raised/80 border border-border/60 divide-y divide-border/40 overflow-hidden shadow-sm shadow-black/[0.03] dark:shadow-black/10">
         {children}
       </div>
@@ -124,6 +124,7 @@ export function NumberRow({
   step,
   suffix,
   onChange,
+  onBlur,
 }: {
   icon?: ReactNode
   title: string
@@ -134,6 +135,8 @@ export function NumberRow({
   step: number
   suffix: string
   onChange: (value: string) => void
+  /** Fires when editing ends, for rows that hold a half-typed value while focused. */
+  onBlur?: () => void
 }) {
   return (
     <SettingRow
@@ -149,9 +152,10 @@ export function NumberRow({
             step={step}
             value={value}
             onChange={(event) => onChange(event.target.value)}
+            onBlur={onBlur}
             className="w-20 font-semibold"
           />
-          <span className="text-[10.5px] font-bold text-secondary">{suffix}</span>
+          <span className="text-[0.65625rem] font-bold text-secondary">{suffix}</span>
         </label>
       }
     />

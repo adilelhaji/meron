@@ -1,8 +1,20 @@
+import { BUBBLE_CODE_BASE_PX, BUBBLE_HTML_BASE_PX, type MessageFrameFont } from '../../lib/fonts'
+
+const DEFAULT_MESSAGE_FRAME_FONT: MessageFrameFont = {
+  family: null,
+  bodyPx: BUBBLE_HTML_BASE_PX,
+  codePx: BUBBLE_CODE_BASE_PX,
+}
+
 // Sanitises and styles an email's HTML body before it's rendered inside the
 // bubble's sandboxed iframe. The iframe runs with `allow-scripts` (so our
 // link-click handler fires), so we inject a strict CSP here to block the email's
 // own JS, plus a base stylesheet that scopes typography and code-block styling.
-export function prepareBubbleHtml(html: string) {
+//
+// `font` carries the user's message typography: the frame can't reach the app's
+// CSS vars or root font size, so the family and the scaled pixel sizes are baked
+// into the stylesheet (see lib/fonts).
+export function prepareBubbleHtml(html: string, font: MessageFrameFont = DEFAULT_MESSAGE_FRAME_FONT) {
   try {
     const parser = new DOMParser()
     const doc = parser.parseFromString(html, 'text/html')
@@ -30,7 +42,7 @@ export function prepareBubbleHtml(html: string) {
         padding: 0 !important;
         background: transparent !important;
         color: #0f172a;
-        font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        font: ${font.bodyPx}px/1.45 ${font.family ?? '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif'};
         overflow-wrap: anywhere;
         overflow: hidden !important;
       }
@@ -53,7 +65,7 @@ export function prepareBubbleHtml(html: string) {
         border-radius: 8px;
         background: #f1f5f9;
         color: #1e293b;
-        font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        font: ${font.codePx}px/1.5 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
       }
       pre code {
         display: block;

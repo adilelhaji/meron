@@ -224,7 +224,7 @@ export function ConversationMessageList({
                   {/* The traditional layout carries a date on every message
                       header, so it needs no dividers. */}
                   {!traditional && label && label !== previousLabel && (
-                    <div className="mx-auto w-max select-none rounded-full bg-active border border-border/30 px-3 py-1.2 text-center text-[11px] font-semibold uppercase tracking-wider text-secondary">
+                    <div className="mx-auto w-max select-none rounded-full bg-active border border-border/30 px-3 py-1.2 text-center text-[0.6875rem] font-semibold uppercase tracking-wider text-secondary">
                       {label}
                     </div>
                   )}

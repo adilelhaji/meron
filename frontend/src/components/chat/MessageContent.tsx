@@ -96,7 +96,7 @@ export function MessageContent({
       {hiddenRemoteCount > 0 && (
         <button
           onClick={() => revealRemote(message.id)}
-          className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/50 bg-black/[0.02] dark:bg-white/[0.02] py-2 text-[11px] font-semibold text-secondary hover:text-accent hover:border-accent/40 cursor-pointer transition-colors"
+          className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed border-border/50 bg-black/[0.02] dark:bg-white/[0.02] py-2 text-[0.6875rem] font-semibold text-secondary hover:text-accent hover:border-accent/40 cursor-pointer transition-colors"
         >
           <Image size={13} />
           {t('chat.showImages', { count: hiddenRemoteCount })}
@@ -129,7 +129,7 @@ export function MessageContent({
           >
             <FileIcon size={15} className="text-accent shrink-0" />
             <span className="truncate">{file.filename}</span>
-            <span className="text-[9.5px] text-secondary ml-auto shrink-0 font-normal">
+            <span className="text-[0.59375rem] text-secondary ml-auto shrink-0 font-normal">
               {formatFileSize(file.size)}
             </span>
             {downloadable && (

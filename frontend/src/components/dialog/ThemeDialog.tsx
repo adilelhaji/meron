@@ -35,7 +35,7 @@ function ThemeSection({
   const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-3">
-      <span className="text-[12.5px] font-semibold text-secondary">{label}</span>
+      <span className="text-[0.78125rem] font-semibold text-secondary">{label}</span>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
         {themes.map((item) => {
           const custom = customThemes.find((candidate) => candidate.id === item.id)
@@ -57,7 +57,7 @@ function ThemeSection({
           className="flex min-h-[112px] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border text-secondary hover:text-accent hover:border-accent/50 cursor-pointer transition-colors"
         >
           <Plus size={16} />
-          <span className="text-[10.5px] font-bold">{t('theme.custom')}</span>
+          <span className="text-[0.65625rem] font-bold">{t('theme.custom')}</span>
         </button>
       </div>
     </div>
@@ -110,7 +110,7 @@ export function ThemeDialog({ onClose }: { onClose: () => void }) {
           <div className="flex items-center justify-between gap-3 border-b border-border/70 px-6 py-4 shrink-0">
             <div className="flex items-center gap-2">
               <Palette className="text-accent" size={16} />
-              <h3 className="text-[14px] font-bold leading-tight">{t('common.theme')}</h3>
+              <h3 className="text-[0.875rem] font-bold leading-tight">{t('common.theme')}</h3>
             </div>
             <IconButton icon={X} iconSize={15} label={t('buttons.close')} size="sm" onClick={onClose} />
           </div>

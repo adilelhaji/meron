@@ -137,7 +137,7 @@ export function ConversationHeader({
           {isRSS ? (
             // RSS subject == from_name (both the feed title), so showing the name
             // again would just duplicate the title above. Show the feed host only.
-            <p className="truncate text-[11.5px] text-secondary mt-0.5 font-medium" title={activeThread.from_addr}>
+            <p className="truncate text-[0.71875rem] text-secondary mt-0.5 font-medium" title={activeThread.from_addr}>
               {activeThread.from_addr}
             </p>
           ) : (
@@ -145,7 +145,7 @@ export function ConversationHeader({
               type="button"
               onClick={openSenderMenu}
               onContextMenu={openSenderMenu}
-              className="mt-0.5 block max-w-full truncate rounded-sm text-left text-[11.5px] font-medium text-secondary outline-none transition-colors cursor-context-menu hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/40"
+              className="mt-0.5 block max-w-full truncate rounded-sm text-left text-[0.71875rem] font-medium text-secondary outline-none transition-colors cursor-context-menu hover:text-accent focus-visible:ring-2 focus-visible:ring-accent/40"
               title={`${activeThread.from_name} (${activeThread.from_addr})`}
               aria-label={t('chat.copyFullAddress')}
             >
@@ -193,7 +193,7 @@ export function ConversationHeader({
               >
                 <X size={12} />
               </button>
-              <span className="w-10 text-center text-[10px] font-semibold text-secondary">
+              <span className="w-10 text-center text-[0.625rem] font-semibold text-secondary">
                 {normalizedThreadSearch
                   ? `${searchMatches.length ? activeSearchIndex + 1 : 0}/${searchMatches.length}`
                   : ''}

@@ -19,7 +19,7 @@ function splitTail(value: string): { head: string; tail: string } {
   return { head: value.slice(0, idx + 1), tail: value.slice(idx + 1) }
 }
 
-const inputClass = 'w-full bg-transparent text-[13px] text-primary placeholder-secondary outline-none'
+const inputClass = 'w-full bg-transparent text-[0.8125rem] text-primary placeholder-secondary outline-none'
 
 export function RecipientInput({ value, onChange, accountId, placeholder, autoFocus }: RecipientInputProps) {
   const [suggestions, setSuggestions] = useState<Contact[]>([])
@@ -123,7 +123,7 @@ export function RecipientInput({ value, onChange, accountId, placeholder, autoFo
                 accept(c)
               }}
               onMouseEnter={() => setActive(i)}
-              className={`cursor-pointer px-3 py-1.5 text-[13px] ${i === active ? 'bg-accent/10' : ''}`}
+              className={`cursor-pointer px-3 py-1.5 text-[0.8125rem] ${i === active ? 'bg-accent/10' : ''}`}
             >
               {c.name.trim() && c.name.trim().toLowerCase() !== c.addr.toLowerCase() ? (
                 <span>

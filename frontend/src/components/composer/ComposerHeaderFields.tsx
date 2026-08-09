@@ -5,9 +5,9 @@ import { settings$ } from '../../states/settings'
 import type { ComposeDraft } from '../../types'
 import { RecipientInput } from './RecipientInput'
 
-const fieldClass = 'flex-1 bg-transparent text-[13px] text-primary placeholder-secondary outline-none'
+const fieldClass = 'flex-1 bg-transparent text-[0.8125rem] text-primary placeholder-secondary outline-none'
 
-const labelClass = 'w-12 shrink-0 text-[11px] font-bold text-secondary'
+const labelClass = 'w-12 shrink-0 text-[0.6875rem] font-bold text-secondary'
 
 // The From/To/Cc/Bcc/Subject header block of the composer.
 export function ComposerHeaderFields({
@@ -41,7 +41,7 @@ export function ComposerHeaderFields({
               const email = e.target.value.slice(sep + 1)
               update({ accountId: accId, fromEmail: email })
             }}
-            className="flex-1 bg-transparent text-[13px] text-primary outline-none cursor-pointer"
+            className="flex-1 bg-transparent text-[0.8125rem] text-primary outline-none cursor-pointer"
           >
             {sendable.flatMap((acc) =>
               accountIdentities(acc).map((identity) => (
@@ -65,7 +65,7 @@ export function ComposerHeaderFields({
         />
         <button
           onClick={() => update({ showCcBcc: !draft.showCcBcc })}
-          className="shrink-0 text-[11px] font-semibold text-accent hover:underline cursor-pointer"
+          className="shrink-0 text-[0.6875rem] font-semibold text-accent hover:underline cursor-pointer"
         >
           {draft.showCcBcc ? t('composer.actions.hideCcBcc') : t('composer.actions.ccBcc')}
         </button>

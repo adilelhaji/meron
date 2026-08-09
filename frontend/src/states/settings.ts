@@ -12,6 +12,14 @@ import {
 } from '../lib/themes'
 import { sanitizeChatWallpaper } from '../lib/wallpapers'
 import {
+  BASE_ROOT_FONT_SIZE,
+  DEFAULT_FONT_SCALE,
+  clampFontScale,
+  fontStack,
+  sanitizeFontChoice,
+  sanitizeFontScale,
+} from '../lib/fonts'
+import {
   sanitizeShortcutOverrides,
   setShortcutOverrides,
   type Chord,
@@ -78,6 +86,14 @@ export type Settings = {
   themeId: string
   /** User-created themes (see lib/themes.ts). */
   customThemes: CustomTheme[]
+  /** Interface font: '' for Inter, a lib/fonts option id, or a typed family name. */
+  fontFamily: string
+  /** Font for message bodies; '' follows the interface font. */
+  messageFontFamily: string
+  /** App-wide text size, in percent of the default (see lib/fonts). */
+  fontScale: number
+  /** Message body text size, in percent, applied on top of `fontScale`. */
+  messageFontScale: number
   showRealAvatars: boolean
   /** Whether to overlay an inbox unread-count badge on side navigation account avatars. */
   showUnreadAccountBadge: boolean
@@ -121,6 +137,10 @@ export const KANBAN_COLUMN_MAX_WIDTH = 700
 const DB_KEY = {
   themeId: 'theme_id',
   customThemes: 'custom_themes',
+  fontFamily: 'font_family',
+  messageFontFamily: 'message_font_family',
+  fontScale: 'font_scale',
+  messageFontScale: 'message_font_scale',
   showRealAvatars: 'show_real_avatars',
   showUnreadAccountBadge: 'show_unread_account_badge',
   sendShortcut: 'send_shortcut',
@@ -188,6 +208,67 @@ function bootstrapThemeSelection(): Pick<Settings, 'themeId' | 'customThemes'> {
 
 const themeBootstrap = bootstrapThemeSelection()
 
+// Typography, like the theme, is painted before the DB rows arrive, so it keeps
+// its own localStorage mirror to avoid a reflow from the default font/size to
+// the chosen one. The DB rows stay authoritative.
+const FONT_CACHE_KEY = 'meron-font-cache'
+
+type FontSelection = Pick<Settings, 'fontFamily' | 'messageFontFamily' | 'fontScale' | 'messageFontScale'>
+
+const DEFAULT_FONTS: FontSelection = {
+  fontFamily: '',
+  messageFontFamily: '',
+  fontScale: DEFAULT_FONT_SCALE,
+  messageFontScale: DEFAULT_FONT_SCALE,
+}
+
+// The chosen families feed the --font-sans / --font-message chains in index.css
+// (which append the locale's CJK stack and the generic fallbacks), and the text
+// size scales the root font size the rem-based text utilities are sized against.
+function applyFontSelection(fonts: FontSelection) {
+  const root = document.documentElement
+  const ui = fontStack(fonts.fontFamily)
+  const message = fontStack(fonts.messageFontFamily)
+  // Clearing the var (rather than writing the default) lets the index.css
+  // fallback paint, so devtools shows one source for the default typography.
+  if (ui) root.style.setProperty('--me-font-ui', ui)
+  else root.style.removeProperty('--me-font-ui')
+  if (message) root.style.setProperty('--me-font-message', message)
+  else root.style.removeProperty('--me-font-message')
+
+  const scale = clampFontScale(fonts.fontScale)
+  if (scale === DEFAULT_FONT_SCALE) root.style.removeProperty('font-size')
+  else root.style.fontSize = `${(BASE_ROOT_FONT_SIZE * scale) / 100}px`
+
+  // Message bodies multiply their own size on top (the app-wide size already
+  // reaches them through the root font size). The frames can't see this var —
+  // they get a pixel size baked into their stylesheet instead.
+  const messageScale = clampFontScale(fonts.messageFontScale)
+  if (messageScale === DEFAULT_FONT_SCALE) root.style.removeProperty('--me-message-scale')
+  else root.style.setProperty('--me-message-scale', String(messageScale / 100))
+}
+
+function bootstrapFontSelection(): FontSelection {
+  try {
+    const raw = localStorage.getItem(FONT_CACHE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>
+      return {
+        fontFamily: sanitizeFontChoice(parsed.fontFamily) ?? '',
+        messageFontFamily: sanitizeFontChoice(parsed.messageFontFamily) ?? '',
+        fontScale: sanitizeFontScale(parsed.fontScale) ?? DEFAULT_FONT_SCALE,
+        messageFontScale: sanitizeFontScale(parsed.messageFontScale) ?? DEFAULT_FONT_SCALE,
+      }
+    }
+  } catch {
+    // Corrupt cache: fall through to defaults; the DB hydrate will repair it.
+  }
+  return DEFAULT_FONTS
+}
+
+const fontBootstrap = bootstrapFontSelection()
+applyFontSelection(fontBootstrap)
+
 // Like the theme, the active locale is reflected to <html lang>/dir so CJK glyph
 // selection (:lang() in index.css) and RTL paint correctly. The DB row loads
 // async, so a localStorage mirror lets us set it synchronously at first paint;
@@ -220,6 +301,10 @@ export function applyDocumentLanguage(lang: SupportedI18nLanguage) {
 export const settings$ = observable<Settings>({
   themeId: themeBootstrap.themeId,
   customThemes: themeBootstrap.customThemes,
+  fontFamily: fontBootstrap.fontFamily,
+  messageFontFamily: fontBootstrap.messageFontFamily,
+  fontScale: fontBootstrap.fontScale,
+  messageFontScale: fontBootstrap.messageFontScale,
   showRealAvatars: false,
   showUnreadAccountBadge: false,
   sendShortcut: 'mod_enter',
@@ -242,6 +327,26 @@ export const settings$ = observable<Settings>({
 // lib/shortcuts resolves chords from a local mirror, so keep it in step with the
 // persisted overrides (hydration included — onChange fires for those too).
 settings$.shortcutOverrides.onChange(({ value }) => setShortcutOverrides(value))
+
+/** Repaint typography and refresh its paint-time cache. */
+function syncFonts() {
+  const fonts: FontSelection = {
+    fontFamily: settings$.fontFamily.peek(),
+    messageFontFamily: settings$.messageFontFamily.peek(),
+    fontScale: settings$.fontScale.peek(),
+    messageFontScale: settings$.messageFontScale.peek(),
+  }
+  applyFontSelection(fonts)
+  try {
+    localStorage.setItem(FONT_CACHE_KEY, JSON.stringify(fonts))
+  } catch {
+    // Storage unavailable: only the next first-paint hint is lost.
+  }
+}
+settings$.fontFamily.onChange(syncFonts)
+settings$.messageFontFamily.onChange(syncFonts)
+settings$.fontScale.onChange(syncFonts)
+settings$.messageFontScale.onChange(syncFonts)
 
 // Suppress persistence while applying values loaded from the DB, so hydration
 // doesn't immediately echo them back.
@@ -456,6 +561,15 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
     if (typeof themeId === 'string' && themeId) settings$.themeId.set(themeId)
     const customThemes = sanitizeCustomThemes(prefs[DB_KEY.customThemes])
     if (customThemes) settings$.customThemes.set(customThemes)
+
+    const fontFamily = sanitizeFontChoice(prefs[DB_KEY.fontFamily])
+    if (fontFamily !== null) settings$.fontFamily.set(fontFamily)
+    const messageFontFamily = sanitizeFontChoice(prefs[DB_KEY.messageFontFamily])
+    if (messageFontFamily !== null) settings$.messageFontFamily.set(messageFontFamily)
+    const fontScale = sanitizeFontScale(prefs[DB_KEY.fontScale])
+    if (fontScale !== null) settings$.fontScale.set(fontScale)
+    const messageFontScale = sanitizeFontScale(prefs[DB_KEY.messageFontScale])
+    if (messageFontScale !== null) settings$.messageFontScale.set(messageFontScale)
 
     if (typeof prefs[DB_KEY.showRealAvatars] === 'boolean') {
       settings$.showRealAvatars.set(prefs[DB_KEY.showRealAvatars] as boolean)

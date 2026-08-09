@@ -67,7 +67,7 @@ export function useComposer(tabId: string) {
     content: initialHtml,
     editorProps: {
       attributes: {
-        class: 'tiptap-body focus:outline-none min-h-[240px] text-[14px] leading-relaxed',
+        class: 'tiptap-body focus:outline-none min-h-[240px] text-[0.875rem] leading-relaxed',
         spellcheck: String(spellCheck),
       },
       handlePaste: (_view, event) => {

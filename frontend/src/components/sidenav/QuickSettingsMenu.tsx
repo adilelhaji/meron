@@ -9,7 +9,7 @@ import { MenuItem } from '../menu/MenuItem'
 /** The chord a menu row triggers, so the keystroke is learnable from the menu. */
 function Hint({ id }: { id: ShortcutId }) {
   return (
-    <kbd className="shrink-0 rounded border border-border bg-app px-1.5 py-0.5 text-[10px] font-medium text-secondary">
+    <kbd className="shrink-0 rounded border border-border bg-app px-1.5 py-0.5 text-[0.625rem] font-medium text-secondary">
       {formatShortcut(id).join(isMac ? '' : '+')}
     </kbd>
   )

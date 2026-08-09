@@ -279,7 +279,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                 }}
                 placeholder={isRSSAccount ? t('threads.searchFeeds') : t('threads.searchMessages')}
                 className={clsx(
-                  'w-full rounded-xl bg-hover py-2 pl-8 text-[13px] text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:bg-chats border border-transparent focus:border-transparent transition-all duration-150',
+                  'w-full rounded-xl bg-hover py-2 pl-8 text-[0.8125rem] text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:bg-chats border border-transparent focus:border-transparent transition-all duration-150',
                   // The right padding only has to clear the clear button while there is one.
                   query ? 'pr-8' : 'pr-3',
                 )}
