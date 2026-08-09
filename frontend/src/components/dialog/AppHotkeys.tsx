@@ -66,15 +66,35 @@ function modalOpen(): boolean {
   )
 }
 
-// Bare shortcuts are thread-list/conversation actions, so they only apply in the
-// chat layout with nothing modal in the way.
+// Bare shortcuts are thread-list/conversation actions. They apply in the kanban
+// view too — the selected card lives in ui$.selectedThread, same as a chat-list
+// row — as long as nothing modal is in the way.
 function bareShortcutsActive(): boolean {
-  if (kanban$.activeBoardId.peek()) return false
   return !modalOpen()
 }
 
 function kanbanArrowNavigationActive(): boolean {
   return !!kanban$.activeBoardId.peek() && !modalOpen()
+}
+
+function chatArrowNavigationActive(): boolean {
+  return !kanban$.activeBoardId.peek() && !modalOpen()
+}
+
+// The thread a bare action applies to. On a board the open card wins: an RSS
+// card opens in a reader tab without retargeting ui$.selectedThread, which would
+// otherwise leave a stale chat-list selection as the target. Same precedence as
+// selectAdjacentKanbanThread.
+function activeThreadId(): string {
+  if (kanban$.activeBoardId.peek()) return kanban$.paneThreadId.peek() || ui$.selectedThread.peek()
+  return ui$.selectedThread.peek()
+}
+
+// j/k (and the arrow keys) step through whichever list is on screen: the chat
+// thread list, or the active board's cards.
+function selectAdjacentThreadForView(delta: number) {
+  if (kanban$.activeBoardId.peek()) selectAdjacentKanbanThread(delta)
+  else selectAdjacentThread(delta)
 }
 
 function handleKanbanArrowNavigation(key: string, target: EventTarget | null): boolean {
@@ -119,7 +139,7 @@ function deleteKeyFocusAllowed(): boolean {
 // ui$.selectedThread either way), unlike the other bare shortcuts.
 function handleDeleteKey(key: string, target: EventTarget | null): boolean {
   if (key !== 'Delete' || isTyping(target) || modalOpen() || !deleteKeyFocusAllowed()) return false
-  const threadId = ui$.selectedThread.peek()
+  const threadId = activeThreadId()
   const bulkItems = selectedBulkItems()
   if (bulkItems.length > 0) {
     void bulkDeleteSelected(bulkItems)
@@ -132,7 +152,7 @@ function handleDeleteKey(key: string, target: EventTarget | null): boolean {
 
 // Arrow up/down steps through the chat thread list, just like j/k.
 function handleChatArrowNavigation(key: string, target: EventTarget | null): boolean {
-  if ((key !== 'ArrowDown' && key !== 'ArrowUp') || isTyping(target) || !bareShortcutsActive()) {
+  if ((key !== 'ArrowDown' && key !== 'ArrowUp') || isTyping(target) || !chatArrowNavigationActive()) {
     return false
   }
   selectAdjacentThread(key === 'ArrowDown' ? 1 : -1)
@@ -169,8 +189,9 @@ function handleRailShortcut(action: ShortcutId): boolean {
 /**
  * Mounts the global keyboard shortcuts. Renders nothing. ⌘/Ctrl-modified
  * shortcuts work everywhere (even while typing); bare single-key shortcuts
- * (j/k/e/s/u/#/r) only fire in the chat view when not typing and no modal is
- * open. Per-palette navigation (arrows/enter/esc) lives inside CommandPalette.
+ * (j/k/e/s/u/#/i/r) fire in the chat and kanban views when not typing and no
+ * modal is open. Per-palette navigation (arrows/enter/esc) lives inside
+ * CommandPalette.
  */
 export function AppHotkeys() {
   useEffect(() => {
@@ -227,7 +248,7 @@ export function AppHotkeys() {
         if (isTyping(event.target) || !bareShortcutsActive()) return
       }
 
-      const selected = () => ui$.selectedThread.peek()
+      const selected = () => activeThreadId()
       const bulkSelected = () => selectedBulkItems()
 
       switch (action) {
@@ -293,11 +314,11 @@ export function AppHotkeys() {
           break
         case 'thread.next':
           event.preventDefault()
-          selectAdjacentThread(1)
+          selectAdjacentThreadForView(1)
           break
         case 'thread.prev':
           event.preventDefault()
-          selectAdjacentThread(-1)
+          selectAdjacentThreadForView(-1)
           break
         case 'thread.archive':
           if (bulkSelected().length > 0) {

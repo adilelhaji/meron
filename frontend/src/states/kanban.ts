@@ -4,6 +4,8 @@ import { isFilterMode, pauseMailFolderPersist, persistMailFolder, ui$, type Filt
 import { mail$, refreshAccountFoldersCache } from './mail'
 import { accounts$ } from './accounts'
 import { filterThreads, isRssAccount } from '../lib/threadActions'
+import { isUnifiedStarredColumn } from '../lib/kanbanData'
+import { compose$, openMessageTab } from './compose'
 import { persistedField } from '../lib/sessionPref'
 import { settings$, type KanbanBoard } from './settings'
 import { invoke } from '../lib/bridge'
@@ -452,6 +454,31 @@ export async function markColumnAllRead(column: KanbanColumn) {
   )
 }
 
+// Open a card the keyboard moved onto, the same way clicking it would. Feed
+// rows in the starred column carry their full body and live in a reader tab;
+// everything else opens in the conversation pane, which means dropping any
+// reader tab a previous card left behind — MessagePane renders the active tab
+// over the conversation, so the old item would otherwise stay on screen while
+// only the card highlight moved.
+function openAdjacentKanbanCard(thread: Message, column: KanbanColumn, boardKey: string) {
+  if (
+    isUnifiedStarredColumn(column) &&
+    isRssAccount(
+      accounts$.get().find((item) => item.id === thread.account_id),
+      thread.account_id,
+    )
+  ) {
+    openMessageTab(thread)
+  } else {
+    focusKanbanThreadFolder(thread.folder_id)
+    compose$.activeTab.set('')
+    ui$.selectedThread.set(thread.thread_id)
+  }
+  kanban$.paneThreadId.set(thread.thread_id)
+  kanban$.paneColumnKey.set(boardKey)
+  ui$.mobilePane.set('conversation')
+}
+
 // Move the open kanban conversation through the visible cards in its current
 // column. This mirrors chat-list adjacent navigation but uses the active board.
 export function selectAdjacentKanbanThread(delta: number) {
@@ -469,7 +496,7 @@ export function selectAdjacentKanbanThread(delta: number) {
       ]
     : columns
 
-  let fallback: { key: string; thread: Message } | undefined
+  let fallback: { key: string; thread: Message; column: KanbanColumn } | undefined
   for (const column of orderedColumns) {
     const sourceKey = kanbanColumnKey(column)
     const boardKey = kanbanBoardColumnKey(boardId, column)
@@ -477,7 +504,7 @@ export function selectAdjacentKanbanThread(delta: number) {
     const filterMode = filters[sourceKey] ?? globalFilter
     const list = filterThreads(rawThreads, filterMode, selected, mail$.readThreads.get())
     if (!fallback && list.length > 0) {
-      fallback = { key: boardKey, thread: delta >= 0 ? list[0] : list[list.length - 1] }
+      fallback = { key: boardKey, thread: delta >= 0 ? list[0] : list[list.length - 1], column }
     }
     if (!selected || !rawThreads.some((thread) => thread.thread_id === selected)) continue
 
@@ -488,19 +515,11 @@ export function selectAdjacentKanbanThread(delta: number) {
     const target = list[next]
     if (!target || target.thread_id === selected) return
 
-    focusKanbanThreadFolder(target.folder_id)
-    ui$.selectedThread.set(target.thread_id)
-    kanban$.paneThreadId.set(target.thread_id)
-    kanban$.paneColumnKey.set(boardKey)
-    ui$.mobilePane.set('conversation')
+    openAdjacentKanbanCard(target, column, boardKey)
     return
   }
 
   if (fallback) {
-    focusKanbanThreadFolder(fallback.thread.folder_id)
-    ui$.selectedThread.set(fallback.thread.thread_id)
-    kanban$.paneThreadId.set(fallback.thread.thread_id)
-    kanban$.paneColumnKey.set(fallback.key)
-    ui$.mobilePane.set('conversation')
+    openAdjacentKanbanCard(fallback.thread, fallback.column, fallback.key)
   }
 }
