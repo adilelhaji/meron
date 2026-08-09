@@ -1,20 +1,13 @@
-import { useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { settleConfirm, ui$ } from '../../states/ui'
 import { Button } from '../button/Button'
 
 export function AppConfirm() {
   const confirm = useValue(ui$.confirm)
 
-  useEffect(() => {
-    if (!confirm) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') settleConfirm(false)
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [confirm])
+  useEscapeKey(() => settleConfirm(false), Boolean(confirm))
 
   if (!confirm) return null
 

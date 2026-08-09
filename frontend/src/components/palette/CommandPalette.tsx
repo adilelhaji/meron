@@ -3,6 +3,7 @@ import { Check, Mail } from 'lucide-react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { ui$, closeCommandPalette } from '../../states/ui'
 import { formatShortcut, isMac } from '../../lib/shortcuts'
 import { useCommandList } from './useCommandList'
@@ -32,6 +33,10 @@ export function CommandPalette() {
     if (index > max) ui$.paletteIndex.set(max)
   }, [open, filtered.length, index])
 
+  // Joins the Escape stack so the palette claims the key even when it is opened
+  // on top of another dialog, which would otherwise close underneath it.
+  useEscapeKey(closeCommandPalette, open)
+
   if (!open) return null
 
   const move = (delta: number) => {
@@ -42,11 +47,7 @@ export function CommandPalette() {
   const onKeyDown = (event: ReactKeyboardEvent) => {
     const key = event.key.toLowerCase()
 
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      event.stopPropagation()
-      closeCommandPalette()
-    } else if (event.key === 'ArrowDown' || (event.ctrlKey && key === 'n')) {
+    if (event.key === 'ArrowDown' || (event.ctrlKey && key === 'n')) {
       event.preventDefault()
       event.stopPropagation()
       move(1)
@@ -61,9 +62,12 @@ export function CommandPalette() {
     }
   }
 
+  // Above every other overlay: Ctrl/⌘K opens the palette even with a dialog
+  // already up, and it is then the newest layer — so it has to paint on top as
+  // well as be the layer Escape closes (see useEscapeKey).
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/40 px-4 pt-[12vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[130] flex items-start justify-center bg-black/40 px-4 pt-[12vh] backdrop-blur-sm"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) closeCommandPalette()
       }}

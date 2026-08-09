@@ -1,7 +1,7 @@
-import { useEffect } from 'react'
 import { ExternalLink, Heart, ScrollText, X } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { ui$ } from '../../states/ui'
 import { openExternal } from '../../lib/native'
 import { Button } from '../button/Button'
@@ -24,17 +24,7 @@ export function AboutDialog() {
 
   const onClose = () => ui$.aboutOpen.set(false)
 
-  useEffect(() => {
-    if (!open) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [open])
+  useEscapeKey(onClose, open)
 
   if (!open) return null
 

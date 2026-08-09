@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, Columns3 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { accounts$ } from '../../states/accounts'
 import { mail$ } from '../../states/mail'
 import { kanbanColumnKey, type KanbanColumn } from '../../states/kanban'
@@ -35,6 +36,8 @@ export function SearchScopeDropdown({
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
+
+  useEscapeKey(() => setIsOpen(false), isOpen)
 
   const selectedLabel = useMemo(() => {
     if (value === 'all') return t('kanban.searchScope.allColumns')

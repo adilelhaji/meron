@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Inbox, Star, X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import type { Folder } from '../../types'
 import { Button } from '../button/Button'
 import { IconButton } from '../button/IconButton'
@@ -33,13 +34,7 @@ export function AddColumnDialog({
   const trees = useMemo(() => groups.map((group) => ({ ...group, tree: buildFolderTree(group.folders) })), [groups])
   const [selected, setSelected] = useState<Set<string>>(() => new Set(initialSelected))
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   function toggle(keys: string[], next: boolean) {
     setSelected((prev) => {

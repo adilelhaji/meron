@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import type { LucideIcon } from 'lucide-react'
 import {
   X,
@@ -124,16 +125,10 @@ export function SettingsDialog() {
 
   // Esc closes the dialog, unless the add-account dialog is layered on top (it
   // owns the keystroke then).
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !ui$.setupOpen.peek()) {
-        event.preventDefault()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [])
+  useEscapeKey(() => {
+    if (ui$.setupOpen.peek()) return
+    onClose()
+  })
 
   // Open the add-account dialog layered on top of Settings (Settings stays open
   // underneath, so cancelling or saving returns here).
@@ -636,18 +631,9 @@ function LogViewerDialog({ onClose }: { onClose: () => void }) {
     }
   }, [])
 
-  // Layered above Settings; stop Esc from bubbling up and closing Settings too.
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopImmediatePropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown, true)
-    return () => window.removeEventListener('keydown', handleKeyDown, true)
-  }, [onClose])
+  // Layered above Settings; useEscapeKey hands Esc to the topmost layer only,
+  // so Settings stays open underneath.
+  useEscapeKey(onClose)
 
   const exportLog = async () => {
     try {

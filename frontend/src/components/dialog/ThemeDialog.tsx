@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Palette, Plus, X } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { BUILTIN_THEMES, DEFAULT_LIGHT_ID, type Appearance, type CustomTheme, type ThemeDef } from '../../lib/themes'
 import { confirmAction } from '../../states/ui'
 import { deleteCustomTheme, selectTheme, settings$ } from '../../states/settings'
@@ -70,16 +71,7 @@ export function ThemeDialog({ onClose }: { onClose: () => void }) {
   const selectedId = useValue(settings$.themeId)
   const customThemes = useValue(settings$.customThemes)
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const themes = [...BUILTIN_THEMES, ...customThemes]
   // A stale selection (deleted custom theme) highlights the default, matching

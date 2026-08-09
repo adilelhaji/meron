@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Rss, RefreshCw } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { showToast } from '../../states/ui'
 import { submitFeed } from '../../states/feeds'
 import { ui$ } from '../../states/ui'
@@ -24,6 +25,8 @@ export function AddFeedDialog() {
     if (loading) return
     ui$.addFeedAccount.set('')
   }
+
+  useEscapeKey(onClose, !loading)
 
   const submit = async () => {
     const trimmed = url.trim()
@@ -69,7 +72,6 @@ export function AddFeedDialog() {
             onChange={(event) => setUrl(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Enter') submit()
-              if (event.key === 'Escape') onClose()
             }}
             placeholder="https://example.com/feed.xml"
             className="w-full rounded-xl bg-hover px-3.5 py-2.5 text-[0.8125rem] text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:bg-chats border border-transparent transition-all duration-150"

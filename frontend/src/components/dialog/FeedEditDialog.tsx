@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { X, Rss, Trash2, Copy, Check } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { removeFeed } from '../../states/feeds'
 import { ui$ } from '../../states/ui'
 import { Button } from '../button/Button'
@@ -14,6 +15,13 @@ export function FeedEditDialog() {
   const [deleting, setDeleting] = useState(false)
   const [copied, setCopied] = useState(false)
 
+  const onClose = () => {
+    if (deleting) return
+    ui$.editFeed.set(null)
+  }
+
+  useEscapeKey(onClose, Boolean(feed) && !deleting)
+
   if (!feed) return null
 
   const onCopy = async () => {
@@ -21,11 +29,6 @@ export function FeedEditDialog() {
     await navigator.clipboard.writeText(feed.url)
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
-  }
-
-  const onClose = () => {
-    if (deleting) return
-    ui$.editFeed.set(null)
   }
 
   const onDelete = async () => {

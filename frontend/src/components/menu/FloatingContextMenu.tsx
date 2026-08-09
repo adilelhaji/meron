@@ -1,5 +1,8 @@
 import { useLayoutEffect, useRef, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useEscapeKey } from '../../lib/useEscapeKey'
+
+const noop = () => {}
 
 export function FloatingContextMenu({
   x,
@@ -30,6 +33,8 @@ export function FloatingContextMenu({
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null)
   const dataProps = dataAttribute ? { [dataAttribute]: '' } : undefined
+
+  useEscapeKey(onClose ?? noop, Boolean(onClose))
 
   useLayoutEffect(() => {
     const el = menuRef.current

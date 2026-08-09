@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronLeft, ChevronRight, Copy, Download, X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { copyAttachmentImage, downloadAttachment } from '../../states/mail'
 import { MenuItem } from '../menu/MenuItem'
 import { VideoAttachment } from './VideoAttachment'
@@ -81,15 +82,16 @@ export function Gallery({ items, index, onIndexChange, onClose }: GalleryProps) 
     setMenu(null)
   }, [index, resetZoom])
 
+  useEscapeKey(onClose)
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-      else if (event.key === 'ArrowLeft') goPrev()
+      if (event.key === 'ArrowLeft') goPrev()
       else if (event.key === 'ArrowRight') goNext()
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose, goPrev, goNext])
+  }, [goPrev, goNext])
 
   // Ctrl + wheel (and trackpad pinch, which browsers report as ctrl+wheel)
   // zooms toward the cursor. Attached natively so we can preventDefault the

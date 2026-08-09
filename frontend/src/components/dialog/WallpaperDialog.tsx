@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { X, Check, Upload, Image as ImageIcon } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import type { ChatWallpaper } from '../../types'
 import { WALLPAPER_PRESETS, sanitizeChatWallpaper, wallpaperCss } from '../../lib/wallpapers'
 import { pickImageFile } from '../../lib/nativeFilePicker'
@@ -36,16 +37,7 @@ export function WallpaperDialog({
   const wallpaper = sanitizeChatWallpaper(rawWallpaper)
   const selectedKey = wallpaperKey(wallpaper)
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const uploadWallpaper = async () => {
     try {

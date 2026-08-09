@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
 import { X, RefreshCw } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { ui$ } from '../../states/ui'
 import { Field } from '../field/Field'
 import { Button } from '../button/Button'
@@ -40,18 +40,7 @@ export function AccountDialog({ variant = 'dialog' }: AccountDialogProps) {
 
   // Esc closes the layered add-account dialog. The full-screen onboarding setup
   // variant has no close affordance, so it ignores Esc.
-  useEffect(() => {
-    if (isSetup) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        event.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isSetup])
+  useEscapeKey(onClose, !isSetup)
 
   // The full-screen first-run onboarding: provider cards stacked above the form.
   if (isSetup) {

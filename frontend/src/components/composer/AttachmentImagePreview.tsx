@@ -1,6 +1,6 @@
-import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import type { ComposerAttachment } from '../../types'
 import { composerAttachmentSrc } from './PendingAttachmentList'
 
@@ -11,13 +11,7 @@ export function AttachmentImagePreview({
   attachment: ComposerAttachment
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   return createPortal(
     <div

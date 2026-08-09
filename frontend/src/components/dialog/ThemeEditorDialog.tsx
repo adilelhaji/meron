@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { isValidColor, luminance } from '../../lib/color'
 import {
   cssVarStyle,
@@ -52,16 +53,7 @@ export function ThemeEditorDialog({
   // dark theme doesn't start from light colors.
   const [dirty, setDirty] = useState(initial !== null)
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation()
-        onClose()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [onClose])
+  useEscapeKey(onClose)
 
   const setColor = (key: ColorField, value: string) => {
     setDirty(true)

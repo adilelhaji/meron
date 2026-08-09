@@ -1,6 +1,7 @@
 import { Columns3, Info, Plus, RefreshCw, Settings, SquareChevronRight } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { syncMail } from '../../states/mail'
 import { openCommandPalette, ui$ } from '../../states/ui'
 import { formatShortcut, isMac, type ShortcutId } from '../../lib/shortcuts'
@@ -31,6 +32,7 @@ export function QuickSettingsMenu({
 }) {
   const { t } = useTranslation()
   const busy = useValue(ui$.busy)
+  useEscapeKey(onClose)
 
   return (
     <>

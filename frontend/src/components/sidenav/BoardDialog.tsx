@@ -1,5 +1,6 @@
 import { X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { createKanbanBoard } from '../../states/kanban'
 import { Button } from '../button/Button'
 import { IconButton } from '../button/IconButton'
@@ -19,6 +20,7 @@ export function BoardDialog({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  useEscapeKey(onClose)
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 p-4"

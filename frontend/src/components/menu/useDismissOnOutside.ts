@@ -1,10 +1,11 @@
 import { useEffect, useRef } from 'react'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 
 // Closes a popup whenever the user interacts outside it. Listens to
 // capture-phase pointerdown instead of bubbled click so that (a) another
 // menu's trigger calling stopPropagation() can't keep this one open, and
 // (b) right-clicks dismiss it too — only one menu should be visible at a
-// time. Also closes on outside scroll and on resize.
+// time. Also closes on outside scroll, on resize, and on Escape.
 export function useDismissOnOutside(
   active: boolean,
   isInside: (target: EventTarget | null) => boolean,
@@ -14,6 +15,8 @@ export function useDismissOnOutside(
   const closeRef = useRef(close)
   isInsideRef.current = isInside
   closeRef.current = close
+
+  useEscapeKey(() => closeRef.current(), active)
 
   useEffect(() => {
     if (!active) return

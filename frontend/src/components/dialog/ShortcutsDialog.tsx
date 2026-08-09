@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { RotateCcw, X } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { ui$ } from '../../states/ui'
 import {
   chordFromEvent,
@@ -29,25 +30,16 @@ export function ShortcutsDialog() {
   // Which shortcut already owns the chord the user just pressed.
   const [conflict, setConflict] = useState<{ id: ShortcutId; taken: ShortcutId } | null>(null)
 
-  // Esc cancels a recording, else closes the sheet. Capture phase + stopPropagation
-  // because Settings can be layered underneath (same pattern as ThemeEditorDialog)
-  // and must not close along with it.
-  useEffect(() => {
-    if (!open) return
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      event.preventDefault()
-      event.stopPropagation()
-      if (recording) {
-        setRecording(null)
-        setConflict(null)
-      } else {
-        ui$.shortcutsOpen.set(false)
-      }
+  // Esc cancels a recording, else closes the sheet. useEscapeKey hands the key
+  // to the topmost layer only, so Settings underneath does not close too.
+  useEscapeKey(() => {
+    if (recording) {
+      setRecording(null)
+      setConflict(null)
+    } else {
+      ui$.shortcutsOpen.set(false)
     }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [open, recording])
+  }, open)
 
   // The recorder runs in the capture phase and swallows the keystroke, so a
   // chord being rebound (⌘K, say) doesn't also trigger its current action.

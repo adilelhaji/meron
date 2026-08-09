@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Image as ImageIcon, Minus, Plus, RotateCcw, X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import { showToast } from '../../states/ui'
 import { Button } from '../button/Button'
 import { IconButton } from '../button/IconButton'
@@ -71,16 +72,7 @@ export function AvatarCropDialog({
     return () => URL.revokeObjectURL(url)
   }, [file])
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy && !saving) {
-        event.stopPropagation()
-        onCancel()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown, true)
-    return () => window.removeEventListener('keydown', onKeyDown, true)
-  }, [busy, onCancel, saving])
+  useEscapeKey(onCancel, !busy && !saving)
 
   const rendered = useMemo(() => {
     if (!imageSize) return null
