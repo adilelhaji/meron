@@ -1,0 +1,5 @@
+- Support customizing keyboard shortcuts
+- Support customizing fonts and text size
+- Make thread keyboard shortcuts work in Kanban boards
+- Close dialogs and menus on Escape key press
+- Fix table cell text wrapping in message body
