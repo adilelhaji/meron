@@ -14,12 +14,15 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlin.math.roundToInt
 
 @SuppressLint("SetJavaScriptEnabled")
 @Composable
@@ -40,6 +43,24 @@ actual fun MailWebView(
     // once the navigation transition has settled.
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateFlow
         .collectAsState()
+    // Read in the composable, not the update block, so a system font size change
+    // recomposes this view and re-applies the zoom below.
+    //
+    // Taken from Compose's own sp conversion rather than from
+    // Configuration.fontScale: since Android 14 the accessibility font sizes
+    // are non-linear -- larger text scales less than small text -- and the raw
+    // scale is documented as informational for that reason. Measured at a 200%
+    // system size, Compose grows a message's text by 1.74x while a
+    // fontScale-derived zoom grows the HTML by a flat 2.0x, so mail bodies
+    // would outrun the plain-text ones beside them. Converting the base body
+    // size the stylesheet uses puts the two back on the same curve. The whole
+    // document scales by that one factor, which is what keeps headings and
+    // other elements the stylesheet does not size scaling at all.
+    val htmlTextZoom =
+        with(LocalDensity.current) {
+            val basePx = MESSAGE_HTML_BASE_PX.toFloat()
+            (basePx.sp.toDp().value / basePx * 100).roundToInt()
+        }
     AndroidView(
         modifier = modifier,
         factory = { context ->
@@ -150,6 +171,13 @@ actual fun MailWebView(
                     } else {
                         WebSettings.LayoutAlgorithm.NORMAL
                     }
+                // WebView seeds its text zoom from the configuration's font
+                // scale when it is constructed and never revisits it. The
+                // activity handles fontScale itself (see AndroidManifest) so
+                // this view outlives the change: without re-asserting it here,
+                // shrinking or growing the system font size would move every
+                // sp-sized body in the app and leave the open HTML one behind.
+                textZoom = htmlTextZoom
             }
             if (webView.tag != html) {
                 webView.tag = html
@@ -193,3 +221,5 @@ internal fun webViewLinkUrl(
                         hitType == WebView.HitTestResult.SRC_ANCHOR_TYPE
                 )
         }
+
+internal actual val MailWebViewFollowsSystemFontScale: Boolean = true

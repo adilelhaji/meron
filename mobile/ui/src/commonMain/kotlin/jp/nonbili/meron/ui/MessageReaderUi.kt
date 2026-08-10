@@ -320,7 +320,7 @@ internal fun MessageReaderScreen(
                                 if (message.bodyMissing) tr("chat.messageLoadFailed") else "(no content)"
                             },
                         onOpenUrl = onOpenUrl,
-                        style = MaterialTheme.typography.bodyLarge,
+                        style = messageBodyTextStyle(MaterialTheme.typography.bodyLarge),
                     )
                 }
                 val standaloneAttachmentsForMessage = standaloneAttachments(message)

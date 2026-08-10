@@ -103,3 +103,5 @@ private class ImageMessageHandler(
         (didReceiveScriptMessage.body as? String)?.takeIf { it.isNotBlank() }?.let(onOpenImage)
     }
 }
+
+internal actual val MailWebViewFollowsSystemFontScale: Boolean = false

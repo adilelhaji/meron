@@ -32,3 +32,16 @@ expect fun MailWebView(
     onLinkLongPress: (String, DpOffset) -> Unit = { _, _ -> },
     fitWideContent: Boolean = false,
 )
+
+/**
+ * Whether the platform's web view already sizes CSS text by the system font
+ * setting, the way `sp` sizes are scaled for the rest of the app.
+ *
+ * Android's WebView does: at a 1.5 system font scale, measured body line
+ * heights grow by the same ~1.5 the Compose UI grows by. WKWebView does not —
+ * Dynamic Type reaches Compose (`Density.fontScale`, mapped from the trait
+ * collection's content size category) but never the web content, so message
+ * bodies there have to be scaled by hand or HTML mail would stay at one size
+ * while every plain-text body around it grew.
+ */
+internal expect val MailWebViewFollowsSystemFontScale: Boolean

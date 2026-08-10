@@ -330,6 +330,9 @@ private val Ember =
 
 val LocalChatColors = staticCompositionLocalOf { chatColors(IndigoLight) }
 
+/** Message body text size, as a percentage of the default (see AppFonts.kt). */
+val LocalMessageFontScale = staticCompositionLocalOf { DEFAULT_MESSAGE_FONT_SCALE }
+
 /** The handful of colors a theme swatch paints, mirroring desktop's ThemeSwatch. */
 internal data class ThemePreviewColors(
     val dark: Boolean,
@@ -365,6 +368,7 @@ internal fun themePreviewColors(
 @Composable
 fun MeronTheme(
     appearanceMode: AppAppearanceMode = AppAppearanceMode.System,
+    messageFontScale: Int = DEFAULT_MESSAGE_FONT_SCALE,
     content: @Composable () -> Unit,
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -372,6 +376,7 @@ fun MeronTheme(
     SyncSystemBarAppearance(spec.dark)
     androidx.compose.runtime.CompositionLocalProvider(
         LocalChatColors provides chatColors(spec),
+        LocalMessageFontScale provides messageFontScale,
     ) {
         MaterialTheme(colorScheme = materialColors(spec), content = content)
     }

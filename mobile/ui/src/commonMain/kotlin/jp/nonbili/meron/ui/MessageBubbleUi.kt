@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -417,9 +418,11 @@ internal fun ColumnScope.MessageBodyContent(
                 activeSearchMatch = activeSearchMatch,
                 color = if (message.body.isBlank()) textColor.copy(alpha = 0.6f) else textColor,
                 style =
-                    MaterialTheme.typography.bodyLarge.copy(
-                        fontSize = 15.5.sp,
-                        lineHeight = 21.sp,
+                    messageBodyTextStyle(
+                        MaterialTheme.typography.bodyLarge.copy(
+                            fontSize = 15.5.sp,
+                            lineHeight = 21.sp,
+                        ),
                     ),
             )
         }
@@ -511,8 +514,19 @@ internal fun HtmlMessageBody(
     // it. The bubble caps the height (desktop uses 360px) and the WebView scrolls
     // past that; the full-screen reader passes no cap and shows the whole email.
     var contentHeight by remember(html) { mutableStateOf(0.dp) }
+    // A WebView reaches neither the app's text sizes nor the system font-size
+    // setting, so the reading typography is baked into the stylesheet below.
+    // Sizing the text rather than zooming the page is what the overrides here
+    // already assume: they flatten the mail's own sizes, so scaling the two
+    // declarations scales every body, and images and tables keep fitting the
+    // width they were laid out for.
+    // Plain-text bodies are sized in sp, which carries the system font setting
+    // on both platforms. Where the web view doesn't apply that setting itself,
+    // fold it in here so an HTML mail and a text one stay the same size.
+    val systemFontScale = if (MailWebViewFollowsSystemFontScale) 1f else LocalDensity.current.fontScale
+    val bodyFontSize = scaledCssPx(MESSAGE_HTML_BASE_PX * systemFontScale, LocalMessageFontScale.current)
     val mobileHtml =
-        remember(html, fitWideContent) {
+        remember(html, fitWideContent, bodyFontSize) {
             """
             <!doctype html>
             <html>
@@ -530,11 +544,11 @@ internal fun HtmlMessageBody(
                      widths alone. */
                   overflow-wrap: break-word;
                   word-break: normal;
-                  font-size: 16px;
+                  font-size: $bodyFontSize;
                   line-height: 1.45;
                 }
                 body, p, div, span, td, th, li, a {
-                  font-size: 16px !important;
+                  font-size: $bodyFontSize !important;
                   line-height: 1.45 !important;
                 }
                 /* Preheaders hide their inbox-preview text with an inline

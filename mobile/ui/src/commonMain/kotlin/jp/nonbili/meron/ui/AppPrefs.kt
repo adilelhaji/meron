@@ -107,6 +107,13 @@ internal fun saveConversationLayout(
     layout: ConversationLayout,
 ) = prefs.putString(CONVERSATION_LAYOUT_PREF, layout.storageValue())
 
+internal fun loadMessageFontScale(prefs: AppPreferences): Int = coerceMessageFontScale(loadAppInt(prefs, MESSAGE_FONT_SCALE_PREF, DEFAULT_MESSAGE_FONT_SCALE))
+
+internal fun saveMessageFontScale(
+    prefs: AppPreferences,
+    scale: Int,
+) = saveAppInt(prefs, MESSAGE_FONT_SCALE_PREF, coerceMessageFontScale(scale))
+
 internal fun loadAppLanguageTag(prefs: AppPreferences): String =
     prefs
         .getString(APP_LANGUAGE_PREF, "")

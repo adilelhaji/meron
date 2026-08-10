@@ -30,6 +30,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MarkEmailUnread
@@ -140,6 +141,8 @@ internal fun SettingsScreen(
     onToggleSendShortcut: () -> Unit,
     conversationLayout: ConversationLayout,
     onToggleConversationLayout: () -> Unit,
+    messageFontScale: Int,
+    onMessageFontScaleChange: (Int) -> Unit,
     appProxy: ProxySpec,
     onSaveAppProxy: (ProxySpec) -> Unit,
     onSaveAccountProxy: (AccountSummary, ProxySpec) -> Unit,
@@ -165,6 +168,7 @@ internal fun SettingsScreen(
 ) {
     var showThemePicker by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
+    var showMessageTextSize by remember { mutableStateOf(false) }
     val settingsNavController = rememberNavController()
     val settingsBackStackEntry by settingsNavController.currentBackStackEntryAsState()
     var selectedSettingsAccountId by remember { mutableStateOf<String?>(null) }
@@ -223,6 +227,13 @@ internal fun SettingsScreen(
             currentTag = appLanguageTag,
             onSelect = onAppLanguageChange,
             onDismiss = { showLanguagePicker = false },
+        )
+    }
+    if (showMessageTextSize) {
+        MessageTextSizeDialog(
+            scale = messageFontScale,
+            onScaleChange = onMessageFontScaleChange,
+            onDismiss = { showMessageTextSize = false },
         )
     }
     val handleBack: () -> Unit = {
@@ -293,6 +304,8 @@ internal fun SettingsScreen(
                     onToggleSendShortcut = onToggleSendShortcut,
                     conversationLayout = conversationLayout,
                     onToggleConversationLayout = onToggleConversationLayout,
+                    messageFontScale = messageFontScale,
+                    onOpenMessageTextSize = { showMessageTextSize = true },
                     appProxy = appProxy,
                     onSaveAppProxy = onSaveAppProxy,
                     notificationsNeedPermission = notificationsNeedPermission,
@@ -626,6 +639,8 @@ internal fun SettingsGeneralPage(
     onToggleSendShortcut: () -> Unit,
     conversationLayout: ConversationLayout,
     onToggleConversationLayout: () -> Unit,
+    messageFontScale: Int,
+    onOpenMessageTextSize: () -> Unit,
     appProxy: ProxySpec,
     onSaveAppProxy: (ProxySpec) -> Unit,
     notificationsNeedPermission: Boolean,
@@ -707,6 +722,20 @@ internal fun SettingsGeneralPage(
                 subtitle = tr("settings.appearance.conversationLayoutHint"),
                 onClick = onToggleConversationLayout,
                 trailing = { Text(conversationLayout.label(), color = MaterialTheme.colorScheme.primary) },
+            )
+        }
+        item {
+            SettingsRow(
+                icon = Icons.Filled.FormatSize,
+                title = tr("settings.appearance.messageTextSize"),
+                subtitle = tr("settings.appearance.messageTextSizeSystemHint"),
+                onClick = onOpenMessageTextSize,
+                trailing = {
+                    Text(
+                        trf("settings.appearance.textSizeValue", messageFontScale),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                },
             )
         }
         item {

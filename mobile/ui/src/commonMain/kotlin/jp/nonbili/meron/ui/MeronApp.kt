@@ -239,7 +239,7 @@ fun MeronApp(
         LocalAppLocale provides appLanguageTag.ifBlank { locale.currentLanguageTag().ifBlank { "en" } },
         LocalPlatformServices provides services,
     ) {
-        MeronTheme(appearanceMode) {
+        MeronTheme(appearanceMode = appearanceMode, messageFontScale = state.messageFontScale) {
             MeronMobileScreenContent(
                 state = state,
                 drawerState = drawerState,
@@ -1140,6 +1140,11 @@ private fun MeronMobileScreenContent(
                         val next = conversationLayout.next()
                         conversationLayout = next
                         saveConversationLayout(prefs, next)
+                    },
+                    messageFontScale = messageFontScale,
+                    onMessageFontScaleChange = { scale ->
+                        messageFontScale = coerceMessageFontScale(scale)
+                        saveMessageFontScale(prefs, messageFontScale)
                     },
                     appProxy = appProxy,
                     onSaveAppProxy = ::saveAppProxy,
