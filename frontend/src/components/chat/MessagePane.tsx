@@ -124,6 +124,7 @@ export function MessagePane() {
   )
   const participants = useMemo(() => buildParticipants(messages, accounts, isRSS), [messages, accounts, isRSS])
 
+  const threadSearchFocus = useValue(thread$.searchFocus)
   const desktopThreadSearchInputRef = useRef<HTMLInputElement | null>(null)
   const mobileThreadSearchInputRef = useRef<HTMLInputElement | null>(null)
   const { threadSearchOpen, searchMatches, activeSearchIndex, activeSearchId, goToSearchMatch } =
@@ -197,6 +198,9 @@ export function MessagePane() {
 
   useEffect(() => {
     if (!threadSearchOpen) return
+    // threadSearchFocus also re-runs this when ⌘/Ctrl+F is pressed with the bar
+    // already open — including from inside an HTML message frame, which is
+    // where focus otherwise stays.
     const frame = window.requestAnimationFrame(() => {
       const input = window.matchMedia('(min-width: 900px)').matches
         ? desktopThreadSearchInputRef.current
@@ -204,7 +208,7 @@ export function MessagePane() {
       input?.focus()
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [threadSearchOpen])
+  }, [threadSearchOpen, threadSearchFocus])
 
   useEffect(() => {
     if (!activeSearchId) return

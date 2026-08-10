@@ -38,7 +38,12 @@ export function MessageBubbleBody({
   if (useHtmlBody) {
     return (
       <div className={`${boxClass} -mr-3.5 pr-3.5`} style={boxStyle}>
-        <BubbleHtmlFrame html={message.body_html!} onLinkHover={onLinkHover} />
+        <BubbleHtmlFrame
+          html={message.body_html!}
+          searchQuery={normalizedSearchQuery}
+          activeSearchMatch={activeSearchMatch}
+          onLinkHover={onLinkHover}
+        />
       </div>
     )
   }

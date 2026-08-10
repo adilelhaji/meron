@@ -3,6 +3,7 @@ import { useTranslation } from '../../lib/i18n'
 import { Gallery, type GalleryItem } from './Gallery'
 import { HtmlFrame } from './HtmlFrame'
 import { prepareBubbleHtml } from './bubbleHtml'
+import { applyFrameHighlights, clearFrameHighlights } from './frameSearchHighlight'
 import { useMessageFrameFont } from './useMessageFrameFont'
 
 const MIN_FRAME_HEIGHT = 80
@@ -26,7 +27,18 @@ function clampHeight(height: number) {
 // Renders an email's HTML body in a self-sizing sandboxed iframe, wraps each
 // standalone <pre> in a copy-code affordance and tracks the content height so
 // the frame grows to fit while the bubble wrapper owns scrolling.
-export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHover?: (url: string | null) => void }) {
+export function BubbleHtmlFrame({
+  html,
+  searchQuery = '',
+  activeSearchMatch = false,
+  onLinkHover,
+}: {
+  html: string
+  /** In-thread search query; matches are marked inside the frame document. */
+  searchQuery?: string
+  activeSearchMatch?: boolean
+  onLinkHover?: (url: string | null) => void
+}) {
   const { t } = useTranslation()
   const messageFont = useMessageFrameFont()
   // Re-preparing the document is what re-renders the frame with new typography.
@@ -44,6 +56,7 @@ export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHov
   const hostRef = useRef<HTMLDivElement | null>(null)
   const heightRef = useRef(height)
   const measuredRef = useRef(measured)
+  const [frameDoc, setFrameDoc] = useState<Document | null>(null)
   const [galleryItems, setGalleryItems] = useState<GalleryItem[]>([])
   const [galleryIndex, setGalleryIndex] = useState<number | null>(null)
 
@@ -200,6 +213,9 @@ export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHov
         wrapper.appendChild(button)
       }
 
+      setFrameDoc(doc)
+      cleanupFns.push(() => setFrameDoc((current) => (current === doc ? null : current)))
+
       measure()
       const observer = new ResizeObserver(measure)
       observer.observe(doc.documentElement)
@@ -239,6 +255,18 @@ export function BubbleHtmlFrame({ html, onLinkHover }: { html: string; onLinkHov
     },
     [cacheKey],
   )
+
+  // Mark search hits in the live document. Re-runs when the query, the active
+  // match, or the document itself changes; clearing on teardown keeps a frame
+  // that outlives the search free of stale marks.
+  useEffect(() => {
+    if (!frameDoc) return
+    applyFrameHighlights(frameDoc, searchQuery, activeSearchMatch)
+    return () => {
+      // The document is gone once the frame reloads; ignore that case.
+      if (frameDoc.defaultView) clearFrameHighlights(frameDoc)
+    }
+  }, [frameDoc, searchQuery, activeSearchMatch])
 
   return (
     <>

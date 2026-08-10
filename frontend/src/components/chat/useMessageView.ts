@@ -36,7 +36,10 @@ export function useMessageView(message: Message) {
   const revealed = !!revealedMap[message.id]
   const { attachmentImages, videos, hiddenRemoteCount, files } = getVisibleMedia(message, account, revealed)
   const normalizedSearchQuery = search.trim()
-  const useHtmlBody = conversationMode === 'html' && !!message.body_html && !normalizedSearchQuery
+  // A search must not change how a message reads: HTML bodies stay HTML and
+  // highlight their matches inside the frame (BubbleHtmlFrame), rather than
+  // falling back to the plain-text renderer for the duration of the search.
+  const useHtmlBody = conversationMode === 'html' && !!message.body_html
   const showAttachmentImages =
     attachmentImages.length > 0 &&
     (!useHtmlBody || (outgoing && attachmentImages.some((image) => !htmlReferencesMedia(message.body_html, image))))

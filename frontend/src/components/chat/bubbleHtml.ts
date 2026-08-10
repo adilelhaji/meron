@@ -143,6 +143,17 @@ export function prepareBubbleHtml(html: string, font: MessageFrameFont = DEFAULT
         width: 15px;
         height: 15px;
       }
+      /* In-thread search hits, applied to the live document by BubbleHtmlFrame. */
+      mark.meron-search-hit {
+        border-radius: 3px;
+        padding: 0 1px;
+        background: rgba(253, 224, 71, 0.55);
+        color: inherit;
+      }
+      mark.meron-search-hit.meron-search-hit-active {
+        background: #fcd34d;
+        color: #000000;
+      }
     `
     doc.head.appendChild(style)
     return doc.documentElement.outerHTML

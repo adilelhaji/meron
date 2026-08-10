@@ -18,7 +18,7 @@ import {
   openMailAccount,
   closeKanbanPane,
 } from '../../states/kanban'
-import { thread$ } from '../../states/thread'
+import { openThreadSearch, thread$ } from '../../states/thread'
 import {
   syncMail,
   selectAdjacentThread,
@@ -34,9 +34,11 @@ import {
 import { compose$, openComposeTab, openReplyInFullEditor, closeMessageTab } from '../../states/compose'
 import {
   isBareShortcut,
+  isMac,
   matchShortcut,
   shortcutForChord,
   RAIL_SHORTCUT_IDS,
+  type Chord,
   type RailShortcutId,
   type ShortcutId,
 } from '../../lib/shortcuts'
@@ -291,7 +293,7 @@ export function AppHotkeys() {
           // when no conversation is on screen. preventDefault stops the webview's
           // native ⌘/Ctrl+F find bar.
           event.preventDefault()
-          if (threadSearchVisible()) thread$.searchOpen.set(true)
+          if (threadSearchVisible()) openThreadSearch()
           else focusGlobalSearch()
           break
         case 'search.global':
@@ -380,22 +382,34 @@ export function AppHotkeys() {
     }
 
     // Keys forwarded out of an HTML message iframe, which the global keydown
-    // listener never sees. HtmlFrame only forwards bare ArrowUp/ArrowDown, so
-    // the chord is fully described by the key alone.
+    // listener never sees: ⌘/Ctrl (or Alt) chords such as ⌘/Ctrl+F, plus bare
+    // ArrowUp/ArrowDown. The detail is the chord HtmlFrame reconstructed.
     const onFrameKeyDown = (event: Event) => {
-      const detail = (event as CustomEvent<{ key?: string }>).detail
-      if (!detail?.key) return
+      const chord = (event as CustomEvent<Chord | undefined>).detail
+      if (!chord?.key) return
 
       // A shortcut rebound onto the arrow key wins over list navigation, same
       // precedence as in the main handler. Replaying it as a real keydown runs
       // it through the one switch above instead of duplicating the dispatch.
-      if (shortcutForChord({ key: detail.key })) {
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: detail.key }))
-        event.preventDefault()
+      if (shortcutForChord(chord)) {
+        // Cancelable so the switch above can report back whether it acted: a
+        // bound chord it declines (⌘/Ctrl+W with no tab open) must keep its
+        // native behaviour inside the frame rather than being swallowed here.
+        const replay = new KeyboardEvent('keydown', {
+          key: chord.key,
+          cancelable: true,
+          ctrlKey: !!chord.mod && !isMac,
+          metaKey: !!chord.mod && isMac,
+          shiftKey: !!chord.shift,
+          altKey: !!chord.alt,
+        })
+        if (!window.dispatchEvent(replay)) event.preventDefault()
         return
       }
 
-      if (handleKanbanArrowNavigation(detail.key, null)) event.preventDefault()
+      if (!chord.mod && !chord.alt && !chord.shift && handleKanbanArrowNavigation(chord.key, null)) {
+        event.preventDefault()
+      }
     }
 
     window.addEventListener('keydown', onKeyDown)

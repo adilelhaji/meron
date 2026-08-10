@@ -8,6 +8,9 @@ export type ConversationMode = 'plain' | 'html'
 export const thread$ = observable({
   search: '',
   searchOpen: false,
+  // Bumped to pull focus into the thread search input, e.g. when ⌘/Ctrl+F is
+  // pressed while the bar is already open (opening it alone focuses it).
+  searchFocus: 0,
   activeSearchIndex: 0,
   // Message id of the currently-focused search match; written by MessagePane
   // when search/index change, read by MessageBubble for highlight styling.
@@ -25,6 +28,11 @@ export const thread$ = observable({
   // Per-account override of the conversation render mode for this session.
   conversationModeOverrides: {} as Record<string, ConversationMode>,
 })
+
+export function openThreadSearch() {
+  thread$.searchOpen.set(true)
+  thread$.searchFocus.set(thread$.searchFocus.peek() + 1)
+}
 
 export function revealRemote(messageId: string) {
   thread$.revealedRemote[messageId].set(true)
