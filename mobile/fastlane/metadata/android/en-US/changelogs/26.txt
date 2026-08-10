@@ -1,0 +1,3 @@
+- Add a traditional conversation layout setting
+- Add a message text size setting
+- Fix duplicate starred thread listings when cached across multiple folders

@@ -690,6 +690,15 @@ internal fun SettingsGeneralPage(
         }
         item {
             SettingsRow(
+                icon = Icons.AutoMirrored.Filled.Chat,
+                title = tr("settings.appearance.conversationLayout"),
+                subtitle = tr("settings.appearance.conversationLayoutHint"),
+                onClick = onToggleConversationLayout,
+                trailing = { Text(conversationLayout.label(), color = MaterialTheme.colorScheme.primary) },
+            )
+        }
+        item {
+            SettingsRow(
                 icon = Icons.Filled.Settings,
                 title = tr("settings.language.label"),
                 subtitle = tr("settings.language.hint"),
@@ -713,15 +722,6 @@ internal fun SettingsGeneralPage(
                 subtitle = tr("settings.appearance.showSenderImagesHint"),
                 checked = showSenderImages,
                 onToggle = onToggleSenderImages,
-            )
-        }
-        item {
-            SettingsRow(
-                icon = Icons.AutoMirrored.Filled.Chat,
-                title = tr("settings.appearance.conversationLayout"),
-                subtitle = tr("settings.appearance.conversationLayoutHint"),
-                onClick = onToggleConversationLayout,
-                trailing = { Text(conversationLayout.label(), color = MaterialTheme.colorScheme.primary) },
             )
         }
         item {
