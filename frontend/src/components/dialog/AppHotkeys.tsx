@@ -32,6 +32,7 @@ import {
   bulkStarSelected,
 } from '../../states/mail'
 import { compose$, openComposeTab, openReplyInFullEditor, closeMessageTab } from '../../states/compose'
+import { handleEditUndoKeyDown } from '../../lib/editUndo'
 import {
   isBareShortcut,
   isMac,
@@ -221,6 +222,11 @@ export function AppHotkeys() {
       }
 
       const action = matchShortcut(event)
+
+      // Undo/redo inside plain text fields, which the Linux webview leaves
+      // unbound. Gated on `!action` so a shortcut rebound onto the chord still
+      // wins, same precedence as the arrow keys below.
+      if (!action && handleEditUndoKeyDown(event)) return
 
       // Built-in list navigation on the arrow and Delete keys. No default chord
       // uses them, but a user can rebind a shortcut onto one — that binding wins,
