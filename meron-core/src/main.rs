@@ -856,9 +856,6 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     include_secrets,
                     Some(passphrase.as_str()),
                     &|account| secrets.get(account).cloned().unwrap_or_default(),
-                    // Desktop has no host-side preference store: every setting
-                    // is already a row in the `settings` table.
-                    serde_json::Map::new(),
                 )
             })
             .await??;

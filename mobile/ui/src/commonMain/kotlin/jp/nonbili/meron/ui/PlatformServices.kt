@@ -70,11 +70,37 @@ interface PlatformServices {
     fun pickImage(onPicked: (PickedFile?) -> Unit)
 }
 
-/** Controls the in-app UI language. */
+/**
+ * Controls the in-app UI language: the platform half of it.
+ *
+ * Persistence deliberately does *not* live here. These implementations are built
+ * by the hosts, before the write-through preference store exists, so anything
+ * they stored would bypass it and never reach the authoritative `settings` table.
+ * The stored tag is owned by the shared UI instead; this only talks to the OS.
+ */
 interface LocaleController {
-    fun currentLanguageTag(): String
+    /**
+     * The language the OS has assigned this app. Three distinct answers:
+     *
+     *  * `null` — the platform has no per-app language concept (Android below 13,
+     *    iOS), so the stored tag decides.
+     *  * `""` — the platform *does* own the setting and the user chose "system
+     *    default" there. That is an authoritative answer, not an absent one: it
+     *    has to clear any language previously stored, or resetting to system in
+     *    Android's settings would appear to do nothing.
+     *  * a tag — the user picked that specific language at the OS level.
+     */
+    fun systemLanguageTag(): String?
 
-    fun apply(tag: String)
+    /** Push a language to the OS so its own resources follow it. */
+    fun applySystem(tag: String)
+
+    /**
+     * The device's own language, as a BCP-47 tag such as `fr-FR`. Consulted only
+     * when no language is chosen for this app — "system default" should mean the
+     * device's language, not English.
+     */
+    fun deviceLanguageTag(): String
 
     fun displayName(tag: String): String
 }

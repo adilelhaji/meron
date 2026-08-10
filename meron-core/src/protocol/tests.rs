@@ -3296,41 +3296,96 @@ fn mobile_protocol_round_trips_a_plaintext_backup() {
     let _ = std::fs::remove_dir_all(target_dir);
 }
 
-/// Mobile settings live in platform storage the core cannot read, so the host
-/// hands them to `backup.export` and gets them back from `backup.import`.
+/// Mobile settings are rows in the core `settings` table, the same as desktop;
+/// the platform store is only a cache in front of them.
 #[test]
-fn mobile_protocol_carries_host_platform_preferences_through_a_backup() {
-    let source_dir = unique_data_dir("backup-platform-source");
-    let source = source_dir.to_str().unwrap();
-    let export = json!({
-        "id": 90,
-        "method": "backup.export",
+fn mobile_protocol_reads_back_settings_it_wrote() {
+    let dir = unique_data_dir("mobile-prefs");
+    let data_dir = dir.to_str().unwrap();
+
+    for (key, value) in [
+        (r#""mobile.app.appearance_mode_v1""#, r#""Indigo""#),
+        (r#""mobile.app.message_font_scale_v1""#, "115"),
+        (r#""mobile.app.background_sync_enabled_v1""#, "false"),
+        (
+            r#""mobile.app.hidden_navigation_accounts_v1""#,
+            r#"["a@example.com"]"#,
+        ),
+    ] {
+        let request = format!(
+            r#"{{"id":1,"method":"app.prefsSet","params":{{"key":{key},"value":{value}}}}}"#
+        );
+        let value = invoke_mobile_protocol_json(&request, Some(data_dir));
+        assert!(value.get("error").is_none(), "{value}");
+    }
+
+    let get = json!({
+        "id": 2,
+        "method": "app.prefsGet",
         "params": {
-            "platform": {
-                "app:appearance_mode_v1": "Indigo",
-                "app:app_language_v1": "ja",
-                "app:message_font_scale_v1": 115,
-                "app:background_sync_enabled_v1": false,
-                "kanban:kanban_boards_v1": "[{\"id\":\"b1\"}]",
-            },
+            "keys": [
+                "mobile.app.appearance_mode_v1",
+                "mobile.app.message_font_scale_v1",
+                "mobile.app.background_sync_enabled_v1",
+                "mobile.app.hidden_navigation_accounts_v1",
+                "mobile.app.never_set_v1",
+            ],
         },
     });
-    let exported = invoke_mobile_protocol_json(&export.to_string(), Some(source));
-    assert!(exported.get("error").is_none(), "{exported}");
+    let value = invoke_mobile_protocol_json(&get.to_string(), Some(data_dir));
+    assert!(value.get("error").is_none(), "{value}");
+    let prefs = &value["result"]["prefs"];
+    // Types survive the round trip rather than all becoming strings.
+    assert_eq!(prefs["mobile.app.appearance_mode_v1"], "Indigo");
+    assert_eq!(prefs["mobile.app.message_font_scale_v1"], 115);
+    assert_eq!(prefs["mobile.app.background_sync_enabled_v1"], false);
+    assert_eq!(
+        prefs["mobile.app.hidden_navigation_accounts_v1"][0],
+        "a@example.com"
+    );
+    // A key never written is absent, not defaulted — that is what lets the host
+    // keep its own cached value instead of being reset to a default.
+    assert!(prefs.get("mobile.app.never_set_v1").is_none(), "{prefs}");
+
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Settings restored from a backup land in the same table the host hydrates
+/// from, so a restore reaches mobile preferences with no extra channel.
+#[test]
+fn mobile_settings_restored_from_a_backup_are_readable_as_prefs() {
+    let source_dir = unique_data_dir("mobile-prefs-backup-source");
+    let source = source_dir.to_str().unwrap();
+    let set = json!({
+        "id": 1,
+        "method": "app.prefsSet",
+        "params": { "key": "mobile.app.app_language_v1", "value": "ja" },
+    });
+    assert!(
+        invoke_mobile_protocol_json(&set.to_string(), Some(source))
+            .get("error")
+            .is_none()
+    );
+
+    let exported = invoke_mobile_protocol_json(
+        r#"{"id":2,"method":"backup.export","params":{}}"#,
+        Some(source),
+    );
     let text = exported["result"]["backup"].as_str().unwrap().to_string();
 
-    let target_dir = unique_data_dir("backup-platform-target");
+    let target_dir = unique_data_dir("mobile-prefs-backup-target");
     let target = target_dir.to_str().unwrap();
-    let import = json!({ "id": 91, "method": "backup.import", "params": { "backup": text } });
+    let import = json!({ "id": 3, "method": "backup.import", "params": { "backup": text } });
     let imported = invoke_mobile_protocol_json(&import.to_string(), Some(target));
     assert!(imported.get("error").is_none(), "{imported}");
 
-    let platform = &imported["result"]["platform"];
-    assert_eq!(platform["app:appearance_mode_v1"], "Indigo");
-    assert_eq!(platform["app:app_language_v1"], "ja");
-    assert_eq!(platform["app:message_font_scale_v1"], 115);
-    assert_eq!(platform["app:background_sync_enabled_v1"], false);
-    assert_eq!(platform["kanban:kanban_boards_v1"], "[{\"id\":\"b1\"}]");
+    let get = json!({
+        "id": 4,
+        "method": "app.prefsGet",
+        "params": { "keys": ["mobile.app.app_language_v1"] },
+    });
+    let value = invoke_mobile_protocol_json(&get.to_string(), Some(target));
+    assert_eq!(value["result"]["prefs"]["mobile.app.app_language_v1"], "ja");
 
     let _ = std::fs::remove_dir_all(source_dir);
     let _ = std::fs::remove_dir_all(target_dir);

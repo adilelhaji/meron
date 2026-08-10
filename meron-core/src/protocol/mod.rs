@@ -17,6 +17,7 @@ mod helpers;
 mod mail;
 mod media;
 mod oauth;
+mod prefs;
 
 pub(crate) use accounts::*;
 pub(crate) use backup::*;
@@ -25,6 +26,7 @@ pub(crate) use helpers::*;
 pub(crate) use mail::*;
 pub(crate) use media::*;
 pub(crate) use oauth::*;
+pub(crate) use prefs::*;
 
 #[cfg(test)]
 mod tests;
@@ -78,6 +80,8 @@ pub fn dispatch_protocol_request(req: &Request) -> Result<Value, String> {
         "account.setRSSSyncInterval" => Ok(json!({ "ok": true })),
         "account.setAliases" => Ok(json!({ "ok": true })),
         "account.setProxy" => Ok(json!({ "ok": true })),
+        "app.prefsGet" => Ok(json!({ "prefs": {} })),
+        "app.prefsSet" => Ok(json!({ "ok": true })),
         "app.proxyGet" => Ok(json!({ "proxy": Value::Null })),
         "app.proxySet" => Ok(json!({ "ok": true })),
         "account.reorder" => Ok(json!({ "ok": true })),
@@ -161,6 +165,8 @@ pub fn dispatch_mobile_protocol_request(req: &Request, data_dir: &str) -> Result
         "account.setRSSSyncInterval" => set_mobile_account_rss_sync_interval(data_dir, &req.params),
         "account.setAliases" => set_mobile_account_aliases(data_dir, &req.params),
         "account.setProxy" => set_mobile_account_proxy(data_dir, &req.params),
+        "app.prefsGet" => get_mobile_prefs(data_dir, &req.params),
+        "app.prefsSet" => set_mobile_pref(data_dir, &req.params),
         "app.proxyGet" => get_mobile_proxy(data_dir),
         "app.proxySet" => set_mobile_proxy(data_dir, &req.params),
         "account.reorder" => reorder_mobile_accounts(data_dir, &req.params),

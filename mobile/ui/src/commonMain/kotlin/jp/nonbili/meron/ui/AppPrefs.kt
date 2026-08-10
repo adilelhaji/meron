@@ -120,6 +120,65 @@ internal fun loadAppLanguageTag(prefs: AppPreferences): String =
         .takeIf { it in supportedAppLanguageTags }
         .orEmpty()
 
+/**
+ * Store the in-app language. Unsupported tags normalize to blank ("follow the
+ * system"), which is what the OS-level per-app locale also means when unset.
+ */
+internal fun saveAppLanguageTag(
+    prefs: AppPreferences,
+    tag: String,
+) = prefs.putString(APP_LANGUAGE_PREF, tag.takeIf { it in supportedAppLanguageTags }.orEmpty())
+
+/**
+ * The language to display, given the platform's answer and our stored tag.
+ *
+ * A non-null platform answer always wins — including `""`, which means the user
+ * chose "system default" in the OS and any stored language must stop applying.
+ */
+internal fun resolveAppLanguageTag(
+    systemTag: String?,
+    storedTag: String,
+): String = systemTag ?: storedTag
+
+/** Whether the platform's answer differs from what we have stored. */
+internal fun appLanguageNeedsPersisting(
+    systemTag: String?,
+    storedTag: String,
+): Boolean = systemTag != null && systemTag != storedTag
+
+/**
+ * Pick the catalog language for a device locale such as `fr-FR` or `zh-Hant-TW`,
+ * falling back to English when nothing matches.
+ *
+ * Mirrors `resolveI18nLanguageFromWebLocale` in the desktop frontend, so the same
+ * device resolves to the same translation on both — only the tag spelling differs
+ * (mobile hyphenates where desktop uses underscores).
+ */
+internal fun resolveDeviceLanguageTag(deviceTag: String): String {
+    val parts = deviceTag.replace('_', '-').split('-').filter { it.isNotEmpty() }
+    val language = parts.firstOrNull()?.lowercase() ?: return "en"
+    return when (language) {
+        // Script wins when stated; otherwise the region decides which Chinese.
+        "zh" -> {
+            val region = parts.getOrNull(1)?.uppercase()
+            when {
+                parts.any { it.equals("Hans", ignoreCase = true) } -> "zh-Hans"
+                parts.any { it.equals("Hant", ignoreCase = true) } -> "zh-Hant"
+                region in setOf("TW", "HK", "MO", "CHT") -> "zh-Hant"
+                else -> "zh-Hans"
+            }
+        }
+
+        "pt" -> {
+            if (parts.getOrNull(1)?.uppercase() == "BR") "pt-BR" else "pt"
+        }
+
+        else -> {
+            language.takeIf { it in supportedAppLanguageTags } ?: "en"
+        }
+    }
+}
+
 internal fun savePendingOAuthFlow(
     prefs: AppPreferences,
     flow: PendingOAuthFlow,

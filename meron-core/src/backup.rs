@@ -115,16 +115,6 @@ pub struct BackupData {
     /// The `settings` table, key -> parsed JSON value.
     #[serde(default)]
     pub settings: Map<String, Value>,
-    /// Host-owned preferences, carried verbatim and never interpreted here.
-    ///
-    /// Desktop keeps every setting in the `settings` table, but mobile holds its
-    /// appearance, language, layout and kanban preferences in platform storage
-    /// (`SharedPreferences` / `NSUserDefaults`) that the core cannot reach. The
-    /// host passes them in on export and writes them back on import, so they
-    /// ride inside the same encrypted payload as everything else instead of
-    /// being left out of the backup.
-    #[serde(default, skip_serializing_if = "Map::is_empty")]
-    pub platform: Map<String, Value>,
 }
 
 /// What [`import`] changed, for the "restored N accounts" confirmation.
@@ -203,13 +193,7 @@ pub fn collect(
         redact_settings(&mut settings);
     }
 
-    Ok(BackupData {
-        accounts,
-        settings,
-        // Filled in by `export` from what the host passed down; `collect` only
-        // ever reads the core store.
-        platform: Map::new(),
-    })
+    Ok(BackupData { accounts, settings })
 }
 
 fn collect_subscriptions(conn: &Connection, account: &str) -> Result<Vec<BackupSubscription>> {
@@ -287,10 +271,6 @@ fn redact_proxy(proxy: &mut Value) {
 /// Serialize a backup to the JSON text written to disk. With a passphrase the
 /// payload is encrypted and only the envelope stays readable.
 ///
-/// `platform` is the host's own preference store (empty on desktop, where every
-/// setting already lives in the `settings` table); it is embedded verbatim, so
-/// it is encrypted along with the rest.
-///
 /// Returns an error if `include_secrets` is set without a passphrase: secrets
 /// never leave the device in the clear.
 pub fn export(
@@ -298,7 +278,6 @@ pub fn export(
     include_secrets: bool,
     passphrase: Option<&str>,
     load_secrets: &dyn Fn(&str) -> Secrets,
-    platform: Map<String, Value>,
 ) -> Result<String> {
     let passphrase = passphrase.filter(|p| !p.is_empty());
     if include_secrets && passphrase.is_none() {
@@ -306,8 +285,7 @@ pub fn export(
             "a passphrase is required to include account passwords"
         ));
     }
-    let mut data = collect(conn, include_secrets, load_secrets)?;
-    data.platform = platform;
+    let data = collect(conn, include_secrets, load_secrets)?;
     let payload = serde_json::to_string(&data)?;
 
     let mut envelope = Map::new();
@@ -360,7 +338,7 @@ pub fn parse(text: &str, passphrase: Option<&str>) -> Result<BackupData> {
         let data = envelope
             .get("data")
             .ok_or_else(|| anyhow!("backup file has no data"))?;
-        return Ok(serde_json::from_value(data.clone())?);
+        return data_from_value(data.clone());
     }
 
     let passphrase = passphrase
@@ -396,7 +374,44 @@ pub fn parse(text: &str, passphrase: Option<&str>) -> Result<BackupData> {
     let ciphertext = decode_b64(&envelope, &["ciphertext"])?;
 
     let plaintext = decrypt(&ciphertext, &nonce, &salt, iterations, passphrase)?;
-    serde_json::from_slice(&plaintext).context("backup contents are corrupt")
+    data_from_value(serde_json::from_slice(&plaintext).context("backup contents are corrupt")?)
+}
+
+fn data_from_value(mut value: Value) -> Result<BackupData> {
+    migrate_legacy_platform(&mut value);
+    Ok(serde_json::from_value(value)?)
+}
+
+/// Fold a pre-release `platform` map into `settings`.
+///
+/// Before mobile preferences became rows in the `settings` table they rode in
+/// their own map, keyed `app:<name>` / `kanban:<name>`. That shape never reached
+/// a release, so this exists only for files written from a development build —
+/// but serde would silently ignore the field, restoring such a backup with every
+/// appearance, language, layout and kanban preference quietly dropped, and a
+/// silent partial restore is worth a dozen lines to avoid.
+fn migrate_legacy_platform(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    let Some(Value::Object(platform)) = object.remove("platform") else {
+        return;
+    };
+    let settings = object
+        .entry("settings")
+        .or_insert_with(|| Value::Object(Map::new()));
+    let Some(settings) = settings.as_object_mut() else {
+        return;
+    };
+    for (key, value) in platform {
+        let Some((store, name)) = key.split_once(':') else {
+            continue;
+        };
+        // A real settings row wins: it is the newer home for the same value.
+        settings
+            .entry(format!("mobile.{store}.{name}"))
+            .or_insert(value);
+    }
 }
 
 /// Error text [`parse`] returns when an encrypted file was opened without a

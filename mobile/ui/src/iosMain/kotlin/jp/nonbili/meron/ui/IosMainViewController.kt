@@ -61,7 +61,7 @@ fun MainViewController(
     ComposeFoundationFlags.isNewContextMenuEnabled = true
     val appPrefs = IosAppPreferences("meron_app")
     val kanbanPrefs = IosAppPreferences("meron_kanban")
-    val locale = IosLocaleController(appPrefs)
+    val locale = IosLocaleController()
     val host =
         DefaultMobileHost(
             outlookClientId = outlookClientId,

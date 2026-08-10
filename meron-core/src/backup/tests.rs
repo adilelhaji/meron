@@ -110,7 +110,7 @@ fn plaintext_backup_round_trips_accounts_settings_and_feeds() {
     store::setting_set(&source, "theme_id", &json!("nord")).unwrap();
     store::setting_set(&source, "font_scale", &json!(115)).unwrap();
 
-    let text = export(&source, false, None, &no_secrets, Map::new()).unwrap();
+    let text = export(&source, false, None, &no_secrets).unwrap();
     let data = parse(&text, None).unwrap();
 
     let target = test_conn();
@@ -164,7 +164,7 @@ fn backup_omits_cached_mail() {
         )
         .unwrap();
 
-    let text = export(&source, false, None, &no_secrets, Map::new()).unwrap();
+    let text = export(&source, false, None, &no_secrets).unwrap();
     assert!(!text.contains("Secret subject"));
     assert!(!text.contains("body text"));
 
@@ -190,7 +190,7 @@ fn plaintext_backup_redacts_proxy_and_oauth_client_secrets() {
     )
     .unwrap();
 
-    let text = export(&source, false, None, &no_secrets, Map::new()).unwrap();
+    let text = export(&source, false, None, &no_secrets).unwrap();
     assert!(!text.contains("proxy-pass"));
     assert!(!text.contains("app-proxy-pass"));
     assert!(!text.contains("app-client-secret"));
@@ -213,25 +213,11 @@ fn exporting_secrets_without_a_passphrase_is_refused() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
 
-    let err = export(
-        &source,
-        true,
-        None,
-        &|_| secrets_with("hunter2"),
-        Map::new(),
-    )
-    .unwrap_err();
+    let err = export(&source, true, None, &|_| secrets_with("hunter2")).unwrap_err();
     assert!(err.to_string().contains("passphrase is required"));
 
     // An empty passphrase is treated as no passphrase, not as a real one.
-    let err = export(
-        &source,
-        true,
-        Some(""),
-        &|_| secrets_with("hunter2"),
-        Map::new(),
-    )
-    .unwrap_err();
+    let err = export(&source, true, Some(""), &|_| secrets_with("hunter2")).unwrap_err();
     assert!(err.to_string().contains("passphrase is required"));
 }
 
@@ -240,13 +226,9 @@ fn encrypted_backup_round_trips_secrets_and_hides_them_on_disk() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
 
-    let text = export(
-        &source,
-        true,
-        Some("correct horse"),
-        &|_| secrets_with("hunter2"),
-        Map::new(),
-    )
+    let text = export(&source, true, Some("correct horse"), &|_| {
+        secrets_with("hunter2")
+    })
     .unwrap();
 
     // Nothing sensitive is readable in the file, but the envelope still is.
@@ -281,7 +263,7 @@ fn accounts_with_no_stored_secret_carry_none() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
 
-    let text = export(&source, true, Some("pw"), &no_secrets, Map::new()).unwrap();
+    let text = export(&source, true, Some("pw"), &no_secrets).unwrap();
     let data = parse(&text, Some("pw")).unwrap();
     assert!(data.accounts[0].secrets.is_none());
 
@@ -298,14 +280,7 @@ fn accounts_with_no_stored_secret_carry_none() {
 fn encrypted_backup_without_a_passphrase_asks_for_one() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(
-        &source,
-        true,
-        Some("pw"),
-        &|_| secrets_with("hunter2"),
-        Map::new(),
-    )
-    .unwrap();
+    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
 
     let err = parse_err(&text, None);
     assert!(needs_passphrase(&err), "{err}");
@@ -319,14 +294,7 @@ fn encrypted_backup_without_a_passphrase_asks_for_one() {
 fn wrong_passphrase_is_reported_as_such() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(
-        &source,
-        true,
-        Some("pw"),
-        &|_| secrets_with("hunter2"),
-        Map::new(),
-    )
-    .unwrap();
+    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
 
     let err = parse_err(&text, Some("not-pw"));
     assert!(err.contains("wrong passphrase"), "{err}");
@@ -338,14 +306,7 @@ fn wrong_passphrase_is_reported_as_such() {
 fn tampering_with_the_ciphertext_fails_authentication() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(
-        &source,
-        true,
-        Some("pw"),
-        &|_| secrets_with("hunter2"),
-        Map::new(),
-    )
-    .unwrap();
+    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
 
     let mut envelope: Value = serde_json::from_str(&text).unwrap();
     let ciphertext = envelope["ciphertext"].as_str().unwrap().to_string();
@@ -361,7 +322,7 @@ fn tampering_with_the_ciphertext_fails_authentication() {
 fn a_passphrase_on_a_plaintext_backup_is_ignored() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(&source, false, None, &no_secrets, Map::new()).unwrap();
+    let text = export(&source, false, None, &no_secrets).unwrap();
 
     let data = parse(&text, Some("unnecessary")).unwrap();
     assert_eq!(data.accounts.len(), 1);
@@ -440,14 +401,7 @@ fn a_malformed_salt_is_refused() {
 fn our_own_iteration_count_still_opens() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(
-        &source,
-        true,
-        Some("pw"),
-        &|_| secrets_with("hunter2"),
-        Map::new(),
-    )
-    .unwrap();
+    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
 
     assert_eq!(
         serde_json::from_str::<Value>(&text).unwrap()["kdf"]["iterations"],
@@ -477,11 +431,7 @@ fn an_encrypted_backup_with_an_unknown_cipher_is_refused() {
 fn existing_accounts_are_skipped_not_overwritten() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let data = parse(
-        &export(&source, false, None, &no_secrets, Map::new()).unwrap(),
-        None,
-    )
-    .unwrap();
+    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
 
     // The target already has this account, pointed at a different server.
     let target = test_conn();
@@ -511,11 +461,7 @@ fn existing_accounts_are_skipped_not_overwritten() {
 fn settings_overwrite_on_restore() {
     let source = test_conn();
     store::setting_set(&source, "theme_id", &json!("nord")).unwrap();
-    let data = parse(
-        &export(&source, false, None, &no_secrets, Map::new()).unwrap(),
-        None,
-    )
-    .unwrap();
+    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
 
     let target = test_conn();
     store::setting_set(&target, "theme_id", &json!("solarized")).unwrap();
@@ -542,11 +488,7 @@ fn a_feed_already_subscribed_is_not_duplicated() {
         "https://blog.example/feed.xml",
         "Blog",
     );
-    let data = parse(
-        &export(&source, false, None, &no_secrets, Map::new()).unwrap(),
-        None,
-    )
-    .unwrap();
+    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
 
     let target = test_conn();
     insert_rss_account(&target, "rss-other");
@@ -575,14 +517,7 @@ fn a_failed_import_leaves_the_store_untouched() {
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
     insert_mail_account(&source, "bob@example.com", sample_config(), json!({}));
     let data = parse(
-        &export(
-            &source,
-            true,
-            Some("pw"),
-            &|_| secrets_with("s"),
-            Map::new(),
-        )
-        .unwrap(),
+        &export(&source, true, Some("pw"), &|_| secrets_with("s")).unwrap(),
         Some("pw"),
     )
     .unwrap();
@@ -620,7 +555,6 @@ fn accounts_with_a_blank_id_are_dropped() {
             },
         ],
         settings: Map::new(),
-        platform: Map::new(),
     };
 
     let target = test_conn();
@@ -638,7 +572,6 @@ fn empty_engine_and_provider_fall_back_to_mail_defaults() {
             ..Default::default()
         }],
         settings: Map::new(),
-        platform: Map::new(),
     };
 
     let target = test_conn();
@@ -668,11 +601,7 @@ fn unknown_fields_from_a_newer_build_survive_a_round_trip() {
         json!({ "future_pref": 42 }),
     );
 
-    let data = parse(
-        &export(&source, false, None, &no_secrets, Map::new()).unwrap(),
-        None,
-    )
-    .unwrap();
+    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
     let target = test_conn();
     let sink = SecretSink::default();
     apply(&target, &data, &sink.saver()).unwrap();
@@ -694,87 +623,90 @@ fn unknown_fields_from_a_newer_build_survive_a_round_trip() {
     );
 }
 
-// ---- Host-owned preferences -------------------------------------------------
+// ---- Pre-release `platform` map ---------------------------------------------
 
-/// Mobile's appearance/language/layout preferences live in platform storage the
-/// core cannot read, so they ride along as an opaque map rather than being lost.
+/// A development build carried mobile preferences in their own `platform` map
+/// before they became `settings` rows. Serde would ignore the field, restoring
+/// such a file with every mobile preference silently dropped.
 #[test]
-fn platform_preferences_round_trip_untouched() {
-    let source = test_conn();
-    insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let platform: Map<String, Value> = serde_json::from_value(json!({
-        "app:appearance_mode_v1": "Indigo",
-        "app:app_language_v1": "ja",
-        "app:message_font_scale_v1": 115,
-        "app:show_unread_badges_v1": true,
-        "kanban:kanban_boards_v1": "[{\"id\":\"b1\"}]",
-    }))
-    .unwrap();
-
-    let text = export(&source, false, None, &no_secrets, platform.clone()).unwrap();
-    let data = parse(&text, None).unwrap();
-
-    assert_eq!(data.platform, platform);
-    // Values keep their JSON types rather than being stringified in transit.
-    assert_eq!(data.platform["app:message_font_scale_v1"], 115);
-    assert_eq!(data.platform["app:show_unread_badges_v1"], true);
-}
-
-#[test]
-fn platform_preferences_are_encrypted_with_everything_else() {
-    let source = test_conn();
-    let platform: Map<String, Value> =
-        serde_json::from_value(json!({ "app:app_language_v1": "ja" })).unwrap();
-
-    let text = export(&source, true, Some("pw"), &no_secrets, platform).unwrap();
-
-    assert!(!text.contains("app_language_v1"), "{text}");
-    let data = parse(&text, Some("pw")).unwrap();
-    assert_eq!(data.platform["app:app_language_v1"], "ja");
-}
-
-/// Desktop passes no platform map; the key should not appear in the file at all
-/// rather than as an empty object.
-#[test]
-fn an_empty_platform_map_is_omitted_from_the_file() {
-    let source = test_conn();
-    let text = export(&source, false, None, &no_secrets, Map::new()).unwrap();
-
-    assert!(!text.contains("platform"), "{text}");
-    let data = parse(&text, None).unwrap();
-    assert!(data.platform.is_empty());
-}
-
-/// A desktop-written backup has no `platform` key; restoring it on mobile must
-/// parse rather than fail.
-#[test]
-fn a_backup_without_a_platform_key_still_parses() {
+fn a_legacy_platform_map_is_folded_into_settings() {
     let text = json!({
         "meron_backup": FORMAT_VERSION,
         "encrypted": false,
-        "data": { "accounts": [], "settings": {} },
+        "data": {
+            "accounts": [],
+            "settings": { "theme_id": "nord" },
+            "platform": {
+                "app:appearance_mode_v1": "Indigo",
+                "app:message_font_scale_v1": 115,
+                "app:hidden_navigation_accounts_v1": ["a@example.com"],
+                "kanban:kanban_boards_v1": "[{\"id\":\"b1\"}]",
+            },
+        },
     });
+
     let data = parse(&text.to_string(), None).unwrap();
-    assert!(data.platform.is_empty());
+
+    assert_eq!(data.settings["mobile.app.appearance_mode_v1"], "Indigo");
+    assert_eq!(data.settings["mobile.app.message_font_scale_v1"], 115);
+    assert_eq!(
+        data.settings["mobile.app.hidden_navigation_accounts_v1"][0],
+        "a@example.com"
+    );
+    assert_eq!(
+        data.settings["mobile.kanban.kanban_boards_v1"],
+        "[{\"id\":\"b1\"}]"
+    );
+    // Existing rows are untouched.
+    assert_eq!(data.settings["theme_id"], "nord");
 }
 
-/// `apply` writes the core store only — platform preferences are the host's to
-/// write, so nothing here should try to interpret them.
 #[test]
-fn apply_ignores_platform_preferences() {
-    let data = BackupData {
-        accounts: Vec::new(),
-        settings: Map::new(),
-        platform: serde_json::from_value(json!({ "app:app_language_v1": "ja" })).unwrap(),
-    };
+fn a_legacy_platform_map_never_overwrites_a_real_settings_row() {
+    let text = json!({
+        "meron_backup": FORMAT_VERSION,
+        "encrypted": false,
+        "data": {
+            "settings": { "mobile.app.appearance_mode_v1": "Rose" },
+            "platform": { "app:appearance_mode_v1": "Indigo" },
+        },
+    });
 
-    let target = test_conn();
-    let sink = SecretSink::default();
-    let summary = apply(&target, &data, &sink.saver()).unwrap();
-    assert_eq!(summary.settings, 0);
+    let data = parse(&text.to_string(), None).unwrap();
 
-    let settings: i64 = target
-        .query_row("SELECT COUNT(*) FROM settings", [], |row| row.get(0))
-        .unwrap();
-    assert_eq!(settings, 0);
+    // The row is the newer home for the same setting, so it wins.
+    assert_eq!(data.settings["mobile.app.appearance_mode_v1"], "Rose");
+}
+
+#[test]
+fn a_legacy_platform_map_survives_encryption() {
+    let source = test_conn();
+    let text = export(&source, true, Some("pw"), &no_secrets).unwrap();
+
+    // Rebuild the ciphertext around a payload carrying the old shape.
+    let mut envelope: Value = serde_json::from_str(&text).unwrap();
+    let payload = json!({
+        "accounts": [],
+        "settings": {},
+        "platform": { "app:app_language_v1": "ja" },
+    });
+    let sealed = encrypt(payload.to_string().as_bytes(), "pw").unwrap();
+    envelope["kdf"] = sealed.kdf_json();
+    envelope["nonce"] = json!(STANDARD.encode(sealed.nonce));
+    envelope["ciphertext"] = json!(STANDARD.encode(&sealed.ciphertext));
+
+    let data = parse(&envelope.to_string(), Some("pw")).unwrap();
+    assert_eq!(data.settings["mobile.app.app_language_v1"], "ja");
+}
+
+#[test]
+fn a_backup_without_a_platform_map_is_unaffected() {
+    let source = test_conn();
+    insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
+    store::setting_set(&source, "theme_id", &json!("nord")).unwrap();
+
+    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
+
+    assert_eq!(data.settings["theme_id"], "nord");
+    assert_eq!(data.settings.len(), 1);
 }

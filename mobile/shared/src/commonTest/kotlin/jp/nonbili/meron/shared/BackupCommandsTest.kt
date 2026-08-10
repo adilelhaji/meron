@@ -9,81 +9,77 @@ class BackupCommandsTest {
     @Test
     fun exportBackupParamsSerializeSecretsFlagAndPassphrase() {
         assertEquals(
-            """{"include_secrets":false,"passphrase":"","platform":{}}""",
+            """{"include_secrets":false,"passphrase":""}""",
             ExportBackupParams().toJson(),
         )
         assertEquals(
-            """{"include_secrets":true,"passphrase":"correct horse","platform":{}}""",
+            """{"include_secrets":true,"passphrase":"correct horse"}""",
             ExportBackupParams(includeSecrets = true, passphrase = "correct horse").toJson(),
         )
     }
 
     @Test
-    fun exportBackupParamsEmbedThePlatformPreferences() {
-        assertEquals(
-            """{"include_secrets":false,"passphrase":"","platform":{"app:lang":"ja"}}""",
-            ExportBackupParams(platformJson = """{"app:lang":"ja"}""").toJson(),
-        )
-        // A blank map must still leave the payload valid JSON.
-        assertEquals(
-            """{"include_secrets":false,"passphrase":"","platform":{}}""",
-            ExportBackupParams(platformJson = "").toJson(),
-        )
-    }
-
-    @Test
-    fun platformPreferencesRoundTripThroughJson() {
+    fun settingValuesRoundTripThroughJson() {
         val values =
             mapOf<String, Any>(
-                "app:appearance_mode_v1" to "Indigo",
-                "app:message_font_scale_v1" to 115,
-                "app:show_unread_badges_v1" to true,
-                "app:background_sync_enabled_v1" to false,
-                "app:hidden_navigation_accounts_v1" to listOf("a@example.com", "b@example.com"),
-                "kanban:kanban_boards_v1" to """[{"id":"b1","name":"Work"}]""",
+                "mobile.app.appearance_mode_v1" to "Indigo",
+                "mobile.app.message_font_scale_v1" to 115,
+                "mobile.app.show_unread_badges_v1" to true,
+                "mobile.app.background_sync_enabled_v1" to false,
+                "mobile.app.hidden_navigation_accounts_v1" to listOf("a@example.com", "b@example.com"),
+                "mobile.kanban.kanban_boards_v1" to """[{"id":"b1","name":"Work"}]""",
             )
 
-        val encoded = encodeBackupPlatformPrefs(values)
-        val decoded = parseBackupPlatformPrefs("""{"platform":$encoded}""")
+        // The store writes one key at a time, so rebuild the object the way a
+        // prefsGet response carries it.
+        val encoded =
+            values.entries.joinToString(",", "{", "}") { (key, value) ->
+                "\"$key\":${encodeAppPrefValue(value)}"
+            }
+        val decoded = parseAppPrefsResponse("""{"prefs":$encoded}""")
 
-        assertEquals("Indigo", decoded["app:appearance_mode_v1"])
+        assertEquals("Indigo", decoded["mobile.app.appearance_mode_v1"])
         // JSON numbers decode as Long.
-        assertEquals(115L, decoded["app:message_font_scale_v1"])
-        assertEquals(true, decoded["app:show_unread_badges_v1"])
-        assertEquals(false, decoded["app:background_sync_enabled_v1"])
+        assertEquals(115L, decoded["mobile.app.message_font_scale_v1"])
+        assertEquals(true, decoded["mobile.app.show_unread_badges_v1"])
+        assertEquals(false, decoded["mobile.app.background_sync_enabled_v1"])
         assertEquals(
             listOf("a@example.com", "b@example.com"),
-            decoded["app:hidden_navigation_accounts_v1"],
+            decoded["mobile.app.hidden_navigation_accounts_v1"],
         )
         // A string that is itself JSON must survive escaping intact.
-        assertEquals("""[{"id":"b1","name":"Work"}]""", decoded["kanban:kanban_boards_v1"])
+        assertEquals("""[{"id":"b1","name":"Work"}]""", decoded["mobile.kanban.kanban_boards_v1"])
     }
 
     @Test
-    fun platformPreferencesEncodeEmptyAsAnEmptyObject() {
-        assertEquals("{}", encodeBackupPlatformPrefs(emptyMap()))
+    fun settingValuesEncodeToTheirJsonTypes() {
+        assertEquals(""""Indigo"""", encodeAppPrefValue("Indigo"))
+        assertEquals("true", encodeAppPrefValue(true))
+        assertEquals("115", encodeAppPrefValue(115))
+        assertEquals("""["a","b"]""", encodeAppPrefValue(listOf("a", "b")))
+        assertEquals("[]", encodeAppPrefValue(emptyList<String>()))
     }
 
     @Test
-    fun parsingPlatformPreferencesToleratesAMissingOrOddPayload() {
-        assertEquals(emptyMap(), parseBackupPlatformPrefs("""{"accounts":1}"""))
-        assertEquals(emptyMap(), parseBackupPlatformPrefs("not json"))
+    fun parsingPrefsToleratesAMissingOrOddPayload() {
+        assertEquals(emptyMap(), parseAppPrefsResponse("""{"accounts":1}"""))
+        assertEquals(emptyMap(), parseAppPrefsResponse("not json"))
         // Values the pref store cannot hold are skipped, not guessed at.
         assertEquals(
             emptyMap(),
-            parseBackupPlatformPrefs("""{"platform":{"a":null,"b":{"nested":1},"c":1.5}}"""),
+            parseAppPrefsResponse("""{"prefs":{"a":null,"b":{"nested":1},"c":1.5}}"""),
         )
     }
 
     @Test
-    fun importResultCarriesPlatformPreferencesAlongsideTheCounts() {
+    fun importResultCarriesTheCounts() {
         val result =
             parseBackupImportResponse(
-                """{"accounts":1,"skipped":0,"feeds":0,"settings":3,"secrets":1,"platform":{"app:lang":"ja"}}""",
+                """{"accounts":1,"skipped":0,"feeds":0,"settings":3,"secrets":1}""",
             )
         assertEquals(1, result.accounts)
         assertEquals(3, result.settings)
-        assertEquals("ja", result.platform["app:lang"])
+        assertEquals(1, result.secrets)
     }
 
     @Test
@@ -98,7 +94,7 @@ class BackupCommandsTest {
     @Test
     fun backupRequestsUseTheProtocolMethodNames() {
         assertEquals(
-            """{"id":90,"method":"backup.export","params":{"include_secrets":true,"passphrase":"pw","platform":{}}}""",
+            """{"id":90,"method":"backup.export","params":{"include_secrets":true,"passphrase":"pw"}}""",
             backupExportRequest(id = 90, params = ExportBackupParams(includeSecrets = true, passphrase = "pw")).toJson(),
         )
         assertEquals(

@@ -3,7 +3,7 @@ package jp.nonbili.meron.ui
 import jp.nonbili.meron.shared.ExportBackupParams
 import jp.nonbili.meron.shared.ImportBackupParams
 import jp.nonbili.meron.shared.MobileMailCommandClient
-import jp.nonbili.meron.shared.encodeBackupPlatformPrefs
+import jp.nonbili.meron.shared.coercePollIntervalMinutes
 import jp.nonbili.meron.shared.parseBackupExportResponse
 import jp.nonbili.meron.shared.parseBackupImportResponse
 import kotlinx.coroutines.launch
@@ -47,18 +47,20 @@ internal fun MeronMobileState.exportBackup(
     }
     backupBusy = true
     scope.launch {
+        // Settings mirror asynchronously, so a preference changed moments ago (or
+        // one whose write failed while offline) may still be ahead of the table.
+        // Flush first or the backup captures the previous value — and if the
+        // flush cannot drain (a read-only or full database), fail rather than
+        // hand back a file that quietly holds the old settings.
+        if (!settingsMirror.flush()) {
+            status = trs("settings.backup.exportFailed")
+            backupBusy = false
+            return@launch
+        }
         runCatching {
             withContext(ioDispatcher) {
                 MobileMailCommandClient(core).exportBackup(
-                    ExportBackupParams(
-                        includeSecrets = includeSecrets,
-                        passphrase = passphrase,
-                        // Appearance, language, layout and kanban boards live in
-                        // platform storage the core cannot read, so send them
-                        // along to be embedded in the same document.
-                        platformJson =
-                            encodeBackupPlatformPrefs(collectPlatformPrefs(prefs, kanbanPrefs)),
-                    ),
+                    ExportBackupParams(includeSecrets = includeSecrets, passphrase = passphrase),
                 )
             }
         }.onSuccess { response ->
@@ -99,6 +101,12 @@ internal fun MeronMobileState.importBackup(
     }
     backupBusy = true
     scope.launch {
+        // Wait out an in-flight write that would otherwise land on top of the
+        // restored rows, but keep the queue: this call may turn out to be a
+        // passphrase probe, a wrong passphrase, or an unreadable file, none of
+        // which touch the table. The force-hydrate below drops the queue once a
+        // restore has actually happened.
+        settingsMirror.awaitIdle()
         runCatching {
             withContext(ioDispatcher) {
                 MobileMailCommandClient(core).importBackup(
@@ -116,13 +124,38 @@ internal fun MeronMobileState.importBackup(
                 closeBackupPassphrase()
                 // Preferences the core carried but cannot write: appearance,
                 // language and the rest are ours to put back.
-                val restoredPrefs = applyPlatformPrefs(prefs, kanbanPrefs, result.platform)
+                // Mobile settings are rows in the same table, so the restore has
+                // already written them; hydrating pulls them into the cache and
+                // into this state.
+                // force: the restore has just overwritten the table wholesale, so
+                // it wins even over settings the user edited earlier this session
+                // (which a normal hydrate would protect).
+                val rehydrated =
+                    hydrateSettingsFromCore(
+                        prefs.cacheStore(),
+                        kanbanPrefs.cacheStore(),
+                        settingsMirror,
+                        force = true,
+                    )
+                applyHydratedSettings(rehydrated)
+                // On Android 13+ the OS owns the per-app language, and the initial
+                // hydrate treats it as authoritative — so a restored language only
+                // sticks (and only reaches Android's own resource strings, such as
+                // notification text) once it is pushed back to the platform.
+                if (settingKeyFor(APP_LANGUAGE_PREF) in rehydrated) {
+                    locale.applySystem(loadAppLanguageTag(prefs))
+                }
+                // Everything hydrated is applied live except appearance and
+                // language: the host holds those as `remember` values in the
+                // Activity / view controller, so only they need a restart, and
+                // only then is it worth saying so.
+                val needsRestart =
+                    rehydrated.keys.any {
+                        it == settingKeyFor(APPEARANCE_MODE_PREF) || it == settingKeyFor(APP_LANGUAGE_PREF)
+                    }
                 status =
                     when {
-                        // Appearance and language are read into Compose state at
-                        // startup, so they only take effect on the next launch;
-                        // say so rather than looking like nothing happened.
-                        restoredPrefs > 0 -> {
+                        needsRestart -> {
                             trs("settings.backup.restoredRestart")
                         }
 
@@ -207,3 +240,83 @@ private fun floorDiv(
 }
 
 private fun pad2(value: Long): String = if (value < 10) "0$value" else "$value"
+
+/**
+ * Re-seed the settings this state holds after [hydrateSettingsFromCore] found
+ * the authoritative table disagreeing with the platform cache — most often
+ * because a backup was just restored.
+ *
+ * The cache has already been updated, so each field is simply re-read through
+ * the same loader that seeded it at construction; that keeps coercion and
+ * default handling in one place instead of duplicating it per key.
+ *
+ * Appearance and language are not here: the host owns those (they are `remember`
+ * values in the Activity / view controller), so they apply on the next launch.
+ */
+internal fun MeronMobileState.applyHydratedSettings(changed: Map<String, Any>) {
+    for (settingKey in changed.keys) {
+        when (settingKey) {
+            settingKeyFor(SHOW_UNREAD_BADGES_PREF) -> {
+                showUnreadBadges = loadAppBoolean(prefs, SHOW_UNREAD_BADGES_PREF, true)
+            }
+
+            settingKeyFor(SHOW_UNIFIED_INBOX_PREF) -> {
+                showUnifiedInboxNav = loadAppBoolean(prefs, SHOW_UNIFIED_INBOX_PREF, true)
+            }
+
+            settingKeyFor(SHOW_SENDER_IMAGES_PREF) -> {
+                showSenderImages = loadAppBoolean(prefs, SHOW_SENDER_IMAGES_PREF, false)
+            }
+
+            settingKeyFor(LIVE_MAIL_PUSH_PREF) -> {
+                liveMailPushEnabled = loadAppBoolean(prefs, LIVE_MAIL_PUSH_PREF, false)
+                mobileHost.syncLiveMailPush(liveMailPushEnabled)
+            }
+
+            settingKeyFor(BACKGROUND_SYNC_ENABLED_PREF) -> {
+                backgroundSyncEnabled = loadAppBoolean(prefs, BACKGROUND_SYNC_ENABLED_PREF, true)
+                mobileHost.syncBackgroundRefresh(backgroundSyncEnabled)
+            }
+
+            settingKeyFor(POLL_INTERVAL_MINUTES_PREF) -> {
+                pollIntervalMinutes =
+                    coercePollIntervalMinutes(loadAppInt(prefs, POLL_INTERVAL_MINUTES_PREF, 15))
+            }
+
+            settingKeyFor(SEND_SHORTCUT_PREF) -> {
+                sendShortcutMode = loadSendShortcutMode(prefs)
+            }
+
+            settingKeyFor(CONVERSATION_LAYOUT_PREF) -> {
+                conversationLayout = loadConversationLayout(prefs)
+            }
+
+            settingKeyFor(MESSAGE_FONT_SCALE_PREF) -> {
+                messageFontScale = loadMessageFontScale(prefs)
+            }
+
+            settingKeyFor(KANBAN_COLUMN_WIDTH_PREF) -> {
+                kanbanColumnWidth =
+                    loadAppInt(prefs, KANBAN_COLUMN_WIDTH_PREF, KANBAN_COLUMN_DEFAULT_WIDTH)
+                        .coerceIn(KANBAN_COLUMN_MIN_WIDTH, KANBAN_COLUMN_MAX_WIDTH)
+            }
+
+            settingKeyFor(HIDDEN_NAV_ACCOUNTS_PREF) -> {
+                hiddenNavigationAccountIds = loadAppStringSet(prefs, HIDDEN_NAV_ACCOUNTS_PREF)
+            }
+
+            settingKeyFor(KANBAN_BOARDS_PREF, PrefStore.Kanban) -> {
+                kanbanBoards = parseKanbanBoards(kanbanPrefs.getString(KANBAN_BOARDS_PREF, ""))
+            }
+
+            settingKeyFor(ACTIVE_KANBAN_BOARD_PREF, PrefStore.Kanban) -> {
+                activeKanbanBoardId = loadActiveKanbanBoardId(kanbanPrefs)
+            }
+        }
+    }
+}
+
+private fun settingKeyFor(
+    key: String,
+    store: PrefStore = PrefStore.App,
+): String = "mobile.${store.prefix}.$key"

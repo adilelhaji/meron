@@ -390,8 +390,6 @@ data class BackupImportResult(
     val feeds: Int = 0,
     val settings: Int = 0,
     val secrets: Int = 0,
-    /** Preferences for the host to write back into its own store. */
-    val platform: Map<String, Any> = emptyMap(),
 )
 
 fun parseBackupImportResponse(responseJson: String): BackupImportResult {
@@ -404,18 +402,19 @@ fun parseBackupImportResponse(responseJson: String): BackupImportResult {
         feeds = responseJson.findJsonLongProperty("feeds")?.toInt() ?: 0,
         settings = responseJson.findJsonLongProperty("settings")?.toInt() ?: 0,
         secrets = responseJson.findJsonLongProperty("secrets")?.toInt() ?: 0,
-        platform = parseBackupPlatformPrefs(responseJson),
     )
 }
 
 /**
- * The host-owned preferences a restore handed back (see the core's
- * `BackupData::platform`). Values are the JSON primitives the mobile pref store
- * uses — `String`, `Boolean`, `Long`, or `List<String>`; anything else in the
- * document is skipped rather than guessed at.
+ * Settings read from the core store (`app.prefsGet`). Values are the JSON
+ * primitives the mobile pref cache holds — `String`, `Boolean`, `Long`, or
+ * `List<String>`; anything else is skipped rather than guessed at.
+ *
+ * A key the store has never held is simply absent, which is what lets the host
+ * keep its own cached value instead of resetting it to a type default.
  */
-fun parseBackupPlatformPrefs(responseJson: String): Map<String, Any> {
-    val objectJson = responseJson.findJsonObjectProperty("platform") ?: return emptyMap()
+fun parseAppPrefsResponse(responseJson: String): Map<String, Any> {
+    val objectJson = responseJson.findJsonObjectProperty("prefs") ?: return emptyMap()
     val out = LinkedHashMap<String, Any>()
     for ((key, raw) in objectJson.jsonObjectEntries()) {
         val value: Any =
@@ -453,36 +452,32 @@ fun parseBackupPlatformPrefs(responseJson: String): Map<String, Any> {
     return out
 }
 
-/** Serialize backed-up preferences for the `platform` export parameter. */
-fun encodeBackupPlatformPrefs(values: Map<String, Any>): String =
-    values.entries.joinToString(separator = ",", prefix = "{", postfix = "}") { (key, value) ->
-        val encoded =
-            when (value) {
-                is String -> {
-                    value.jsonString()
-                }
+/** Encode one setting value for `AppPrefsSetParams`. */
+fun encodeAppPrefValue(value: Any): String =
+    when (value) {
+        is String -> {
+            value.jsonString()
+        }
 
-                is Boolean -> {
-                    value.toString()
-                }
+        is Boolean -> {
+            value.toString()
+        }
 
-                is Int, is Long -> {
-                    value.toString()
-                }
+        is Int, is Long -> {
+            value.toString()
+        }
 
-                is Collection<*> -> {
-                    value
-                        .filterIsInstance<String>()
-                        .joinToString(separator = ",", prefix = "[", postfix = "]") { it.jsonString() }
-                }
+        is Collection<*> -> {
+            value
+                .filterIsInstance<String>()
+                .joinToString(separator = ",", prefix = "[", postfix = "]") { it.jsonString() }
+        }
 
-                // Keep the document well-formed rather than emitting a raw
-                // toString() the reader would reject.
-                else -> {
-                    value.toString().jsonString()
-                }
-            }
-        "${key.jsonString()}:$encoded"
+        // Keep the payload well-formed rather than emitting a raw toString()
+        // the reader would reject.
+        else -> {
+            value.toString().jsonString()
+        }
     }
 
 fun parseMediaFileUrlResponse(responseJson: String): String = responseJson.findJsonStringProperty("url").orEmpty()

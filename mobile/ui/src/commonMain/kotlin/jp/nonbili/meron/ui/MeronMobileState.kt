@@ -33,6 +33,9 @@ internal class MeronMobileState(
     val services: PlatformServices,
     val locale: LocaleController,
     val mobileHost: MobileHost,
+    /** Write-through/hydrate bridge between the platform caches above and the
+     *  authoritative `settings` table. See MobileSettings.kt. */
+    val settingsMirror: SettingsMirror,
 ) {
     val snackbarHost = SnackbarHostState()
 

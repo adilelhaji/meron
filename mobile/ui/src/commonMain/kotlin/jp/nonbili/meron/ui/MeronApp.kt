@@ -64,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.backhandler.BackHandler
@@ -215,28 +216,90 @@ fun MeronApp(
     incomingMailtoDraft: ComposeDraft? = null,
     incomingOAuthCallbackUrl: String? = null,
     incomingNotificationThreadTarget: NotificationThreadTarget? = null,
-    appearanceMode: AppAppearanceMode = loadAppearanceMode(prefs),
-    onAppearanceModeChange: (AppAppearanceMode) -> Unit = { saveAppearanceMode(prefs, it) },
-    appLanguageTag: String = loadAppLanguageTag(prefs),
-    onAppLanguageChange: (String) -> Unit = {},
+    /**
+     * Notified after the language has been stored and pushed to the OS, for hosts
+     * that must react — Android recreates its Activity to reload resources.
+     * Persistence is not the host's job: doing it there would bypass the
+     * write-through store and never reach the `settings` table.
+     */
+    onLanguageApplied: (String) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val drawerState = rememberDrawerState(DrawerValue.Closed)
+    // The core `settings` table is authoritative for these; the platform stores
+    // stay in front of it as a write-through cache so the first frame can paint
+    // before the keyed DB is open. See MobileSettings.kt.
+    val coreLoadedNow = rememberUpdatedState(coreLoaded)
+    val mirror = remember(core, prefs) { SettingsMirror(core, journal = prefs) { coreLoadedNow.value } }
+    val backedPrefs =
+        remember(prefs, mirror) { CoreBackedPreferences(prefs, PrefStore.App, scope, mirror) }
+    val backedKanbanPrefs =
+        remember(kanbanPrefs, mirror) {
+            CoreBackedPreferences(kanbanPrefs, PrefStore.Kanban, scope, mirror)
+        }
     val state =
-        remember(core, prefs, kanbanPrefs, services, locale, mobileHost) {
+        remember(core, backedPrefs, backedKanbanPrefs, services, locale, mobileHost) {
             MeronMobileState(
                 scope = scope,
                 core = core,
                 coreLoaded = coreLoaded,
-                prefs = prefs,
-                kanbanPrefs = kanbanPrefs,
+                prefs = backedPrefs,
+                kanbanPrefs = backedKanbanPrefs,
                 services = services,
                 locale = locale,
                 mobileHost = mobileHost,
+                settingsMirror = mirror,
             )
         }
+    // Appearance and language live here rather than in the hosts, so their writes
+    // go through `backedPrefs` like every other setting. `putString` stages
+    // synchronously, which is what makes them survive the Activity recreation the
+    // language change triggers.
+    var appearanceMode by remember(backedPrefs) { mutableStateOf(loadAppearanceMode(backedPrefs)) }
+    // Android 13+ lets the language be changed from system settings while the app
+    // is not running; that choice outranks the stored tag.
+    val systemLanguageTag = remember(locale) { locale.systemLanguageTag() }
+    var appLanguageTag by
+        remember(backedPrefs, systemLanguageTag) {
+            mutableStateOf(resolveAppLanguageTag(systemLanguageTag, loadAppLanguageTag(backedPrefs)))
+        }
+    LaunchedEffect(systemLanguageTag) {
+        // Persisted as an effect rather than during composition, and through the
+        // write-through store, so an externally chosen language reaches the table
+        // instead of being read back as stale on the next hydrate. A reset to
+        // "system default" persists too — it stores blank, clearing the old tag.
+        if (appLanguageNeedsPersisting(systemLanguageTag, loadAppLanguageTag(backedPrefs))) {
+            saveAppLanguageTag(backedPrefs, systemLanguageTag.orEmpty())
+        }
+    }
+    val deviceLanguageTag = remember(locale) { resolveDeviceLanguageTag(locale.deviceLanguageTag()) }
+    val onAppearanceModeChange: (AppAppearanceMode) -> Unit = { mode ->
+        appearanceMode = mode
+        saveAppearanceMode(backedPrefs, mode)
+    }
+    val onAppLanguageChange: (String) -> Unit = { tag ->
+        appLanguageTag = tag
+        saveAppLanguageTag(backedPrefs, tag)
+        locale.applySystem(tag)
+        onLanguageApplied(tag)
+    }
+
+    // Reconcile once the core is up: the table wins, which is what lets a
+    // restored backup reach these settings without a separate channel.
+    LaunchedEffect(coreLoaded) {
+        if (!coreLoaded) return@LaunchedEffect
+        val changed = hydrateSettingsFromCore(prefs, kanbanPrefs, mirror)
+        if (changed.isNotEmpty()) state.applyHydratedSettings(changed)
+    }
+    // Appearance and language are persisted by the host (and, for language, by
+    // LocaleController, which normalizes the tag first), so the write-through
+    // decorator never sees those writes — yet both are registry settings. Mirror
+    // the cache after the host has stored it, or the table keeps the old value
+    // and the next hydrate pulls it back over the user's choice.
     androidx.compose.runtime.CompositionLocalProvider(
-        LocalAppLocale provides appLanguageTag.ifBlank { locale.currentLanguageTag().ifBlank { "en" } },
+        // Blank means "follow the system", so fall back to the device's language
+        // rather than to English.
+        LocalAppLocale provides appLanguageTag.ifBlank { deviceLanguageTag },
         LocalPlatformServices provides services,
     ) {
         MeronTheme(appearanceMode = appearanceMode, messageFontScale = state.messageFontScale) {

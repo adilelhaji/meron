@@ -149,6 +149,7 @@ class ManagedGoogleAuthTest {
         services = NoopPlatformServices(),
         locale = NoopLocaleController(),
         mobileHost = host,
+        settingsMirror = SettingsMirror(core, MemoryPreferences()) { true },
     )
 
     /** Managed-account host: soft refreshes report StillFresh, force mints a token. */
@@ -312,9 +313,11 @@ class ManagedGoogleAuthTest {
     }
 
     private class NoopLocaleController : LocaleController {
-        override fun currentLanguageTag(): String = ""
+        override fun systemLanguageTag(): String = ""
 
-        override fun apply(tag: String) {}
+        override fun applySystem(tag: String) {}
+
+        override fun deviceLanguageTag(): String = "en-US"
 
         override fun displayName(tag: String): String = tag
     }

@@ -321,18 +321,11 @@ class ComposeMainActivity : ComponentActivity() {
                 .AndroidAppPreferences(this, "meron_kanban")
         val localeController =
             jp.nonbili.meron.ui
-                .AndroidLocaleController(this, appPrefs)
+                .AndroidLocaleController(this)
         val platformServices = AndroidPlatformServices(this)
         val mobileHost = AndroidMobileHost(this)
         setContent {
             val appCore = remember { JniMeronCore() }
-            var appearanceMode by remember {
-                mutableStateOf(
-                    jp.nonbili.meron.ui
-                        .loadAppearanceMode(appPrefs),
-                )
-            }
-            var appLanguageTag by remember { mutableStateOf(localeController.currentLanguageTag()) }
             jp.nonbili.meron.ui.MeronApp(
                 core = appCore,
                 coreLoaded = MeronCoreNative.isLoaded(),
@@ -345,18 +338,9 @@ class ComposeMainActivity : ComponentActivity() {
                 incomingMailtoDraft = incomingMailtoDraft,
                 incomingOAuthCallbackUrl = incomingOAuthCallbackUrl,
                 incomingNotificationThreadTarget = incomingNotificationThreadTarget,
-                appearanceMode = appearanceMode,
-                onAppearanceModeChange = { mode ->
-                    appearanceMode = mode
-                    jp.nonbili.meron.ui
-                        .saveAppearanceMode(appPrefs, mode)
-                },
-                appLanguageTag = appLanguageTag,
-                onAppLanguageChange = { tag ->
-                    appLanguageTag = tag
-                    localeController.apply(tag)
-                    recreate()
-                },
+                // Storing and pushing to the OS both happen in MeronApp; the
+                // Activity only has to reload its resources for the new language.
+                onLanguageApplied = { recreate() },
             )
         }
     }

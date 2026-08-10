@@ -26,6 +26,8 @@ object MobileCommand {
     const val AccountSetRssSyncInterval = "account.setRSSSyncInterval"
     const val AccountSetAliases = "account.setAliases"
     const val AccountSetProxy = "account.setProxy"
+    const val AppPrefsGet = "app.prefsGet"
+    const val AppPrefsSet = "app.prefsSet"
     const val AppProxyGet = "app.proxyGet"
     const val AppProxySet = "app.proxySet"
     const val AccountReorder = "account.reorder"
@@ -238,18 +240,11 @@ data class ImportOpmlParams(
 data class ExportBackupParams(
     val includeSecrets: Boolean = false,
     val passphrase: String = "",
-    /**
-     * Host-owned preferences to embed, as a JSON object (see
-     * [encodeBackupPlatformPrefs]). Already-encoded JSON rather than a map so
-     * this stays a plain data class with no serializer dependency.
-     */
-    val platformJson: String = "{}",
 ) {
     fun toJson(): String =
         jsonObject(
             "include_secrets" to includeSecrets.toString(),
             "passphrase" to passphrase.jsonString(),
-            "platform" to platformJson.ifBlank { "{}" },
         )
 }
 
@@ -261,6 +256,32 @@ data class ImportBackupParams(
         jsonObject(
             "backup" to backup.jsonString(),
             "passphrase" to passphrase.jsonString(),
+        )
+}
+
+/**
+ * Settings to read from the core store. The `settings` table is authoritative
+ * for mobile preferences; the platform store in front of it is only a cache so
+ * the first frame can paint before the keyed DB is open.
+ */
+data class AppPrefsGetParams(
+    val keys: List<String>,
+) {
+    fun toJson(): String = jsonObject("keys" to keys.jsonStringArray())
+}
+
+/**
+ * One setting to persist. [valueJson] is already-encoded JSON so a preference
+ * can be any of the shapes the store holds (string, bool, number, array).
+ */
+data class AppPrefsSetParams(
+    val key: String,
+    val valueJson: String,
+) {
+    fun toJson(): String =
+        jsonObject(
+            "key" to key.jsonString(),
+            "value" to valueJson.ifBlank { "null" },
         )
 }
 
@@ -938,6 +959,10 @@ class MobileMailCommandClient(
 
     suspend fun getProxy(): String = core.invoke(MobileCommand.AppProxyGet)
 
+    suspend fun getPrefs(params: AppPrefsGetParams): String = core.invoke(MobileCommand.AppPrefsGet, params.toJson())
+
+    suspend fun setPref(params: AppPrefsSetParams): String = core.invoke(MobileCommand.AppPrefsSet, params.toJson())
+
     suspend fun setProxy(params: ProxyParams): String = core.invoke(MobileCommand.AppProxySet, params.toJson())
 
     suspend fun reorderAccounts(params: AccountReorderParams): String = core.invoke(MobileCommand.AccountReorder, params.toJson())
@@ -1139,6 +1164,16 @@ fun feedImportOpmlRequest(
     id: Long = 1,
     params: ImportOpmlParams,
 ): CoreRequest = CoreRequest(id, MobileCommand.FeedImportOpml, params.toJson())
+
+fun appPrefsGetRequest(
+    id: Long = 1,
+    params: AppPrefsGetParams,
+): CoreRequest = CoreRequest(id, MobileCommand.AppPrefsGet, params.toJson())
+
+fun appPrefsSetRequest(
+    id: Long = 1,
+    params: AppPrefsSetParams,
+): CoreRequest = CoreRequest(id, MobileCommand.AppPrefsSet, params.toJson())
 
 fun backupExportRequest(
     id: Long = 1,

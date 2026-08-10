@@ -84,6 +84,7 @@ class GoogleDeviceAccountFlowTest {
         services = services,
         locale = FakeLocaleController(),
         mobileHost = mobileHost,
+        settingsMirror = SettingsMirror(FakeCore(), FakePreferences()) { true },
     )
 
     private class FakeMobileHost(
@@ -209,9 +210,11 @@ class GoogleDeviceAccountFlowTest {
     }
 
     private class FakeLocaleController : LocaleController {
-        override fun currentLanguageTag(): String = ""
+        override fun systemLanguageTag(): String = ""
 
-        override fun apply(tag: String) {}
+        override fun applySystem(tag: String) {}
+
+        override fun deviceLanguageTag(): String = "en-US"
 
         override fun displayName(tag: String): String = tag
     }

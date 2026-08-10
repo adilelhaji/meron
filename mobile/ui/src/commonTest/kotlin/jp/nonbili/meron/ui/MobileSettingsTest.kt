@@ -5,7 +5,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class BackupPlatformPrefsTest {
+class MobileSettingsTest {
     @Test
     fun collectsOnlySettingsTheUserHasActuallySet() {
         val app = FakePreferences()
@@ -17,18 +17,18 @@ class BackupPlatformPrefsTest {
         app.putStringSet(HIDDEN_NAV_ACCOUNTS_PREF, setOf("a@example.com"))
         kanban.putString(KANBAN_BOARDS_PREF, """[{"id":"b1"}]""")
 
-        val collected = collectPlatformPrefs(app, kanban)
+        val collected = collectCachedSettings(app, kanban)
 
-        assertEquals("Indigo", collected["app:$APPEARANCE_MODE_PREF"])
-        assertEquals("ja", collected["app:$APP_LANGUAGE_PREF"])
-        assertEquals(115, collected["app:$MESSAGE_FONT_SCALE_PREF"])
-        assertEquals(true, collected["app:$SHOW_UNREAD_BADGES_PREF"])
-        assertEquals(listOf("a@example.com"), collected["app:$HIDDEN_NAV_ACCOUNTS_PREF"])
-        assertEquals("""[{"id":"b1"}]""", collected["kanban:$KANBAN_BOARDS_PREF"])
+        assertEquals("Indigo", collected["mobile.app.$APPEARANCE_MODE_PREF"])
+        assertEquals("ja", collected["mobile.app.$APP_LANGUAGE_PREF"])
+        assertEquals(115, collected["mobile.app.$MESSAGE_FONT_SCALE_PREF"])
+        assertEquals(true, collected["mobile.app.$SHOW_UNREAD_BADGES_PREF"])
+        assertEquals(listOf("a@example.com"), collected["mobile.app.$HIDDEN_NAV_ACCOUNTS_PREF"])
+        assertEquals("""[{"id":"b1"}]""", collected["mobile.kanban.$KANBAN_BOARDS_PREF"])
         // Untouched settings stay out, so a restore can't write defaults over
         // choices the target device already made.
-        assertFalse(collected.containsKey("app:$CONVERSATION_LAYOUT_PREF"))
-        assertFalse(collected.containsKey("app:$LIVE_MAIL_PUSH_PREF"))
+        assertFalse(collected.containsKey("mobile.app.$CONVERSATION_LAYOUT_PREF"))
+        assertFalse(collected.containsKey("mobile.app.$LIVE_MAIL_PUSH_PREF"))
     }
 
     /** A `false` the user chose must survive; it is not the same as "unset". */
@@ -37,10 +37,10 @@ class BackupPlatformPrefsTest {
         val app = FakePreferences()
         app.putBoolean(LIVE_MAIL_PUSH_PREF, false)
 
-        val collected = collectPlatformPrefs(app, FakePreferences())
+        val collected = collectCachedSettings(app, FakePreferences())
 
-        assertTrue(collected.containsKey("app:$LIVE_MAIL_PUSH_PREF"))
-        assertEquals(false, collected["app:$LIVE_MAIL_PUSH_PREF"])
+        assertTrue(collected.containsKey("mobile.app.$LIVE_MAIL_PUSH_PREF"))
+        assertEquals(false, collected["mobile.app.$LIVE_MAIL_PUSH_PREF"])
     }
 
     /** Likewise an int that happens to equal a probe sentinel. */
@@ -49,9 +49,9 @@ class BackupPlatformPrefsTest {
         val app = FakePreferences()
         app.putInt(POLL_INTERVAL_MINUTES_PREF, 0)
 
-        val collected = collectPlatformPrefs(app, FakePreferences())
+        val collected = collectCachedSettings(app, FakePreferences())
 
-        assertEquals(0, collected["app:$POLL_INTERVAL_MINUTES_PREF"])
+        assertEquals(0, collected["mobile.app.$POLL_INTERVAL_MINUTES_PREF"])
     }
 
     @Test
@@ -65,30 +65,30 @@ class BackupPlatformPrefsTest {
         val kanban = FakePreferences()
         kanban.putString(KANBAN_SEARCH_PREF, "invoice")
 
-        val collected = collectPlatformPrefs(app, kanban)
+        val collected = collectCachedSettings(app, kanban)
 
         assertEquals(emptyMap(), collected)
     }
 
     @Test
-    fun applyWritesEveryTypeBack() {
+    fun writingToTheCacheHandlesEveryType() {
         val app = FakePreferences()
         val kanban = FakePreferences()
 
-        val applied =
-            applyPlatformPrefs(
+        val applied: Map<String, Any> =
+            writeSettingsToCache(
                 app,
                 kanban,
                 mapOf(
-                    "app:$APPEARANCE_MODE_PREF" to "Indigo",
-                    "app:$MESSAGE_FONT_SCALE_PREF" to 115L,
-                    "app:$SHOW_UNREAD_BADGES_PREF" to true,
-                    "app:$HIDDEN_NAV_ACCOUNTS_PREF" to listOf("a@example.com"),
-                    "kanban:$KANBAN_BOARDS_PREF" to """[{"id":"b1"}]""",
+                    "mobile.app.$APPEARANCE_MODE_PREF" to "Indigo",
+                    "mobile.app.$MESSAGE_FONT_SCALE_PREF" to 115L,
+                    "mobile.app.$SHOW_UNREAD_BADGES_PREF" to true,
+                    "mobile.app.$HIDDEN_NAV_ACCOUNTS_PREF" to listOf("a@example.com"),
+                    "mobile.kanban.$KANBAN_BOARDS_PREF" to """[{"id":"b1"}]""",
                 ),
             )
 
-        assertEquals(5, applied)
+        assertEquals(5, applied.size)
         assertEquals("Indigo", app.getString(APPEARANCE_MODE_PREF, ""))
         // A JSON number arrives as Long and still lands in an Int pref.
         assertEquals(115, app.getInt(MESSAGE_FONT_SCALE_PREF, 0))
@@ -98,23 +98,23 @@ class BackupPlatformPrefsTest {
     }
 
     @Test
-    fun applyIgnoresUnknownKeysAndWrongTypes() {
+    fun writingToTheCacheIgnoresUnknownKeysAndWrongTypes() {
         val app = FakePreferences()
 
-        val applied =
-            applyPlatformPrefs(
+        val applied: Map<String, Any> =
+            writeSettingsToCache(
                 app,
                 FakePreferences(),
                 mapOf(
                     // A key from a newer build.
-                    "app:some_future_setting_v9" to "value",
+                    "mobile.app.some_future_setting_v9" to "value",
                     // Right key, wrong type.
-                    "app:$MESSAGE_FONT_SCALE_PREF" to "not a number",
-                    "app:$SHOW_UNREAD_BADGES_PREF" to "true",
+                    "mobile.app.$MESSAGE_FONT_SCALE_PREF" to "not a number",
+                    "mobile.app.$SHOW_UNREAD_BADGES_PREF" to "true",
                 ),
             )
 
-        assertEquals(0, applied)
+        assertEquals(0, applied.size)
         assertEquals(0, app.getInt(MESSAGE_FONT_SCALE_PREF, 0))
         assertFalse(app.getBoolean(SHOW_UNREAD_BADGES_PREF, false))
     }
@@ -131,12 +131,12 @@ class BackupPlatformPrefsTest {
         app.putStringSet(HIDDEN_NAV_ACCOUNTS_PREF, setOf("x@example.com", "y@example.com"))
         kanban.putString(ACTIVE_KANBAN_BOARD_PREF, "board-1")
 
-        val collected = collectPlatformPrefs(app, kanban)
+        val collected = collectCachedSettings(app, kanban)
         val restoredApp = FakePreferences()
         val restoredKanban = FakePreferences()
-        applyPlatformPrefs(restoredApp, restoredKanban, collected)
+        writeSettingsToCache(restoredApp, restoredKanban, collected)
 
-        assertEquals(collected, collectPlatformPrefs(restoredApp, restoredKanban))
+        assertEquals(collected, collectCachedSettings(restoredApp, restoredKanban))
     }
 
     private class FakePreferences : AppPreferences {
