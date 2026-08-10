@@ -375,6 +375,116 @@ fun parseOpmlExportResponse(responseJson: String): String = responseJson.findJso
 
 fun parseOpmlImportCountResponse(responseJson: String): Int = responseJson.findJsonLongProperty("imported")?.toInt() ?: 0
 
+/** The serialized backup document from `backup.export`. */
+fun parseBackupExportResponse(responseJson: String): String = responseJson.findJsonStringProperty("backup").orEmpty()
+
+/**
+ * What a restore did, or that the file is encrypted and needs a passphrase.
+ * [needsPassphrase] is not an error: the host prompts and calls again.
+ */
+data class BackupImportResult(
+    val needsPassphrase: Boolean = false,
+    val accounts: Int = 0,
+    /** Accounts already present locally, which a restore never overwrites. */
+    val skipped: Int = 0,
+    val feeds: Int = 0,
+    val settings: Int = 0,
+    val secrets: Int = 0,
+    /** Preferences for the host to write back into its own store. */
+    val platform: Map<String, Any> = emptyMap(),
+)
+
+fun parseBackupImportResponse(responseJson: String): BackupImportResult {
+    if (responseJson.findJsonBooleanProperty("needs_passphrase") == true) {
+        return BackupImportResult(needsPassphrase = true)
+    }
+    return BackupImportResult(
+        accounts = responseJson.findJsonLongProperty("accounts")?.toInt() ?: 0,
+        skipped = responseJson.findJsonLongProperty("skipped")?.toInt() ?: 0,
+        feeds = responseJson.findJsonLongProperty("feeds")?.toInt() ?: 0,
+        settings = responseJson.findJsonLongProperty("settings")?.toInt() ?: 0,
+        secrets = responseJson.findJsonLongProperty("secrets")?.toInt() ?: 0,
+        platform = parseBackupPlatformPrefs(responseJson),
+    )
+}
+
+/**
+ * The host-owned preferences a restore handed back (see the core's
+ * `BackupData::platform`). Values are the JSON primitives the mobile pref store
+ * uses — `String`, `Boolean`, `Long`, or `List<String>`; anything else in the
+ * document is skipped rather than guessed at.
+ */
+fun parseBackupPlatformPrefs(responseJson: String): Map<String, Any> {
+    val objectJson = responseJson.findJsonObjectProperty("platform") ?: return emptyMap()
+    val out = LinkedHashMap<String, Any>()
+    for ((key, raw) in objectJson.jsonObjectEntries()) {
+        val value: Any =
+            when {
+                raw.startsWith('"') -> {
+                    raw.readJsonString(0).value
+                }
+
+                raw == "true" -> {
+                    true
+                }
+
+                raw == "false" -> {
+                    false
+                }
+
+                raw.startsWith('[') -> {
+                    raw
+                        .jsonArrayElements()
+                        .filter { it.startsWith('"') }
+                        .map { it.readJsonString(0).value }
+                }
+
+                raw.toLongOrNull() != null -> {
+                    raw.toLong()
+                }
+
+                // null, a nested object, or a float: nothing the pref store takes.
+                else -> {
+                    continue
+                }
+            }
+        out[key] = value
+    }
+    return out
+}
+
+/** Serialize backed-up preferences for the `platform` export parameter. */
+fun encodeBackupPlatformPrefs(values: Map<String, Any>): String =
+    values.entries.joinToString(separator = ",", prefix = "{", postfix = "}") { (key, value) ->
+        val encoded =
+            when (value) {
+                is String -> {
+                    value.jsonString()
+                }
+
+                is Boolean -> {
+                    value.toString()
+                }
+
+                is Int, is Long -> {
+                    value.toString()
+                }
+
+                is Collection<*> -> {
+                    value
+                        .filterIsInstance<String>()
+                        .joinToString(separator = ",", prefix = "[", postfix = "]") { it.jsonString() }
+                }
+
+                // Keep the document well-formed rather than emitting a raw
+                // toString() the reader would reject.
+                else -> {
+                    value.toString().jsonString()
+                }
+            }
+        "${key.jsonString()}:$encoded"
+    }
+
 fun parseMediaFileUrlResponse(responseJson: String): String = responseJson.findJsonStringProperty("url").orEmpty()
 
 fun parseAttachmentDataResponse(responseJson: String): String = responseJson.findJsonStringProperty("data").orEmpty()
@@ -423,6 +533,44 @@ private fun String.findJsonArrayProperty(name: String): String? {
         index = found + key.length
     }
     return null
+}
+
+private fun String.findJsonObjectProperty(name: String): String? {
+    val key = name.jsonString()
+    var index = 0
+    while (index < length) {
+        val found = indexOf(key, startIndex = index)
+        if (found < 0) return null
+        var cursor = skipWhitespace(found + key.length)
+        if (cursor < length && this[cursor] == ':') {
+            cursor = skipWhitespace(cursor + 1)
+            if (cursor < length && this[cursor] == '{') {
+                return readBalancedJson(cursor, '{', '}').value
+            }
+        }
+        index = found + key.length
+    }
+    return null
+}
+
+/** Top-level `"key": value` pairs of a JSON object, values left unparsed. */
+private fun String.jsonObjectEntries(): List<Pair<String, String>> {
+    val body = trim().removePrefix("{").removeSuffix("}")
+    val out = mutableListOf<Pair<String, String>>()
+    var index = 0
+    while (index < body.length) {
+        index = body.skipWhitespaceAndCommas(index)
+        if (index >= body.length || body[index] != '"') break
+        val key = body.readJsonString(index)
+        index = body.skipWhitespace(key.nextIndex)
+        if (index >= body.length || body[index] != ':') break
+        index = body.skipWhitespace(index + 1)
+        if (index >= body.length) break
+        val value = body.readJsonValue(index)
+        out += key.value to value.value
+        index = value.nextIndex
+    }
+    return out
 }
 
 private fun String.findJsonStringProperty(name: String): String? {

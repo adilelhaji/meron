@@ -11,6 +11,7 @@ pub(crate) use std::sync::Mutex;
 pub(crate) use std::time::{SystemTime, UNIX_EPOCH};
 
 mod accounts;
+mod backup;
 mod feeds;
 mod helpers;
 mod mail;
@@ -18,6 +19,7 @@ mod media;
 mod oauth;
 
 pub(crate) use accounts::*;
+pub(crate) use backup::*;
 pub(crate) use feeds::*;
 pub(crate) use helpers::*;
 pub(crate) use mail::*;
@@ -83,6 +85,10 @@ pub fn dispatch_protocol_request(req: &Request) -> Result<Value, String> {
         "feed.add" | "rss.addFeed" => Ok(json!({ "ok": true })),
         "feed.remove" | "rss.removeFeed" => Ok(json!({ "ok": true })),
         "feed.move" | "rss.moveFeed" => Ok(json!({ "ok": true, "moved": 0 })),
+        "backup.export" => Ok(json!({ "backup": "" })),
+        "backup.import" => {
+            Ok(json!({ "accounts": 0, "skipped": 0, "feeds": 0, "settings": 0, "secrets": 0 }))
+        }
         "rss.exportOpml" => Ok(json!({ "opml": "" })),
         "rss.importOpml" => Ok(json!({ "imported": 0 })),
         "mail.folderList" => Ok(json!({ "folders": [] })),
@@ -164,6 +170,8 @@ pub fn dispatch_mobile_protocol_request(req: &Request, data_dir: &str) -> Result
         "feed.add" | "rss.addFeed" => add_mobile_rss_feed(data_dir, &req.params),
         "feed.remove" | "rss.removeFeed" => remove_mobile_rss_feed(data_dir, &req.params),
         "feed.move" | "rss.moveFeed" => move_mobile_rss_feed(data_dir, &req.params),
+        "backup.export" => export_mobile_backup(data_dir, &req.params),
+        "backup.import" => import_mobile_backup(data_dir, &req.params),
         "rss.exportOpml" => export_mobile_opml(data_dir, &req.params),
         "rss.importOpml" => import_mobile_opml(data_dir, &req.params),
         "mail.folderList" => list_mobile_folders(data_dir, &req.params),

@@ -3239,3 +3239,164 @@ fn mobile_protocol_persists_app_and_account_proxies() {
     crate::proxy::set_global(None);
     let _ = std::fs::remove_dir_all(data_dir);
 }
+
+// ---- Backup / restore -------------------------------------------------------
+
+#[test]
+fn mobile_protocol_round_trips_a_plaintext_backup() {
+    let source_dir = unique_data_dir("backup-source");
+    let unique = unique_test_suffix();
+    let email = format!("backup+{unique}@example.com");
+    let source = source_dir.to_str().unwrap();
+    let add = format!(
+        r#"{{"id":80,"method":"account.addPassword","params":{{"email":"{email}","display_name":"Work","sender_name":"Ada","imap_host":"imap.example.com","imap_port":993,"smtp_host":"smtp.example.com","smtp_port":465,"username":"{email}","password":"pa55w0rd-plain","tls":true}}}}"#
+    );
+    assert!(
+        invoke_mobile_protocol_json(&add, Some(source))
+            .get("error")
+            .is_none()
+    );
+
+    let exported = invoke_mobile_protocol_json(
+        r#"{"id":81,"method":"backup.export","params":{}}"#,
+        Some(source),
+    );
+    assert!(exported.get("error").is_none(), "{exported}");
+    let text = exported["result"]["backup"].as_str().unwrap().to_string();
+    // Without secrets the password never reaches the file.
+    assert!(!text.contains("pa55w0rd-plain"), "{text}");
+
+    // Restore into a second, empty data dir.
+    let target_dir = unique_data_dir("backup-target");
+    let target = target_dir.to_str().unwrap();
+    let import = json!({
+        "id": 82,
+        "method": "backup.import",
+        "params": { "backup": text },
+    });
+    let imported = invoke_mobile_protocol_json(&import.to_string(), Some(target));
+    assert!(imported.get("error").is_none(), "{imported}");
+    assert_eq!(imported["result"]["accounts"], 1);
+    assert_eq!(imported["result"]["skipped"], 0);
+    assert_eq!(imported["result"]["secrets"], 0);
+
+    let listed = invoke_mobile_protocol_json(
+        r#"{"id":83,"method":"account.list","params":{}}"#,
+        Some(target),
+    );
+    assert_eq!(listed["result"]["accounts"][0]["id"], email.as_str());
+    assert_eq!(
+        listed["result"]["accounts"][0]["imap_host"],
+        "imap.example.com"
+    );
+    // No secret came across, so the restored account has to be reconnected.
+    assert_eq!(listed["result"]["accounts"][0]["needs_reconnect"], true);
+
+    let _ = std::fs::remove_dir_all(source_dir);
+    let _ = std::fs::remove_dir_all(target_dir);
+}
+
+/// Mobile settings live in platform storage the core cannot read, so the host
+/// hands them to `backup.export` and gets them back from `backup.import`.
+#[test]
+fn mobile_protocol_carries_host_platform_preferences_through_a_backup() {
+    let source_dir = unique_data_dir("backup-platform-source");
+    let source = source_dir.to_str().unwrap();
+    let export = json!({
+        "id": 90,
+        "method": "backup.export",
+        "params": {
+            "platform": {
+                "app:appearance_mode_v1": "Indigo",
+                "app:app_language_v1": "ja",
+                "app:message_font_scale_v1": 115,
+                "app:background_sync_enabled_v1": false,
+                "kanban:kanban_boards_v1": "[{\"id\":\"b1\"}]",
+            },
+        },
+    });
+    let exported = invoke_mobile_protocol_json(&export.to_string(), Some(source));
+    assert!(exported.get("error").is_none(), "{exported}");
+    let text = exported["result"]["backup"].as_str().unwrap().to_string();
+
+    let target_dir = unique_data_dir("backup-platform-target");
+    let target = target_dir.to_str().unwrap();
+    let import = json!({ "id": 91, "method": "backup.import", "params": { "backup": text } });
+    let imported = invoke_mobile_protocol_json(&import.to_string(), Some(target));
+    assert!(imported.get("error").is_none(), "{imported}");
+
+    let platform = &imported["result"]["platform"];
+    assert_eq!(platform["app:appearance_mode_v1"], "Indigo");
+    assert_eq!(platform["app:app_language_v1"], "ja");
+    assert_eq!(platform["app:message_font_scale_v1"], 115);
+    assert_eq!(platform["app:background_sync_enabled_v1"], false);
+    assert_eq!(platform["kanban:kanban_boards_v1"], "[{\"id\":\"b1\"}]");
+
+    let _ = std::fs::remove_dir_all(source_dir);
+    let _ = std::fs::remove_dir_all(target_dir);
+}
+
+#[test]
+fn mobile_protocol_round_trips_an_encrypted_backup_with_secrets() {
+    let source_dir = unique_data_dir("backup-enc-source");
+    let unique = unique_test_suffix();
+    let email = format!("enc+{unique}@example.com");
+    let source = source_dir.to_str().unwrap();
+    let add = format!(
+        r#"{{"id":84,"method":"account.addPassword","params":{{"email":"{email}","display_name":"Work","imap_host":"imap.example.com","smtp_host":"smtp.example.com","username":"{email}","password":"hunter2"}}}}"#
+    );
+    assert!(
+        invoke_mobile_protocol_json(&add, Some(source))
+            .get("error")
+            .is_none()
+    );
+
+    let export = json!({
+        "id": 85,
+        "method": "backup.export",
+        "params": { "include_secrets": true, "passphrase": "correct horse" },
+    });
+    let exported = invoke_mobile_protocol_json(&export.to_string(), Some(source));
+    assert!(exported.get("error").is_none(), "{exported}");
+    let text = exported["result"]["backup"].as_str().unwrap().to_string();
+    assert!(!text.contains("hunter2"), "{text}");
+
+    let target_dir = unique_data_dir("backup-enc-target");
+    let target = target_dir.to_str().unwrap();
+
+    // No passphrase: a prompt request, not a failure.
+    let bare = json!({ "id": 86, "method": "backup.import", "params": { "backup": text } });
+    let value = invoke_mobile_protocol_json(&bare.to_string(), Some(target));
+    assert!(value.get("error").is_none(), "{value}");
+    assert_eq!(value["result"]["needs_passphrase"], true);
+
+    // Wrong passphrase: a real error.
+    let wrong = json!({
+        "id": 87,
+        "method": "backup.import",
+        "params": { "backup": text, "passphrase": "nope" },
+    });
+    let value = invoke_mobile_protocol_json(&wrong.to_string(), Some(target));
+    let message = value["error"]["message"].as_str().unwrap_or_default();
+    assert!(message.contains("wrong passphrase"), "{value}");
+
+    // Right passphrase: the secret comes back, so the account is usable.
+    let right = json!({
+        "id": 88,
+        "method": "backup.import",
+        "params": { "backup": text, "passphrase": "correct horse" },
+    });
+    let value = invoke_mobile_protocol_json(&right.to_string(), Some(target));
+    assert!(value.get("error").is_none(), "{value}");
+    assert_eq!(value["result"]["accounts"], 1);
+    assert_eq!(value["result"]["secrets"], 1);
+
+    let listed = invoke_mobile_protocol_json(
+        r#"{"id":89,"method":"account.list","params":{}}"#,
+        Some(target),
+    );
+    assert_eq!(listed["result"]["accounts"][0]["needs_reconnect"], false);
+
+    let _ = std::fs::remove_dir_all(source_dir);
+    let _ = std::fs::remove_dir_all(target_dir);
+}

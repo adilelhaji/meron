@@ -47,6 +47,7 @@ internal class MeronMobileState(
 
     // Wired by the composable after its platform pickers/launchers are created.
     var launchOpmlExport: (String) -> Unit = {}
+    var launchBackupExport: (String) -> Unit = {}
     var launchAttachmentSave: (String) -> Unit = {}
     var launchGoogleAccountPicker: () -> Unit = {}
 
@@ -261,6 +262,16 @@ internal class MeronMobileState(
     // when the last run ended cleanly. Clearing it hides the report prompt.
     var pendingCrashReport by mutableStateOf(mobileHost.pendingCrashReport())
     var pendingOpmlExport by mutableStateOf("")
+
+    // Backup / restore (see MeronMobileState+Backup.kt). The export document
+    // waits here for the save-file picker; the restore document waits here only
+    // when the file turned out to be encrypted, so the retry after the
+    // passphrase prompt doesn't send the user back to the file picker.
+    var pendingBackupExport by mutableStateOf("")
+    var pendingBackupRestore by mutableStateOf("")
+    var backupPassphraseMode by mutableStateOf<BackupPassphraseMode?>(null)
+    var backupPassphraseError by mutableStateOf("")
+    var backupBusy by mutableStateOf(false)
     var accountMediaUploadTarget by mutableStateOf<AccountMediaUploadTarget?>(null)
     var kanbanBoardMediaTarget by mutableStateOf<KanbanBoardMediaTarget?>(null)
 

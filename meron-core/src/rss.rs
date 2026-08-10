@@ -1165,7 +1165,7 @@ fn parse_item(entry: &feed_rs::model::Entry, fetched_at: i64) -> Option<ParsedIt
 
 // ---- URL + text helpers (match Go RSSStore) ---------------------------------
 
-fn normalize_feed_url(raw: &str) -> Result<String> {
+pub(crate) fn normalize_feed_url(raw: &str) -> Result<String> {
     let raw = raw.trim();
     if raw.is_empty() {
         return Err(anyhow!("feed URL required"));
@@ -1193,7 +1193,7 @@ fn new_account_id() -> String {
     format!("rss-{}", uuid::Uuid::new_v4().simple())
 }
 
-fn rss_subscription_id(feed_url: &str) -> String {
+pub(crate) fn rss_subscription_id(feed_url: &str) -> String {
     format!("feed-{}", stable_hash(feed_url))
 }
 

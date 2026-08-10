@@ -34,6 +34,8 @@ object MobileCommand {
     const val FeedMove = "feed.move"
     const val FeedExportOpml = "rss.exportOpml"
     const val FeedImportOpml = "rss.importOpml"
+    const val BackupExport = "backup.export"
+    const val BackupImport = "backup.import"
     const val FolderList = "mail.folderList"
     const val FolderCreate = "mail.folderCreate"
     const val FolderDelete = "mail.folderDelete"
@@ -225,6 +227,40 @@ data class ImportOpmlParams(
         jsonObject(
             "account" to accountId.jsonString(),
             "opml" to opml.jsonString(),
+        )
+}
+
+/**
+ * Backup export options. A passphrase encrypts the document; [includeSecrets]
+ * additionally puts account passwords and OAuth tokens in it, which the core
+ * refuses to do without a passphrase.
+ */
+data class ExportBackupParams(
+    val includeSecrets: Boolean = false,
+    val passphrase: String = "",
+    /**
+     * Host-owned preferences to embed, as a JSON object (see
+     * [encodeBackupPlatformPrefs]). Already-encoded JSON rather than a map so
+     * this stays a plain data class with no serializer dependency.
+     */
+    val platformJson: String = "{}",
+) {
+    fun toJson(): String =
+        jsonObject(
+            "include_secrets" to includeSecrets.toString(),
+            "passphrase" to passphrase.jsonString(),
+            "platform" to platformJson.ifBlank { "{}" },
+        )
+}
+
+data class ImportBackupParams(
+    val backup: String,
+    val passphrase: String = "",
+) {
+    fun toJson(): String =
+        jsonObject(
+            "backup" to backup.jsonString(),
+            "passphrase" to passphrase.jsonString(),
         )
 }
 
@@ -916,6 +952,10 @@ class MobileMailCommandClient(
 
     suspend fun importOpml(params: ImportOpmlParams): String = core.invoke(MobileCommand.FeedImportOpml, params.toJson())
 
+    suspend fun exportBackup(params: ExportBackupParams): String = core.invoke(MobileCommand.BackupExport, params.toJson())
+
+    suspend fun importBackup(params: ImportBackupParams): String = core.invoke(MobileCommand.BackupImport, params.toJson())
+
     suspend fun listFolders(params: FolderListParams): String = core.invoke(MobileCommand.FolderList, params.toJson())
 
     suspend fun createFolder(params: FolderCreateParams): String = core.invoke(MobileCommand.FolderCreate, params.toJson())
@@ -1099,6 +1139,16 @@ fun feedImportOpmlRequest(
     id: Long = 1,
     params: ImportOpmlParams,
 ): CoreRequest = CoreRequest(id, MobileCommand.FeedImportOpml, params.toJson())
+
+fun backupExportRequest(
+    id: Long = 1,
+    params: ExportBackupParams,
+): CoreRequest = CoreRequest(id, MobileCommand.BackupExport, params.toJson())
+
+fun backupImportRequest(
+    id: Long = 1,
+    params: ImportBackupParams,
+): CoreRequest = CoreRequest(id, MobileCommand.BackupImport, params.toJson())
 
 fun folderListRequest(
     id: Long = 1,

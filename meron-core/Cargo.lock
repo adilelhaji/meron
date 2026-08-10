@@ -1807,6 +1807,7 @@ dependencies = [
  "ndk-context",
  "oo7",
  "quick-xml",
+ "ring",
  "rusqlite",
  "rustls",
  "scraper",

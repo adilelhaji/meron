@@ -92,6 +92,8 @@ func TestSidecarCallTimeouts(t *testing.T) {
 		"folders.list":        15 * time.Second,
 		"folders.delete":      30 * time.Second,
 		"rss.importOpml":      15 * time.Second,
+		"backup.export":       30 * time.Second,
+		"backup.import":       30 * time.Second,
 		"unknown.sidecarCall": 5 * time.Second,
 	}
 	for method, want := range tests {

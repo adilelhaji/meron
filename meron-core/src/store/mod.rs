@@ -16,7 +16,7 @@
 
 mod db;
 
-pub use db::{app_dir, open};
+pub use db::{app_dir, now_unix, open};
 
 #[allow(dead_code)]
 pub fn open_at(path: impl AsRef<std::path::Path>) -> Result<Connection> {

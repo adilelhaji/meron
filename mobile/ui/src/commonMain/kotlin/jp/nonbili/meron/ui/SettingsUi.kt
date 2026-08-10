@@ -35,7 +35,9 @@ import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MarkEmailUnread
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.RssFeed
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewKanban
@@ -165,6 +167,9 @@ internal fun SettingsScreen(
     storageClearConfirming: Boolean,
     onRefreshStorage: () -> Unit,
     onClearStorageCache: () -> Unit,
+    onExportBackup: () -> Unit,
+    onRestoreBackup: () -> Unit,
+    backupBusy: Boolean,
 ) {
     var showThemePicker by remember { mutableStateOf(false) }
     var showLanguagePicker by remember { mutableStateOf(false) }
@@ -324,6 +329,9 @@ internal fun SettingsScreen(
                     storageClearConfirming = storageClearConfirming,
                     onRefreshStorage = onRefreshStorage,
                     onClearStorageCache = onClearStorageCache,
+                    onExportBackup = onExportBackup,
+                    onRestoreBackup = onRestoreBackup,
+                    backupBusy = backupBusy,
                     focusProxy = directOpenRoute == SettingsRoutes.General,
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -659,6 +667,9 @@ internal fun SettingsGeneralPage(
     storageClearConfirming: Boolean,
     onRefreshStorage: () -> Unit,
     onClearStorageCache: () -> Unit,
+    onExportBackup: () -> Unit,
+    onRestoreBackup: () -> Unit,
+    backupBusy: Boolean,
     focusProxy: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -857,6 +868,24 @@ internal fun SettingsGeneralPage(
                 title = tr("settings.viewSyncLog"),
                 subtitle = tr("settings.syncDiagnosticLogHint"),
                 onClick = onOpenSyncLog,
+            )
+        }
+
+        item { SettingsSectionLabel(tr("settings.sections.backup")) }
+        item {
+            SettingsRow(
+                icon = Icons.Filled.Save,
+                title = tr("settings.backup.exportTitle"),
+                subtitle = tr("settings.backup.fileHint"),
+                onClick = { if (!backupBusy) onExportBackup() },
+            )
+        }
+        item {
+            SettingsRow(
+                icon = Icons.Filled.Restore,
+                title = tr("settings.backup.restoreTitle"),
+                subtitle = tr("settings.backup.exportSubtitle"),
+                onClick = { if (!backupBusy) onRestoreBackup() },
             )
         }
 

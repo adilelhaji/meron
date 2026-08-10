@@ -537,6 +537,21 @@ private fun MeronMobileScreenContent(
             pendingOpmlExport = ""
             status = "Exported OPML"
         }
+        launchBackupExport = { fileName ->
+            services.saveFile(pendingBackupExport.encodeToByteArray(), fileName, "application/json")
+            pendingBackupExport = ""
+        }
+        // Restore starts at the file picker; the core decides whether what came
+        // back needs a passphrase.
+        val pickBackupFile: () -> Unit = {
+            services.pickFile(listOf("application/json", "text/plain", "*/*")) { picked ->
+                if (picked != null) {
+                    runCatching { picked.bytes.decodeToString() }
+                        .onSuccess { document -> importBackup(document) }
+                        .onFailure { status = "${trs("settings.backup.restoreFailed")}: ${it.message}" }
+                }
+            }
+        }
         launchAttachmentSave = { fileName ->
             val attachment = pendingAttachmentSave
             pendingAttachmentSave = null
@@ -1194,7 +1209,27 @@ private fun MeronMobileScreenContent(
                     storageClearConfirming = storageClearConfirming,
                     onRefreshStorage = { loadStorageUsage(showStatus = true) },
                     onClearStorageCache = ::clearStorageCache,
+                    onExportBackup = {
+                        backupPassphraseError = ""
+                        backupPassphraseMode = BackupPassphraseMode.Export
+                    },
+                    onRestoreBackup = pickBackupFile,
+                    backupBusy = backupBusy,
                 )
+                backupPassphraseMode?.let { mode ->
+                    BackupPassphraseDialog(
+                        mode = mode,
+                        busy = backupBusy,
+                        error = backupPassphraseError,
+                        onDismiss = ::closeBackupPassphrase,
+                        onConfirm = { passphrase, includeSecrets ->
+                            when (mode) {
+                                BackupPassphraseMode.Export -> exportBackup(includeSecrets, passphrase)
+                                BackupPassphraseMode.Restore -> retryBackupRestore(passphrase)
+                            }
+                        },
+                    )
+                }
             }
 
             composable(AppRoutes.Kanban) {

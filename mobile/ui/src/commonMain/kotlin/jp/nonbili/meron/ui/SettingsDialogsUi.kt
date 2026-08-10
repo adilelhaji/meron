@@ -17,16 +17,23 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
@@ -217,5 +224,108 @@ internal fun LanguagePickerDialog(
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text(tr("buttons.done")) } },
+    )
+}
+
+/**
+ * Passphrase prompt shared by both halves of backup/restore.
+ *
+ * [BackupPassphraseMode.Export] collects a passphrase (and whether to include
+ * account passwords); [BackupPassphraseMode.Restore] collects the passphrase
+ * for a file that turned out to be encrypted. The caller owns the core call, so
+ * this composable only gathers input.
+ */
+@Composable
+internal fun BackupPassphraseDialog(
+    mode: BackupPassphraseMode,
+    busy: Boolean,
+    error: String,
+    onDismiss: () -> Unit,
+    onConfirm: (passphrase: String, includeSecrets: Boolean) -> Unit,
+) {
+    var passphrase by remember { mutableStateOf("") }
+    var confirmation by remember { mutableStateOf("") }
+    var includeSecrets by remember { mutableStateOf(false) }
+
+    val exporting = mode == BackupPassphraseMode.Export
+    // Exporting: a passphrase is optional unless passwords are included, but
+    // once typed it must be confirmed — a typo produces a file nobody can open.
+    // Restoring: the passphrase is checked against the file immediately, so
+    // there is nothing to confirm.
+    val mismatched = exporting && passphrase != confirmation
+    val missing = if (exporting) includeSecrets && passphrase.isEmpty() else passphrase.isEmpty()
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(if (exporting) tr("settings.backup.exportTitle") else tr("settings.backup.restoreTitle")) },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                if (exporting) {
+                    Row(
+                        Modifier.fillMaxWidth().clickable(enabled = !busy) { includeSecrets = !includeSecrets },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Checkbox(checked = includeSecrets, onCheckedChange = { includeSecrets = it }, enabled = !busy)
+                        Column(Modifier.weight(1f)) {
+                            Text(tr("settings.backup.includeSecrets"), style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                tr("settings.backup.includeSecretsHint"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = passphrase,
+                    onValueChange = { passphrase = it },
+                    label = { Text(tr("settings.backup.passphrase")) },
+                    singleLine = true,
+                    enabled = !busy,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (exporting) {
+                    OutlinedTextField(
+                        value = confirmation,
+                        onValueChange = { confirmation = it },
+                        label = { Text(tr("settings.backup.passphraseConfirm")) },
+                        singleLine = true,
+                        enabled = !busy,
+                        isError = mismatched && confirmation.isNotEmpty(),
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                Text(
+                    if (exporting) tr("settings.backup.passphraseHint") else tr("settings.backup.restoreHint"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (mismatched && confirmation.isNotEmpty()) {
+                    Text(
+                        tr("settings.backup.passphraseMismatch"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (error.isNotEmpty()) {
+                    Text(error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(passphrase, exporting && includeSecrets) },
+                enabled = !busy && !missing && !mismatched,
+            ) {
+                Text(if (exporting) tr("common.export") else tr("settings.backup.restoreAction"))
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text(tr("buttons.cancel")) } },
     )
 }

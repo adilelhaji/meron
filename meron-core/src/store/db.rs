@@ -600,7 +600,7 @@ pub(super) fn meta_set(conn: &Connection, key: &str, value: &str) -> Result<()> 
     Ok(())
 }
 
-pub(super) fn now_unix() -> i64 {
+pub fn now_unix() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)

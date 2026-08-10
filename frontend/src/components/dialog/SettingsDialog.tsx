@@ -23,9 +23,12 @@ import {
   RefreshCw,
   MessagesSquare,
   Keyboard,
+  Archive,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { importOpml, exportOpml } from '../../states/feeds'
+import { exportBackup, importBackup, backupErrorMessage, isWrongPassphrase } from '../../states/backup'
+import { BackupPassphraseDialog, type BackupPassphraseMode } from './BackupPassphraseDialog'
 import { showToast, ui$, type SetupMode } from '../../states/ui'
 import { accounts$, deleteAccount } from '../../states/accounts'
 import {
@@ -465,9 +468,129 @@ function GeneralSection() {
       </SettingsGroup>
 
       <UpdatesGroup />
+      <BackupGroup />
       <StorageGroup />
       <LogsGroup />
     </div>
+  )
+}
+
+// Backup / restore of the app's configuration. Cached mail is not included, so
+// a restored account re-syncs rather than arriving with its history.
+//
+// Both buttons hand off to a passphrase dialog: exporting to offer encryption,
+// restoring only when the chosen file turns out to be encrypted (which the
+// bridge reports back with the path, so the file dialog isn't shown twice).
+function BackupGroup() {
+  const { t } = useTranslation()
+  const [prompt, setPrompt] = useState<BackupPassphraseMode | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  // The file already chosen for a restore that came back needing a passphrase.
+  const [pendingPath, setPendingPath] = useState('')
+
+  const closePrompt = () => {
+    setPrompt(null)
+    setError('')
+    setPendingPath('')
+  }
+
+  const runExport = async (passphrase: string, includeSecrets: boolean) => {
+    setBusy(true)
+    setError('')
+    try {
+      const saved = await exportBackup(includeSecrets, passphrase)
+      closePrompt()
+      if (saved) showToast(t('settings.backup.exported'), 'success')
+    } catch (err) {
+      setError(backupErrorMessage(err, t('settings.backup.exportFailed')))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // `path` is empty on the first attempt (the bridge opens a file dialog) and
+  // set on the retry after a passphrase prompt.
+  const runImport = async (path: string, passphrase: string) => {
+    setBusy(true)
+    setError('')
+    try {
+      const outcome = await importBackup(path, passphrase)
+      if (outcome.status === 'cancelled') {
+        closePrompt()
+        return
+      }
+      if (outcome.status === 'needs-passphrase') {
+        setPendingPath(outcome.path)
+        setPrompt('restore')
+        return
+      }
+      closePrompt()
+      const { accounts, skipped } = outcome.summary
+      if (accounts === 0 && skipped > 0) {
+        showToast(t('settings.backup.restoredNothingNew'), 'success')
+      } else {
+        showToast(t('settings.backup.restored', { count: accounts }), 'success')
+      }
+    } catch (err) {
+      const message = backupErrorMessage(err, t('settings.backup.restoreFailed'))
+      // A wrong passphrase keeps the prompt open so the user can retype it;
+      // anything else is a real failure and closes it.
+      if (isWrongPassphrase(message) && pendingPath) {
+        setError(t('settings.backup.wrongPassphrase'))
+      } else {
+        closePrompt()
+        showToast(message, 'error')
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <>
+      <SettingsGroup title={t('settings.sections.backup')}>
+        <SettingRow
+          title={t('settings.backup.fileTitle')}
+          hint={t('settings.backup.fileHint')}
+          control={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => runImport('', '')}
+                disabled={busy}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[0.625rem] cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Upload size={12} />
+                {t('settings.backup.restoreAction')}
+              </button>
+              <button
+                onClick={() => {
+                  setError('')
+                  setPrompt('export')
+                }}
+                disabled={busy}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-active text-primary font-bold text-[0.625rem] cursor-pointer transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Archive size={12} />
+                {t('common.export')}
+              </button>
+            </div>
+          }
+        />
+      </SettingsGroup>
+
+      {prompt && (
+        <BackupPassphraseDialog
+          mode={prompt}
+          busy={busy}
+          error={error}
+          onCancel={closePrompt}
+          onSubmit={(passphrase, includeSecrets) =>
+            prompt === 'export' ? runExport(passphrase, includeSecrets) : runImport(pendingPath, passphrase)
+          }
+        />
+      )}
+    </>
   )
 }
 

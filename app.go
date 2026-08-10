@@ -208,6 +208,10 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.exportOpml(payload)
 	case "rss.importOpml":
 		return a.importOpml(payload)
+	case "backup.export":
+		return a.exportBackup(payload)
+	case "backup.import":
+		return a.importBackup(payload)
 	case "account.remove":
 		return a.accountRemove(payload)
 	case "account.setImages":
