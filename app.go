@@ -168,6 +168,8 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.appPrefsSet(payload)
 	case "tray.setUnread":
 		return a.traySetUnread(payload)
+	case "i18n.setNativeLabels":
+		return a.setNativeLabels(payload)
 	case "changelog.fetch":
 		return a.changelogFetch()
 	case "update.status":

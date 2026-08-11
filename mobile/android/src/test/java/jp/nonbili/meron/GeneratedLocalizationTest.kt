@@ -31,6 +31,8 @@ class GeneratedLocalizationTest {
         assertEquals("1 file", generatedIcuString("en", "chat.fileItems", mapOf("count" to 1)))
         assertEquals("2 files", generatedIcuString("en", "chat.fileItems", mapOf("count" to 2)))
         assertTrue(generatedIcuString("ar", "chat.fileItems", mapOf("count" to 2)).contains("2"))
+        assertEquals("1 件の新しいメッセージ", generatedIcuString("ja", "notify.newMessageCount", mapOf("count" to 1)))
+        assertEquals("3 件の新しいメッセージ", generatedIcuString("ja", "notify.newMessageCount", mapOf("count" to 3)))
     }
 
     private fun generatedStringValue(

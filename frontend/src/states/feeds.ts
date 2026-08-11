@@ -1,4 +1,5 @@
 import { invoke } from '../lib/bridge'
+import { t } from '../lib/i18n'
 import { isRssAccount } from '../lib/threadActions'
 import { boot } from '../boot'
 import type { Account } from '../types'
@@ -54,13 +55,13 @@ export async function removeFeed(threadId: string) {
       ui$.selectedThread.set('')
     }
     ui$.editFeed.set(null)
-    showToast('Feed removed')
+    showToast(t('feeds.toast.feedRemoved'))
     // A feed removal is an explicit list mutation, so replace the current list.
     // Background loads merge missing first-page rows back in to preserve pages
     // loaded by scrolling, which would keep the removed feed visible.
     await Promise.all([loadThreads(true), loadFolders(ui$.selectedAccount.get(), false)])
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Failed to remove feed', 'error')
+    showToast(error instanceof Error ? error.message : t('feeds.toast.failedToRemove'), 'error')
   }
 }
 
@@ -87,9 +88,9 @@ export async function moveFeed(threadId: string, targetAccountId: string) {
       sourceAccountId ? loadFolders(sourceAccountId, false) : Promise.resolve(),
       loadFolders(targetAccountId, false),
     ])
-    showToast('Feed moved')
+    showToast(t('feeds.toast.feedMoved'))
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Failed to move feed', 'error')
+    showToast(error instanceof Error ? error.message : t('feeds.toast.failedToMove'), 'error')
   }
 }
 
@@ -98,9 +99,9 @@ export async function moveFeed(threadId: string, targetAccountId: string) {
 export async function exportOpml(account: string) {
   try {
     const res = await invoke<{ saved: boolean; path?: string }>('rss.exportOpml', { account })
-    if (res?.saved) showToast('Feeds exported')
+    if (res?.saved) showToast(t('feeds.toast.feedsExported'))
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Export failed', 'error')
+    showToast(error instanceof Error ? error.message : t('feeds.toast.exportFailed'), 'error')
   }
 }
 
@@ -113,7 +114,7 @@ export async function importOpml(account: string) {
     if (res?.cancelled) return
     const count = res?.imported ?? 0
     if (count === 0) {
-      showToast('No new feeds to import')
+      showToast(t('feeds.toast.noNewFeedsToImport'))
       return
     }
     await boot()
@@ -121,8 +122,8 @@ export async function importOpml(account: string) {
     // Kick a background sync so the new feeds populate; the sidecar emits sync
     // events that refresh the UI as items arrive.
     void invoke('mail.sync', { account_id: account }).catch(() => {})
-    showToast(`Imported ${count} ${count === 1 ? 'feed' : 'feeds'}`)
+    showToast(t('feeds.toast.importedFeeds', { count }))
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Import failed', 'error')
+    showToast(error instanceof Error ? error.message : t('feeds.toast.importFailed'), 'error')
   }
 }

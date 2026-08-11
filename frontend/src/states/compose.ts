@@ -1,4 +1,5 @@
 import { observable } from '@legendapp/state'
+import { t } from '../lib/i18n'
 import type { Account, Alias, Attachment, ComposeDraft, ComposerAttachment, Message, MessageTab } from '../types'
 import { invoke } from '../lib/bridge'
 import { CONVERSATION_PAGE_SIZE } from '../lib/pagination'
@@ -543,7 +544,7 @@ export async function openThreadTabById(threadId: string) {
     })
     const message = newestMessage(result.messages ?? [])
     if (!message) {
-      showToast("Couldn't open notification thread", 'error')
+      showToast(t('compose.toast.couldNotOpenNotificationThread'), 'error')
       return
     }
     openThreadTab(message)
@@ -555,7 +556,7 @@ export async function openThreadTabById(threadId: string) {
       mail$.messages.set(result.messages ?? [])
     }
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "Couldn't open notification thread", 'error')
+    showToast(error instanceof Error ? error.message : t('compose.toast.couldNotOpenNotificationThread'), 'error')
   }
 }
 
@@ -660,7 +661,7 @@ export function openMailtoCompose(raw: string) {
   const draft = parseMailto(raw)
   if (!draft) return
   if (accounts$.get().filter(isSendableAccount).length === 0) {
-    showToast('Add a mail account before composing')
+    showToast(t('compose.toast.addMailAccountBeforeComposing'))
     return
   }
   openComposeTab({
@@ -690,7 +691,7 @@ export function openMailtoCompose(raw: string) {
 // pulled in as file chips.
 export async function editAsNewMessage(message: Message) {
   if (accounts$.get().filter(isSendableAccount).length === 0) {
-    showToast('Add a mail account before composing')
+    showToast(t('compose.toast.addMailAccountBeforeComposing'))
     return
   }
   const rich = !!message.body_html
@@ -788,7 +789,7 @@ async function openDraftMessageInCompose(draft: Message) {
 export async function openDraftCompose(thread: Message) {
   if (!isDraftFolder(thread.folder_id, thread.account_id)) return false
   if (accounts$.get().filter(isSendableAccount).length === 0) {
-    showToast('Add a mail account before composing')
+    showToast(t('compose.toast.addMailAccountBeforeComposing'))
     return true
   }
 
@@ -805,7 +806,7 @@ export async function openDraftCompose(thread: Message) {
       ) ?? thread
     await openDraftMessageInCompose(draft)
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "Couldn't open draft", 'error')
+    showToast(error instanceof Error ? error.message : t('compose.toast.couldNotOpenDraft'), 'error')
   }
   return true
 }
@@ -836,12 +837,12 @@ export async function openDraftConversationOrCompose(thread: Message) {
     }
 
     if (accounts$.get().filter(isSendableAccount).length === 0) {
-      showToast('Add a mail account before composing')
+      showToast(t('compose.toast.addMailAccountBeforeComposing'))
       return true
     }
     await openDraftMessageInCompose(draft)
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "Couldn't open draft", 'error')
+    showToast(error instanceof Error ? error.message : t('compose.toast.couldNotOpenDraft'), 'error')
   }
   return true
 }
@@ -851,7 +852,7 @@ export async function openDraftConversationOrCompose(thread: Message) {
 // and non-inline attachments are copied back into the composer.
 export async function forwardMessage(message: Message) {
   if (accounts$.get().filter(isSendableAccount).length === 0) {
-    showToast('Add a mail account before composing')
+    showToast(t('compose.toast.addMailAccountBeforeComposing'))
     return
   }
   const rich = !!message.body_html
@@ -1349,7 +1350,7 @@ async function dispatchSend(tempId: string) {
     setSendStatus(tempId, 'sent')
   } catch (error) {
     setSendStatus(tempId, 'failed')
-    showToast(error instanceof Error ? error.message : 'Send failed', 'error')
+    showToast(error instanceof Error ? error.message : t('compose.toast.sendFailed'), 'error')
   }
 }
 

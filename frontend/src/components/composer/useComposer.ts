@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useEditor } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import { useValue } from '@legendapp/state/react'
+import { useTranslation } from '../../lib/i18n'
 import { confirmAction, showToast } from '../../states/ui'
 import { settings$ } from '../../states/settings'
 import type { ComposerAttachment } from '../../types'
@@ -36,6 +37,7 @@ import {
 // send. The component consumes the returned editor, draft and handlers and is
 // left as mostly markup.
 export function useComposer(tabId: string) {
+  const { t } = useTranslation()
   const tabs = useValue(compose$.tabs)
   const spellCheck = useValue(settings$.spellCheck)
   const tab = tabs.find((t) => t.id === tabId)
@@ -254,19 +256,19 @@ export function useComposer(tabId: string) {
 
   const pickAttachmentFiles = async () => {
     try {
-      const files = await pickFiles('Attach files')
+      const files = await pickFiles(t('composer.actions.attachFiles'))
       if (files.length > 0) addFiles(files)
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to choose files', 'error')
+      showToast(error instanceof Error ? error.message : t('chat.failedToChooseFiles'), 'error')
     }
   }
 
   const pickInlineImages = async () => {
     try {
-      const files = await pickImageFiles('Insert inline images')
+      const files = await pickImageFiles(t('composer.actions.insertInlineImages'))
       if (files.length > 0) addFiles(files, { inline: true })
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to choose images', 'error')
+      showToast(error instanceof Error ? error.message : t('chat.failedToChooseImages'), 'error')
     }
   }
 
@@ -395,10 +397,10 @@ export function useComposer(tabId: string) {
           draftMessageId: draft.draftMessageId,
         })
       }
-      showToast('Sent')
+      showToast(t('chat.messageSent'))
       closeMessageTab(tabId)
     } catch (err) {
-      setError(contextualErrorMessage(err, 'Send failed'))
+      setError(contextualErrorMessage(err, t('compose.toast.sendFailed')))
     } finally {
       setSending(false)
     }

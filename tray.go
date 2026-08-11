@@ -3,9 +3,17 @@ package main
 import (
 	"context"
 	"runtime"
+	"sync"
 
 	"fyne.io/systray"
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+var (
+	trayMenuMu   sync.Mutex
+	trayShowItem *systray.MenuItem
+	trayHideItem *systray.MenuItem
+	trayQuitItem *systray.MenuItem
 )
 
 func (a *App) startTrayPhysical() {
@@ -46,10 +54,18 @@ func (a *App) trayReady() {
 		a.showMainWindow()
 	})
 
-	show := systray.AddMenuItem("Show Meron", "Show Meron")
-	hide := systray.AddMenuItem("Hide to Tray", "Hide Meron to the system tray")
+	// Held across the reads and the AddMenuItem calls: the frontend pushes its
+	// localized labels while this goroutine is starting, and a setNativeLabels
+	// landing in between would find the items still nil and skip them, leaving
+	// the English defaults installed here for the rest of the session.
+	trayMenuMu.Lock()
+	labels := a.currentNativeLabels()
+	show := systray.AddMenuItem(labels.trayShow, labels.trayShow)
+	hide := systray.AddMenuItem(labels.trayHide, labels.trayHideTooltip)
 	systray.AddSeparator()
-	quit := systray.AddMenuItem("Quit Meron", "Quit Meron")
+	quit := systray.AddMenuItem(labels.trayQuit, labels.trayQuit)
+	trayShowItem, trayHideItem, trayQuitItem = show, hide, quit
+	trayMenuMu.Unlock()
 
 	go a.handleTrayClicks(show.ClickedCh, a.showMainWindow)
 	go a.handleTrayClicks(hide.ClickedCh, a.hideMainWindow)

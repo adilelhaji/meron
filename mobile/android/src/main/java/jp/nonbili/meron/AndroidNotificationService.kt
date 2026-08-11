@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
+import java.util.Locale
 
 /** One new mail, as the shade shows it. Built from a `mail.newMessages` entry. */
 data class NewMailItem(
@@ -56,25 +57,26 @@ object AndroidNotificationService {
 
     fun mailChannelIdForTesting(): String = MAIL_CHANNEL_ID
 
-    fun ensureChannels(context: Context) {
+    fun ensureChannels(base: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val context = localizedAppContext(base)
         val manager = context.getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
             NotificationChannel(
                 CHANNEL_ID,
-                "Mail sync",
+                context.getString(R.string.mobile_android_sync_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "Background mail refresh status"
+                description = context.getString(R.string.mobile_android_sync_channel_desc)
             },
         )
         manager.createNotificationChannel(
             NotificationChannel(
                 MAIL_CHANNEL_ID,
-                "New mail",
+                context.getString(R.string.mobile_android_new_mail_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT,
             ).apply {
-                description = "One notification per message that arrives"
+                description = context.getString(R.string.mobile_android_new_mail_channel_desc)
             },
         )
     }
@@ -85,16 +87,21 @@ object AndroidNotificationService {
             PackageManager.PERMISSION_GRANTED
 
     fun notifyRefreshComplete(
-        context: Context,
+        base: Context,
         body: String,
     ) {
+        // Notifications are built from service/application contexts, which carry
+        // the per-app language only on API 33+ (where the platform applies it).
+        // Below that the choice lives in prefs alone, so apply it here or the
+        // shade speaks the device language while the UI speaks the app's.
+        val context = localizedAppContext(base)
         if (!canNotify(context)) return
         ensureChannels(context)
         val notification =
             NotificationCompat
                 .Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_mail)
-                .setContentTitle("Refresh complete")
+                .setContentTitle(context.getString(R.string.mobile_android_refresh_complete))
                 .setContentText(body)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
@@ -121,9 +128,10 @@ object AndroidNotificationService {
      *  expects a mail client to report a batch: the summary collapses the lot
      *  under the account, and each child opens its own thread. */
     fun notifyNewMail(
-        context: Context,
+        base: Context,
         batch: NewMailBatch,
     ) {
+        val context = localizedAppContext(base)
         if (batch.items.isEmpty() || !canNotify(context)) return
         ensureChannels(context)
         val manager = NotificationManagerCompat.from(context)
@@ -155,7 +163,13 @@ object AndroidNotificationService {
         item: NewMailItem,
         groupKey: String,
     ): android.app.Notification {
-        val title = newMailChildTitle(item.from, batch.accountName)
+        val fallback = context.getString(R.string.mobile_android_new_mail_arrived)
+        val title =
+            newMailChildTitle(
+                item.from,
+                batch.accountName,
+                context.getString(R.string.mobile_android_new_mail_channel_name),
+            )
         // Lock screens that hide sensitive content show this instead: who wrote
         // and about what, but never the body.
         val publicVersion =
@@ -163,18 +177,18 @@ object AndroidNotificationService {
                 .Builder(context, MAIL_CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_mail)
                 .setContentTitle(title)
-                .setContentText(item.subject.ifBlank { "New mail arrived" })
+                .setContentText(item.subject.ifBlank { context.getString(R.string.mobile_android_new_mail_arrived) })
                 .setGroup(groupKey)
                 .build()
         return NotificationCompat
             .Builder(context, MAIL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_mail)
             .setContentTitle(title)
-            .setContentText(newMailChildText(item.subject, item.preview))
+            .setContentText(newMailChildText(item.subject, item.preview, fallback))
             .setStyle(
                 NotificationCompat
                     .BigTextStyle()
-                    .bigText(newMailChildBigText(item.subject, item.preview))
+                    .bigText(newMailChildBigText(item.subject, item.preview, fallback))
                     .setSummaryText(batch.accountName),
             ).setContentIntent(openAppIntent(context, batch.accountId, batch.folder, item.threadKey))
             // Archive and mark-as-read only; a reply needs a send queue that
@@ -242,11 +256,16 @@ object AndroidNotificationService {
         return NotificationCompat
             .Builder(context, MAIL_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_mail)
-            .setContentTitle(batch.accountName.ifBlank { "New mail" })
+            .setContentTitle(batch.accountName.ifBlank { context.getString(R.string.notify_new_message) })
             // `count` can exceed the listed messages when a batch is larger than
             // the detail carries; never report fewer than the shade is showing.
-            .setContentText(newMailSummaryText(maxOf(batch.count, lines.size)))
-            .setStyle(style)
+            .setContentText(
+                generatedIcuString(
+                    context.resourceLanguageTag(),
+                    "notify.newMessageCount",
+                    mapOf("count" to maxOf(batch.count, lines.size)),
+                ),
+            ).setStyle(style)
             .setContentIntent(openAppIntent(context, batch.accountId, batch.folder))
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setGroup(groupKey)
@@ -294,7 +313,7 @@ object AndroidNotificationService {
      *  Posted into the same group as the mail it replaced, so the account's
      *  shade stays a single stack rather than sprouting a loose row. */
     fun notifyArchivedWithUndo(
-        context: Context,
+        base: Context,
         accountId: String,
         accountName: String,
         folder: String,
@@ -302,6 +321,7 @@ object AndroidNotificationService {
         title: String,
         notificationId: Int,
     ) {
+        val context = localizedAppContext(base)
         if (!canNotify(context)) return
         ensureChannels(context)
         val notification =
@@ -347,7 +367,7 @@ object AndroidNotificationService {
     /** Tells the user an action did not take, naming the mail it was meant for
      *  so a retry is possible from the app. */
     fun notifyActionFailed(
-        context: Context,
+        base: Context,
         accountId: String,
         accountName: String,
         folder: String,
@@ -356,6 +376,7 @@ object AndroidNotificationService {
         notificationId: Int,
         action: String,
     ) {
+        val context = localizedAppContext(base)
         if (!canNotify(context)) return
         ensureChannels(context)
         // An archive that failed changed nothing, so its offer to undo would
@@ -394,12 +415,13 @@ object AndroidNotificationService {
      *  Android keeps a group summary showing even when its last child is gone,
      *  and its count would still describe the mail that was just handled. */
     fun refreshNewMailSummary(
-        context: Context,
+        base: Context,
         accountId: String,
         accountName: String,
         folder: String,
         justCancelled: List<Int> = emptyList(),
     ) {
+        val context = localizedAppContext(base)
         if (!canNotify(context)) return
         val manager = NotificationManagerCompat.from(context)
         val groupKey = newMailGroupKey(accountId)
@@ -559,16 +581,18 @@ fun newMailSummaryId(accountId: String): Int = "$accountId#summary".hashCode()
 fun newMailChildTitle(
     from: String,
     accountName: String,
-): String = from.trim().ifBlank { accountName.trim().ifBlank { "New mail" } }
+    fallback: String = "New mail",
+): String = from.trim().ifBlank { accountName.trim().ifBlank { fallback } }
 
 /** Collapsed line: subject and the start of the body, the way the shade shows a
  *  message before it is expanded. */
 fun newMailChildText(
     subject: String,
     preview: String,
+    fallback: String = "New mail arrived",
 ): String {
     val parts = listOf(subject, preview).map { it.trim() }.filter { it.isNotEmpty() }
-    return parts.joinToString(" - ").ifBlank { "New mail arrived" }
+    return parts.joinToString(" - ").ifBlank { fallback }
 }
 
 /** Expanded body: the subject on its own line above the body snippet, so the
@@ -576,9 +600,10 @@ fun newMailChildText(
 fun newMailChildBigText(
     subject: String,
     preview: String,
+    fallback: String = "New mail arrived",
 ): String {
     val parts = listOf(subject, preview).map { it.trim() }.filter { it.isNotEmpty() }
-    return parts.joinToString("\n").ifBlank { "New mail arrived" }
+    return parts.joinToString("\n").ifBlank { fallback }
 }
 
 /** One summary row: who wrote, and about what. */
@@ -590,4 +615,14 @@ fun newMailInboxLine(
     return parts.joinToString(" - ")
 }
 
-fun newMailSummaryText(count: Int): String = if (count == 1) "1 new message" else "$count new messages"
+private fun Context.resourceLanguageTag(): String {
+    val configuration = resources.configuration
+    val locale =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            configuration.locales.takeIf { !it.isEmpty }?.get(0)
+        } else {
+            @Suppress("DEPRECATION")
+            configuration.locale
+        }
+    return catalogLanguageTag(locale ?: Locale.ENGLISH)
+}

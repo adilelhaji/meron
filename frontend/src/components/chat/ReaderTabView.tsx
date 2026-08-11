@@ -69,7 +69,7 @@ export function ReaderTabView({ tab }: { tab: MessageTab }) {
           {tab.to && <AddressRow label={t('composer.fields.to')} rawList={tab.to} />}
           {tab.cc && <AddressRow label={t('composer.fields.cc')} rawList={tab.cc} />}
           {tab.bcc && <AddressRow label={t('composer.fields.bcc')} rawList={tab.bcc} />}
-          {replyToDiffers && <AddressRow label="Reply-To" rawList={tab.replyTo!} />}
+          {replyToDiffers && <AddressRow label={t('chat.replyTo')} rawList={tab.replyTo!} />}
         </div>
       )}
       <HtmlMessageView

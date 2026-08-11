@@ -43,11 +43,9 @@ class AndroidNewMailNotificationTest {
     }
 
     @Test
-    fun summaryLinesAndCountReadAsGmailsDo() {
+    fun summaryLinesReadAsGmailsDo() {
         assertEquals("Aki - Lunch?", newMailInboxLine("Aki", "Lunch?"))
         assertEquals("Aki", newMailInboxLine("Aki", ""))
-        assertEquals("1 new message", newMailSummaryText(1))
-        assertEquals("3 new messages", newMailSummaryText(3))
     }
 
     @Test

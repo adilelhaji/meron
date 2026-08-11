@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import jp.nonbili.meron.shared.accountSummaryIsRss
@@ -77,6 +78,12 @@ class AndroidMailPushService :
             stopSelf()
             return START_NOT_STICKY
         }
+        // The ongoing notification is built once in onCreate, but the service
+        // outlives a language change: the Activity it recreates starts this
+        // service again, which lands here rather than in onCreate. Rebuild the
+        // channel and the row so they follow the new language instead of
+        // sitting in the old one until the service is restarted.
+        refreshForegroundNotification()
         scope.launch { refreshWatches() }
         ensureTokenRemintLoop()
         return START_STICKY
@@ -100,6 +107,16 @@ class AndroidMailPushService :
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun refreshForegroundNotification() {
+        ensureChannel(this)
+        try {
+            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, foregroundNotification(this))
+        } catch (_: SecurityException) {
+            // Notification permission can be revoked while the service runs; the
+            // foreground row the system is already showing stays as it is.
+        }
+    }
 
     override fun onCoreEventJson(eventJson: String) {
         val envelope = JSONObject(eventJson)
@@ -212,31 +229,36 @@ class AndroidMailPushService :
             AndroidSyncDiagnosticLog.appendRedacted(context, "$TAG: $message")
         }
 
-        private fun ensureChannel(context: Context) {
+        private fun ensureChannel(base: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+            // Service context: below Android 13 it does not carry the in-app
+            // language, so apply it here as the mail notifications do.
+            val context = localizedAppContext(base)
             val manager = context.getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL_ID,
-                    "Live mail push",
+                    context.getString(R.string.mobile_android_push_channel_name),
                     NotificationManager.IMPORTANCE_LOW,
                 ).apply {
-                    description = "Keeps IMAP IDLE connected for new mail alerts"
+                    description = context.getString(R.string.mobile_android_push_channel_desc)
                     setShowBadge(false)
                 },
             )
         }
 
-        private fun foregroundNotification(context: Context): Notification =
-            NotificationCompat
+        private fun foregroundNotification(base: Context): Notification {
+            val context = localizedAppContext(base)
+            return NotificationCompat
                 .Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_stat_mail)
-                .setContentTitle("Meron live mail push")
-                .setContentText("Watching mail accounts for new messages")
+                .setContentTitle(context.getString(R.string.mobile_android_push_notification_title))
+                .setContentText(context.getString(R.string.mobile_android_push_notification_body))
                 .setContentIntent(AndroidNotificationService.openAppIntent(context))
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .setOngoing(true)
                 .build()
+        }
 
         private fun watchKey(
             account: String,

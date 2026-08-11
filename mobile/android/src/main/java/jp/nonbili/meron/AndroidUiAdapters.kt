@@ -59,7 +59,7 @@ class AndroidPlatformServices(
         }.recoverCatching {
             openUrl(url)
         }.onFailure {
-            onFailure(it.message ?: "OAuth browser launch failed")
+            onFailure(it.message ?: activity.getString(R.string.mobile_android_oauth_browser_launch_failed))
         }
     }
 

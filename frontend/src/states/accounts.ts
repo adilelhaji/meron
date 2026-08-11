@@ -1,4 +1,5 @@
 import { observable } from '@legendapp/state'
+import { t } from '../lib/i18n'
 import { invoke } from '../lib/bridge'
 import { boot } from '../boot'
 import type { Account, AccountProxy, Alias, ChatWallpaper } from '../types'
@@ -53,7 +54,7 @@ async function setAccountFlag(
     await invoke(method, { id: accountId, enabled })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update setting', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateSetting'), 'error')
   }
 }
 
@@ -91,7 +92,7 @@ export async function setAccountSaveSentCopy(accountId: string, value: boolean |
     await invoke('account.setSaveSentCopy', { id: accountId, value })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update sent-copy setting', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateSentCopy'), 'error')
   }
 }
 
@@ -105,7 +106,7 @@ export async function setRSSSyncInterval(accountId: string, minutes: number) {
     await invoke('account.setRSSSyncInterval', { id: accountId, minutes: nextMinutes })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update sync interval', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateSyncInterval'), 'error')
   }
 }
 
@@ -116,7 +117,7 @@ export async function setAccountChatWallpaper(accountId: string, wallpaper: Chat
     await invoke('account.setChatWallpaper', { id: accountId, wallpaper })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update chat background', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateChatBackground'), 'error')
   }
 }
 
@@ -146,10 +147,10 @@ export async function deleteAccount(accountId: string) {
   }
   try {
     await invoke('account.remove', { id: accountId })
-    showToast('Account removed')
+    showToast(t('accounts.toast.accountRemoved'))
     await boot()
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Failed to remove account', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToRemove'), 'error')
   }
 }
 
@@ -163,7 +164,7 @@ export async function reorderAccounts(oldIndex: number, newIndex: number) {
     await invoke('account.reorder', { accounts: accounts.map((acc) => acc.id) })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to reorder accounts', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToReorder'), 'error')
   }
 }
 
@@ -180,7 +181,7 @@ export async function reorderAccountIds(accountIds: string[]) {
     await invoke('account.reorder', { accounts: accountIds })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to reorder accounts', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToReorder'), 'error')
   }
 }
 
@@ -192,7 +193,7 @@ export async function setAccountName(accountId: string, name: string) {
     await invoke('account.setName', { id: accountId, name })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update account name', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateAccountName'), 'error')
   }
 }
 
@@ -204,7 +205,7 @@ export async function setAccountSenderName(accountId: string, name: string) {
     await invoke('account.setSenderName', { id: accountId, name })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update sender name', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateSenderName'), 'error')
   }
 }
 
@@ -227,7 +228,7 @@ export async function setAccountAvatar(accountId: string, avatarUrl: string) {
     return true
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update account avatar', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateAvatar'), 'error')
     return false
   }
 }
@@ -241,7 +242,7 @@ export async function setAccountProxy(accountId: string, proxy: AccountProxy) {
     await invoke('account.setProxy', { id: accountId, proxy })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update proxy', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateProxy'), 'error')
   }
 }
 
@@ -254,6 +255,6 @@ export async function setAccountAliases(accountId: string, aliases: Alias[]) {
     await invoke('account.setAliases', { id: accountId, aliases })
   } catch (error) {
     accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : 'Failed to update aliases', 'error')
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateAliases'), 'error')
   }
 }

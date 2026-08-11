@@ -101,6 +101,16 @@ func TestFirstNonEmpty(t *testing.T) {
 	}
 }
 
+func TestFormatNativePlural(t *testing.T) {
+	template := "{count, plural, one {Eine neue Nachricht} other {{count} neue Nachrichten}}"
+	if got := formatNativePlural(template, 1); got != "Eine neue Nachricht" {
+		t.Fatalf("singular = %q", got)
+	}
+	if got := formatNativePlural(template, 3); got != "3 neue Nachrichten" {
+		t.Fatalf("plural = %q", got)
+	}
+}
+
 func TestCheckProtocolVersionLogsMissingAndMismatch(t *testing.T) {
 	var buf bytes.Buffer
 	app := &App{logger: log.New(&buf, "", 0)}

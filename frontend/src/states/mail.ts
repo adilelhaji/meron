@@ -434,9 +434,9 @@ export async function downloadAttachment(att: { key: string | null; filename: st
       key: att.key,
       filename: att.filename,
     })
-    if (res?.saved) showToast(`Saved ${att.filename}`)
+    if (res?.saved) showToast(t('chat.savedAttachment', { filename: att.filename }))
   } catch {
-    showToast(`Couldn't save ${att.filename}`)
+    showToast(t('chat.couldNotSaveAttachment', { filename: att.filename }))
   }
 }
 
@@ -453,9 +453,9 @@ export async function saveMessageAsEml(message: Message) {
       folder: message.folder_id,
       subject: message.subject,
     })
-    if (res?.saved) showToast('Message saved')
+    if (res?.saved) showToast(t('chat.messageSaved'))
   } catch {
-    showToast("Couldn't save message")
+    showToast(t('chat.couldNotSaveMessage'))
   }
 }
 
@@ -466,9 +466,9 @@ export async function copyAttachmentImage(att: { key: string | null }) {
   if (!att.key) return
   try {
     await invoke('mail.copyImage', { key: att.key })
-    showToast('Image copied')
+    showToast(t('chat.imageCopied'))
   } catch {
-    showToast("Couldn't copy image")
+    showToast(t('chat.couldNotCopyImage'))
   }
 }
 
@@ -1344,15 +1344,18 @@ export async function moveThreadToFolder(threadId: string, targetFolderId: strin
     applyMutationFolderUnreads(res as MutationResult)
     await refreshThreadLocation(sourceThread?.account_id, true)
     if (threadStillListed(threadId)) {
-      showToast('Move failed: thread is still in this folder', 'error')
+      showToast(t('mail.toast.moveFailedInSameFolder'), 'error')
     } else if (options.undo !== false && sourceFolder) {
-      showUndoToast('Thread moved', () => void moveThreadToFolder(targetThreadId, sourceFolder, { undo: false }))
+      showUndoToast(
+        t('mail.toast.threadMoved'),
+        () => void moveThreadToFolder(targetThreadId, sourceFolder, { undo: false }),
+      )
     } else {
-      showToast('Thread moved')
+      showToast(t('mail.toast.threadMoved'))
     }
   } catch (error) {
     rollback()
-    showToast(error instanceof Error ? error.message : 'Move failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.moveFailed'), 'error')
   }
 }
 
@@ -1370,9 +1373,9 @@ export async function copyThreadToFolder(threadId: string, targetAccountId: stri
     if (targetAccountId !== sourceThread?.account_id) {
       void loadFolders(targetAccountId, false)
     }
-    showToast('Thread copied')
+    showToast(t('mail.toast.threadCopied'))
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Copy failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.copyFailed'), 'error')
   }
 }
 
@@ -1389,21 +1392,21 @@ export async function bulkMarkSelectedRead(items: BulkSelectionItem[]) {
   const targets = uniqueThreadItems(items)
   await Promise.all(targets.map((item) => markThreadRead(item.threadId)))
   clearBulkSelection()
-  showToast(targets.length === 1 ? 'Marked read' : `${targets.length} threads marked read`)
+  showToast(t('mail.toast.markedReadCount', { count: targets.length }))
 }
 
 export async function bulkMarkSelectedUnread(items: BulkSelectionItem[]) {
   const targets = uniqueThreadItems(items)
   await Promise.all(targets.map((item) => markThreadUnread(item.threadId)))
   clearBulkSelection()
-  showToast(targets.length === 1 ? 'Marked unread' : `${targets.length} threads marked unread`)
+  showToast(t('mail.toast.markedUnreadCount', { count: targets.length }))
 }
 
 export async function bulkStarSelected(items: BulkSelectionItem[], starred: boolean) {
   const targets = uniqueThreadItems(items)
   await Promise.all(targets.map((item) => starThread(item.threadId, starred)))
   clearBulkSelection()
-  showToast(starred ? 'Starred selected threads' : 'Unstarred selected threads')
+  showToast(starred ? t('mail.toast.starredSelected') : t('mail.toast.unstarredSelected'))
 }
 
 export async function bulkArchiveSelected(items: BulkSelectionItem[]) {
@@ -1421,10 +1424,10 @@ export async function bulkArchiveSelected(items: BulkSelectionItem[]) {
     }
     await refreshThreadLocation(undefined, true)
     clearBulkSelection()
-    showToast(targets.length === 1 ? 'Thread archived' : `${targets.length} threads archived`)
+    showToast(t('mail.toast.archivedCount', { count: targets.length }))
   } catch (error) {
     for (const rollback of rollbacks.reverse()) rollback()
-    showToast(error instanceof Error ? error.message : 'Archive failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.archiveFailed'), 'error')
   }
 }
 
@@ -1441,10 +1444,10 @@ export async function bulkMoveSelectedToFolder(items: BulkSelectionItem[], targe
     }
     await refreshThreadLocation(targets[0]?.accountId, true)
     clearBulkSelection()
-    showToast(targets.length === 1 ? 'Thread moved' : `${targets.length} threads moved`)
+    showToast(t('mail.toast.movedCount', { count: targets.length }))
   } catch (error) {
     for (const rollback of rollbacks.reverse()) rollback()
-    showToast(error instanceof Error ? error.message : 'Move failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.moveFailed'), 'error')
   }
 }
 
@@ -1467,9 +1470,9 @@ export async function bulkCopySelectedToFolder(
     await refreshThreadLocation(targets[0]?.accountId, true)
     if (targetAccountId !== targets[0]?.accountId) void loadFolders(targetAccountId, false)
     clearBulkSelection()
-    showToast(targets.length === 1 ? 'Thread copied' : `${targets.length} threads copied`)
+    showToast(t('mail.toast.copiedCount', { count: targets.length }))
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Copy failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.copyFailed'), 'error')
   }
 }
 
@@ -1505,10 +1508,10 @@ export async function bulkDeleteSelected(items: BulkSelectionItem[]) {
     }
     await refreshThreadLocation(undefined, true)
     clearBulkSelection()
-    showToast(targets.length === 1 ? 'Thread deleted' : `${targets.length} threads deleted`)
+    showToast(t('mail.toast.deletedCount', { count: targets.length }))
   } catch (error) {
     for (const rollback of rollbacks.reverse()) rollback()
-    showToast(error instanceof Error ? error.message : 'Delete failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.deleteFailed'), 'error')
   }
 }
 
@@ -1526,17 +1529,20 @@ export async function archiveThread(threadId: string) {
     const archivedThreadId = res.thread_id ?? threadIdInFolder(threadId, sourceThread?.account_id, res.folder)
     await refreshThreadLocation(sourceThread?.account_id, true)
     if (threadStillListed(threadId)) {
-      showToast('Archive failed: thread is still in this folder', 'error')
+      showToast(t('mail.toast.archiveFailedInSameFolder'), 'error')
     } else if (sourceFolder) {
       // Offer to move it back where it came from. Falls back to a plain toast
       // when the origin folder is unknown (nothing reliable to restore to).
-      showUndoToast('Thread archived', () => void moveThreadToFolder(archivedThreadId, sourceFolder, { undo: false }))
+      showUndoToast(
+        t('mail.toast.archivedCount', { count: 1 }),
+        () => void moveThreadToFolder(archivedThreadId, sourceFolder, { undo: false }),
+      )
     } else {
-      showToast('Thread archived')
+      showToast(t('mail.toast.archivedCount', { count: 1 }))
     }
   } catch (error) {
     rollback()
-    showToast(error instanceof Error ? error.message : 'Archive failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.archiveFailed'), 'error')
   }
 }
 
@@ -1583,18 +1589,24 @@ export async function deleteThread(threadId: string, options: { permanent?: bool
     const canUndoTrashMove = !!(res.thread_id || res.trash)
     await refreshThreadLocation(undefined, true)
     if (threadStillListed(threadId)) {
-      showToast('Delete failed: thread is still in this folder', 'error')
+      showToast(t('mail.toast.deleteFailedInSameFolder'), 'error')
     } else if (!isDraft && !permanent && !res.permanent && sourceFolder && canUndoTrashMove) {
       showUndoToast(
-        'Thread moved to Trash',
+        t('mail.toast.threadMovedToTrash'),
         () => void moveThreadToFolder(trashedThreadId, sourceFolder, { undo: false }),
       )
     } else {
-      showToast(isDraft ? 'Draft discarded' : permanent ? 'Thread deleted' : 'Thread moved to Trash')
+      showToast(
+        isDraft
+          ? t('mail.toast.draftDiscarded')
+          : permanent
+            ? t('mail.toast.deletedCount', { count: 1 })
+            : t('mail.toast.threadMovedToTrash'),
+      )
     }
   } catch (error) {
     rollback()
-    showToast(error instanceof Error ? error.message : 'Delete failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.deleteFailed'), 'error')
   }
 }
 
@@ -1723,7 +1735,7 @@ export async function deleteMessage(message: Message) {
     })
     if (!isDraft) assertDeleteAffected(res)
     applyMutationFolderUnreads(res as MutationResult)
-    showToast(isDraft ? 'Draft discarded' : 'Message moved to Trash')
+    showToast(isDraft ? t('mail.toast.draftDiscarded') : t('mail.toast.messageMovedToTrash'))
     // No messages left from this thread: drop the now-empty conversation.
     if (!nextMessages.some((item) => item.thread_id === threadId)) {
       if (ui$.selectedThread.get() === threadId) {
@@ -1740,7 +1752,7 @@ export async function deleteMessage(message: Message) {
     }
   } catch (error) {
     mail$.messages.set(previousMessages)
-    showToast(error instanceof Error ? error.message : 'Delete failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.deleteFailed'), 'error')
   }
 }
 
@@ -1961,9 +1973,9 @@ export async function syncMail() {
       await invoke('mail.sync', { account_id: selectedAcc })
     }
     await loadThreads()
-    showToast('Synced')
+    showToast(t('mail.toast.synced'))
   } catch (error) {
-    showToast(error instanceof Error ? error.message : 'Sync failed', 'error')
+    showToast(error instanceof Error ? error.message : t('mail.toast.syncFailed'), 'error')
   } finally {
     ui$.busy.set(false)
   }

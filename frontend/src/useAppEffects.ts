@@ -11,7 +11,7 @@ import { setSyncError, clearSyncErrorFor } from './states/connectivity'
 import { settings$, applyDocumentLanguage } from './states/settings'
 import { applyUpdateStatus, loadUpdateStatus, runUpdateCheck } from './states/update'
 import type { UpdateStatus } from './lib/update'
-import i18n, { resolveI18nLanguageFromWebLocale } from './lib/i18n'
+import i18n, { resolveI18nLanguageFromWebLocale, t, translationTemplate } from './lib/i18n'
 
 const SEARCH_DEBOUNCE_MS = 300
 const DEFAULT_RSS_SYNC_INTERVAL_MINUTES = 60
@@ -47,6 +47,16 @@ export function useAppEffects() {
     if (i18n.language !== targetLanguage) {
       void i18n.changeLanguage(targetLanguage)
     }
+    void invoke('i18n.setNativeLabels', {
+      trayShow: t('tray.showMeron'),
+      trayHide: t('tray.hideToTray'),
+      trayHideTooltip: t('tray.hideMeronTooltip'),
+      trayQuit: t('tray.quitMeron'),
+      newMessage: t('notify.newMessage'),
+      newMessageCount: translationTemplate('notify.newMessageCount'),
+      noSubject: t('notify.noSubject'),
+      unknownSender: t('notify.unknownSender'),
+    }).catch(() => {})
     // Reflect the resolved locale to <html lang>/dir, driving :lang() CJK glyph
     // selection (see index.css) and RTL. Synced to a paint-time cache in settings.
     applyDocumentLanguage(targetLanguage)

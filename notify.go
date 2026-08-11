@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -13,6 +14,98 @@ var (
 	notifyIconOnce sync.Once
 	notifyIconPath string
 )
+
+type nativeLabels struct {
+	trayShow, trayHide, trayHideTooltip, trayQuit         string
+	newMessage, newMessageCount, noSubject, unknownSender string
+}
+
+var (
+	nativeLabelsMu sync.RWMutex
+	currentLabels  = nativeLabels{
+		trayShow: "Show Meron", trayHide: "Hide to Tray",
+		trayHideTooltip: "Hide Meron to the system tray", trayQuit: "Quit Meron",
+		newMessage:      "New message",
+		newMessageCount: "{count, plural, one {1 new message} other {{count} new messages}}",
+		noSubject:       "(no subject)", unknownSender: "unknown sender",
+	}
+)
+
+func (a *App) currentNativeLabels() nativeLabels {
+	nativeLabelsMu.RLock()
+	defer nativeLabelsMu.RUnlock()
+	return currentLabels
+}
+
+func (a *App) setNativeLabels(payload map[string]any) (any, error) {
+	nativeLabelsMu.Lock()
+	set := func(field *string, key string) {
+		if value, ok := payload[key].(string); ok && value != "" {
+			*field = value
+		}
+	}
+	set(&currentLabels.trayShow, "trayShow")
+	set(&currentLabels.trayHide, "trayHide")
+	set(&currentLabels.trayHideTooltip, "trayHideTooltip")
+	set(&currentLabels.trayQuit, "trayQuit")
+	set(&currentLabels.newMessage, "newMessage")
+	set(&currentLabels.newMessageCount, "newMessageCount")
+	set(&currentLabels.noSubject, "noSubject")
+	set(&currentLabels.unknownSender, "unknownSender")
+	labels := currentLabels
+	// Released before trayMenuMu is taken: trayReady holds trayMenuMu while it
+	// reads the labels, so holding both here in the other order would deadlock.
+	nativeLabelsMu.Unlock()
+	trayMenuMu.Lock()
+	defer trayMenuMu.Unlock()
+	if trayShowItem != nil {
+		trayShowItem.SetTitle(labels.trayShow)
+		trayShowItem.SetTooltip(labels.trayShow)
+	}
+	if trayHideItem != nil {
+		trayHideItem.SetTitle(labels.trayHide)
+		trayHideItem.SetTooltip(labels.trayHideTooltip)
+	}
+	if trayQuitItem != nil {
+		trayQuitItem.SetTitle(labels.trayQuit)
+		trayQuitItem.SetTooltip(labels.trayQuit)
+	}
+	return map[string]any{"ok": true}, nil
+}
+
+func formatNativePlural(template string, count int) string {
+	selected := template
+	if strings.HasPrefix(template, "{count, plural,") {
+		branches := map[string]string{}
+		for _, category := range []string{"one", "other"} {
+			marker := category + " {"
+			start := strings.Index(template, marker)
+			if start < 0 {
+				continue
+			}
+			start += len(marker)
+			depth, end := 1, start
+			for end < len(template) && depth > 0 {
+				switch template[end] {
+				case '{':
+					depth++
+				case '}':
+					depth--
+				}
+				end++
+			}
+			if depth == 0 {
+				branches[category] = template[start : end-1]
+			}
+		}
+		if count == 1 {
+			selected = branches["one"]
+		} else {
+			selected = branches["other"]
+		}
+	}
+	return strings.ReplaceAll(selected, "{count}", fmt.Sprint(count))
+}
 
 // notification is the platform-agnostic payload a delivered OS notification
 // carries. account/threadID are stashed so that clicking the notification can
@@ -114,6 +207,7 @@ func (a *App) openThreadFromNotification(account, threadID string) {
 }
 
 func (a *App) notifyNewMail(detail any) {
+	labels := a.currentNativeLabels()
 	count := 1
 	var account, accountName, folder, from, subject, preview, threadKey string
 	if m, ok := detail.(map[string]any); ok {
@@ -143,8 +237,8 @@ func (a *App) notifyNewMail(detail any) {
 	// notification list. Body adds the next layer (subject, account).
 	var title, body string
 	if count == 1 {
-		title = firstNonEmpty(from, accountName, "New message")
-		body = firstNonEmpty(subject, "(no subject)")
+		title = firstNonEmpty(from, accountName, labels.newMessage)
+		body = firstNonEmpty(subject, labels.noSubject)
 		// The body snippet, when the sidecar managed to fetch it in time, so
 		// the notification shows the mail itself and not just its subject.
 		if preview != "" {
@@ -154,12 +248,12 @@ func (a *App) notifyNewMail(detail any) {
 			title = fmt.Sprintf("%s - %s", title, accountName)
 		}
 	} else {
-		title = fmt.Sprintf("%d new messages", count)
+		title = formatNativePlural(labels.newMessageCount, count)
 		if accountName != "" {
 			title = fmt.Sprintf("%s - %s", title, accountName)
 		}
 		if from != "" || subject != "" {
-			body = firstNonEmpty(from, "unknown sender")
+			body = firstNonEmpty(from, labels.unknownSender)
 			if subject != "" {
 				body = fmt.Sprintf("%s — %s", body, subject)
 			}

@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
+import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
 import type { ComposerAttachment } from '../../types'
 import { composerAttachmentSrc } from './PendingAttachmentList'
@@ -11,6 +12,7 @@ export function AttachmentImagePreview({
   attachment: ComposerAttachment
   onClose: () => void
 }) {
+  const { t } = useTranslation()
   useEscapeKey(onClose)
 
   return createPortal(
@@ -29,7 +31,7 @@ export function AttachmentImagePreview({
             onClose()
           }}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full hover:bg-white/15 cursor-pointer transition-colors"
-          title="Close"
+          title={t('common.close')}
         >
           <X size={20} />
         </button>

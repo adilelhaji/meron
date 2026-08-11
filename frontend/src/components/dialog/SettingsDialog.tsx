@@ -761,7 +761,7 @@ function LogViewerDialog({ onClose }: { onClose: () => void }) {
   const exportLog = async () => {
     try {
       const res = await invoke<{ saved: boolean; path?: string }>('log.export')
-      if (res?.saved) showToast('Log exported', 'success')
+      if (res?.saved) showToast(t('settings.toast.logExported'), 'success')
     } catch (error) {
       showToast(error instanceof Error ? error.message : String(error), 'error')
     }

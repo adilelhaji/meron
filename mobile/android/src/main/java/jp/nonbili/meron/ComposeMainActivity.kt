@@ -285,7 +285,6 @@ class ComposeMainActivity : ComponentActivity() {
     private var activityStarted = false
 
     override fun attachBaseContext(newBase: Context) {
-        syncAppLanguageFromSystemSetting(newBase)
         super.attachBaseContext(localizedAppContext(newBase))
     }
 

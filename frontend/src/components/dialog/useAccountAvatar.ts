@@ -1,4 +1,5 @@
 import { type ChangeEvent, useState } from 'react'
+import { t } from '../../lib/i18n'
 import { readFileData } from '../../lib/readFileData'
 import { setAccountAvatar, writeAccountAvatarFile } from '../../states/accounts'
 import { showToast } from '../../states/ui'
@@ -34,7 +35,7 @@ export function useAccountAvatar(accountId: string, onChanged?: (url: string) =>
       }
       return false
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to upload avatar', 'error')
+      showToast(error instanceof Error ? error.message : t('settings.toast.failedToUploadAvatar'), 'error')
       return false
     } finally {
       setAvatarBusy(false)

@@ -196,8 +196,9 @@ export function BubbleHtmlFrame({
         const button = doc.createElement('button')
         button.type = 'button'
         button.className = 'meron-copy-code'
-        button.title = 'Copy code'
-        button.setAttribute('aria-label', 'Copy code')
+        const copyCodeText = t('chat.copyCode')
+        button.title = copyCodeText
+        button.setAttribute('aria-label', copyCodeText)
         button.innerHTML = `
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

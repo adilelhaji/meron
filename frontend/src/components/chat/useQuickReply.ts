@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useValue } from '@legendapp/state/react'
+import { useTranslation } from '../../lib/i18n'
 import {
   cancelQuickReplyDraftSave,
   compose$,
@@ -31,6 +32,7 @@ const QUICK_REPLY_MAX_HEIGHT_PX =
 // auto-growing textarea, the reply-focus shortcut and send. The component renders
 // the returned values.
 export function useQuickReply() {
+  const { t } = useTranslation()
   const composer = useValue(compose$.composer)
   const composerAttachments = useValue(compose$.composerAttachments)
   const sendShortcut = useValue(settings$.sendShortcut)
@@ -151,10 +153,10 @@ export function useQuickReply() {
 
   const pickAttachmentFiles = async () => {
     try {
-      const files = await pickFiles('Attach files')
+      const files = await pickFiles(t('composer.actions.attachFiles'))
       if (files.length > 0) addAttachmentFiles(files)
     } catch (error) {
-      showToast(error instanceof Error ? error.message : 'Failed to choose files', 'error')
+      showToast(error instanceof Error ? error.message : t('chat.failedToChooseFiles'), 'error')
     }
   }
 

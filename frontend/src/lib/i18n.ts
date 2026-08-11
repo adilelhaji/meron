@@ -77,6 +77,10 @@ export function t(key: string, values: TranslationValues = {}): string {
   return Array.isArray(formatted) ? formatted.join('') : String(formatted)
 }
 
+export function translationTemplate(key: string): string {
+  return messageFor(currentLanguage, key)
+}
+
 export function useTranslation() {
   const [language, setLanguage] = useState(currentLanguage)
 

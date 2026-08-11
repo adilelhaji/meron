@@ -214,7 +214,7 @@ export function MessageRow({
               {toRaw && <AddressRow label={t('composer.fields.to')} rawList={toRaw} />}
               {ccRaw && <AddressRow label={t('composer.fields.cc')} rawList={ccRaw} />}
               {bccRaw && <AddressRow label={t('composer.fields.bcc')} rawList={bccRaw} />}
-              {replyToDiffers && <AddressRow label="Reply-To" rawList={replyToRaw!} />}
+              {replyToDiffers && <AddressRow label={t('chat.replyTo')} rawList={replyToRaw!} />}
             </div>
           </>
         )}
