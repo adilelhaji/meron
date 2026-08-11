@@ -78,19 +78,22 @@ func (a *App) handleTrayClicks(clicked <-chan struct{}, fn func()) {
 	}
 }
 
+// Window moves go through these vars rather than the wails runtime directly so
+// showAndRaiseMainWindow, whose correct call sequence differs per platform and
+// is easy to break from another platform's point of view, can be tested.
+var (
+	windowShow        = wailsRuntime.WindowShow
+	windowHide        = wailsRuntime.WindowHide
+	windowUnminimise  = wailsRuntime.WindowUnminimise
+	windowIsMinimised = wailsRuntime.WindowIsMinimised
+)
+
 func (a *App) showMainWindow() {
 	ctx := a.runtimeContext()
 	if ctx == nil {
 		return
 	}
-	wailsRuntime.WindowShow(ctx)
-	// WindowShow already lifts a minimised window, and unminimising on top of
-	// that is not a no-op: it is SW_RESTORE, which drops a maximised window back
-	// to its restored size. Restoring a window hidden while maximised should
-	// bring it back maximised, so only unminimise when it really is minimised.
-	if wailsRuntime.WindowIsMinimised(ctx) {
-		wailsRuntime.WindowUnminimise(ctx)
-	}
+	showAndRaiseMainWindow(ctx)
 }
 
 func (a *App) hideMainWindow() {
