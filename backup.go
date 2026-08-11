@@ -37,6 +37,12 @@ func (a *App) exportBackup(payload map[string]any) (any, error) {
 	res, err := a.sidecar.Call("backup.export", map[string]any{
 		"include_secrets": includeSecrets,
 		"passphrase":      passphrase,
+		// The sidecar can't know the product version, so the envelope's
+		// app_version is only meaningful if the host supplies it. The platform
+		// goes with it because desktop and mobile are versioned on separate
+		// tracks: "0.2.4" is a different build depending on which wrote it.
+		"platform":    "desktop",
+		"app_version": appVersion(),
 	})
 	if err != nil {
 		return nil, err

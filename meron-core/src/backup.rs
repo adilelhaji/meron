@@ -50,6 +50,21 @@ const MAX_KDF_ITERATIONS: u64 = 10_000_000;
 /// silently decrypting under the reader's assumptions.
 const AAD: &[u8] = b"meron-backup-v1";
 
+/// Who wrote a backup file, stamped into the envelope by [`export`].
+///
+/// Both fields come from the host because core knows neither: its own crate
+/// version is not the app's, and the same core runs under every host.
+/// [`platform`](Self::platform) is what makes [`app_version`](Self::app_version)
+/// readable — desktop and mobile version independently (desktop 0.2.9 against
+/// mobile 0.2.4 at the time of writing), so a bare number says nothing about
+/// which build wrote the file. Use `desktop`, `android` or `ios`; a blank field
+/// is left out of the envelope rather than recorded as an empty string.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Host<'a> {
+    pub platform: &'a str,
+    pub app_version: &'a str,
+}
+
 // ---- Backup payload ---------------------------------------------------------
 
 /// One RSS subscription. `id` is re-derived from the URL on import, and item
@@ -273,10 +288,13 @@ fn redact_proxy(proxy: &mut Value) {
 ///
 /// Returns an error if `include_secrets` is set without a passphrase: secrets
 /// never leave the device in the clear.
+///
+/// `host` stamps the envelope with who wrote the file — see [`Host`].
 pub fn export(
     conn: &Connection,
     include_secrets: bool,
     passphrase: Option<&str>,
+    host: Host<'_>,
     load_secrets: &dyn Fn(&str) -> Secrets,
 ) -> Result<String> {
     let passphrase = passphrase.filter(|p| !p.is_empty());
@@ -290,7 +308,14 @@ pub fn export(
 
     let mut envelope = Map::new();
     envelope.insert("meron_backup".to_string(), json!(FORMAT_VERSION));
-    envelope.insert("app_version".to_string(), json!(crate::protocol::VERSION));
+    for (field, value) in [
+        ("platform", host.platform.trim()),
+        ("app_version", host.app_version.trim()),
+    ] {
+        if !value.is_empty() {
+            envelope.insert(field.to_string(), json!(value));
+        }
+    }
     envelope.insert("created_at".to_string(), json!(store::now_unix()));
     envelope.insert("encrypted".to_string(), json!(passphrase.is_some()));
     envelope.insert("has_secrets".to_string(), json!(include_secrets));

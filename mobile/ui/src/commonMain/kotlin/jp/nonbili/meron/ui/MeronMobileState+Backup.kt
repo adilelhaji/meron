@@ -60,7 +60,12 @@ internal fun MeronMobileState.exportBackup(
         runCatching {
             withContext(ioDispatcher) {
                 MobileMailCommandClient(core).exportBackup(
-                    ExportBackupParams(includeSecrets = includeSecrets, passphrase = passphrase),
+                    ExportBackupParams(
+                        includeSecrets = includeSecrets,
+                        passphrase = passphrase,
+                        appVersion = mobileHost.appVersionName,
+                        platform = platformName,
+                    ),
                 )
             }
         }.onSuccess { response ->

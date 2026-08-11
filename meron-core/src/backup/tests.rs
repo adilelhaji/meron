@@ -110,7 +110,7 @@ fn plaintext_backup_round_trips_accounts_settings_and_feeds() {
     store::setting_set(&source, "theme_id", &json!("nord")).unwrap();
     store::setting_set(&source, "font_scale", &json!(115)).unwrap();
 
-    let text = export(&source, false, None, &no_secrets).unwrap();
+    let text = export(&source, false, None, Host::default(), &no_secrets).unwrap();
     let data = parse(&text, None).unwrap();
 
     let target = test_conn();
@@ -164,7 +164,7 @@ fn backup_omits_cached_mail() {
         )
         .unwrap();
 
-    let text = export(&source, false, None, &no_secrets).unwrap();
+    let text = export(&source, false, None, Host::default(), &no_secrets).unwrap();
     assert!(!text.contains("Secret subject"));
     assert!(!text.contains("body text"));
 
@@ -190,7 +190,7 @@ fn plaintext_backup_redacts_proxy_and_oauth_client_secrets() {
     )
     .unwrap();
 
-    let text = export(&source, false, None, &no_secrets).unwrap();
+    let text = export(&source, false, None, Host::default(), &no_secrets).unwrap();
     assert!(!text.contains("proxy-pass"));
     assert!(!text.contains("app-proxy-pass"));
     assert!(!text.contains("app-client-secret"));
@@ -209,15 +209,47 @@ fn plaintext_backup_redacts_proxy_and_oauth_client_secrets() {
 }
 
 #[test]
+fn the_envelope_records_which_host_wrote_the_file() {
+    let source = test_conn();
+    insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
+
+    // Desktop and mobile version separately, so the same number can come from
+    // either: the platform is what makes it readable.
+    let host = Host {
+        platform: "android",
+        app_version: "0.2.4",
+    };
+    let text = export(&source, false, None, host, &no_secrets).unwrap();
+    assert!(text.contains("\"platform\": \"android\""));
+    assert!(text.contains("\"app_version\": \"0.2.4\""));
+
+    // A host with nothing to offer leaves the fields out rather than stamping
+    // values that mean nothing.
+    let host = Host {
+        platform: "  ",
+        app_version: "",
+    };
+    let text = export(&source, false, None, host, &no_secrets).unwrap();
+    assert!(!text.contains("app_version"));
+    assert!(!text.contains("platform"));
+}
+
+#[test]
 fn exporting_secrets_without_a_passphrase_is_refused() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
 
-    let err = export(&source, true, None, &|_| secrets_with("hunter2")).unwrap_err();
+    let err = export(&source, true, None, Host::default(), &|_| {
+        secrets_with("hunter2")
+    })
+    .unwrap_err();
     assert!(err.to_string().contains("passphrase is required"));
 
     // An empty passphrase is treated as no passphrase, not as a real one.
-    let err = export(&source, true, Some(""), &|_| secrets_with("hunter2")).unwrap_err();
+    let err = export(&source, true, Some(""), Host::default(), &|_| {
+        secrets_with("hunter2")
+    })
+    .unwrap_err();
     assert!(err.to_string().contains("passphrase is required"));
 }
 
@@ -226,9 +258,13 @@ fn encrypted_backup_round_trips_secrets_and_hides_them_on_disk() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
 
-    let text = export(&source, true, Some("correct horse"), &|_| {
-        secrets_with("hunter2")
-    })
+    let text = export(
+        &source,
+        true,
+        Some("correct horse"),
+        Host::default(),
+        &|_| secrets_with("hunter2"),
+    )
     .unwrap();
 
     // Nothing sensitive is readable in the file, but the envelope still is.
@@ -263,7 +299,7 @@ fn accounts_with_no_stored_secret_carry_none() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
 
-    let text = export(&source, true, Some("pw"), &no_secrets).unwrap();
+    let text = export(&source, true, Some("pw"), Host::default(), &no_secrets).unwrap();
     let data = parse(&text, Some("pw")).unwrap();
     assert!(data.accounts[0].secrets.is_none());
 
@@ -280,7 +316,10 @@ fn accounts_with_no_stored_secret_carry_none() {
 fn encrypted_backup_without_a_passphrase_asks_for_one() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
+    let text = export(&source, true, Some("pw"), Host::default(), &|_| {
+        secrets_with("hunter2")
+    })
+    .unwrap();
 
     let err = parse_err(&text, None);
     assert!(needs_passphrase(&err), "{err}");
@@ -294,7 +333,10 @@ fn encrypted_backup_without_a_passphrase_asks_for_one() {
 fn wrong_passphrase_is_reported_as_such() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
+    let text = export(&source, true, Some("pw"), Host::default(), &|_| {
+        secrets_with("hunter2")
+    })
+    .unwrap();
 
     let err = parse_err(&text, Some("not-pw"));
     assert!(err.contains("wrong passphrase"), "{err}");
@@ -306,7 +348,10 @@ fn wrong_passphrase_is_reported_as_such() {
 fn tampering_with_the_ciphertext_fails_authentication() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
+    let text = export(&source, true, Some("pw"), Host::default(), &|_| {
+        secrets_with("hunter2")
+    })
+    .unwrap();
 
     let mut envelope: Value = serde_json::from_str(&text).unwrap();
     let ciphertext = envelope["ciphertext"].as_str().unwrap().to_string();
@@ -322,7 +367,7 @@ fn tampering_with_the_ciphertext_fails_authentication() {
 fn a_passphrase_on_a_plaintext_backup_is_ignored() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(&source, false, None, &no_secrets).unwrap();
+    let text = export(&source, false, None, Host::default(), &no_secrets).unwrap();
 
     let data = parse(&text, Some("unnecessary")).unwrap();
     assert_eq!(data.accounts.len(), 1);
@@ -401,7 +446,10 @@ fn a_malformed_salt_is_refused() {
 fn our_own_iteration_count_still_opens() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let text = export(&source, true, Some("pw"), &|_| secrets_with("hunter2")).unwrap();
+    let text = export(&source, true, Some("pw"), Host::default(), &|_| {
+        secrets_with("hunter2")
+    })
+    .unwrap();
 
     assert_eq!(
         serde_json::from_str::<Value>(&text).unwrap()["kdf"]["iterations"],
@@ -431,7 +479,11 @@ fn an_encrypted_backup_with_an_unknown_cipher_is_refused() {
 fn existing_accounts_are_skipped_not_overwritten() {
     let source = test_conn();
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
-    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
+    let data = parse(
+        &export(&source, false, None, Host::default(), &no_secrets).unwrap(),
+        None,
+    )
+    .unwrap();
 
     // The target already has this account, pointed at a different server.
     let target = test_conn();
@@ -461,7 +513,11 @@ fn existing_accounts_are_skipped_not_overwritten() {
 fn settings_overwrite_on_restore() {
     let source = test_conn();
     store::setting_set(&source, "theme_id", &json!("nord")).unwrap();
-    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
+    let data = parse(
+        &export(&source, false, None, Host::default(), &no_secrets).unwrap(),
+        None,
+    )
+    .unwrap();
 
     let target = test_conn();
     store::setting_set(&target, "theme_id", &json!("solarized")).unwrap();
@@ -488,7 +544,11 @@ fn a_feed_already_subscribed_is_not_duplicated() {
         "https://blog.example/feed.xml",
         "Blog",
     );
-    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
+    let data = parse(
+        &export(&source, false, None, Host::default(), &no_secrets).unwrap(),
+        None,
+    )
+    .unwrap();
 
     let target = test_conn();
     insert_rss_account(&target, "rss-other");
@@ -517,7 +577,10 @@ fn a_failed_import_leaves_the_store_untouched() {
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
     insert_mail_account(&source, "bob@example.com", sample_config(), json!({}));
     let data = parse(
-        &export(&source, true, Some("pw"), &|_| secrets_with("s")).unwrap(),
+        &export(&source, true, Some("pw"), Host::default(), &|_| {
+            secrets_with("s")
+        })
+        .unwrap(),
         Some("pw"),
     )
     .unwrap();
@@ -601,7 +664,11 @@ fn unknown_fields_from_a_newer_build_survive_a_round_trip() {
         json!({ "future_pref": 42 }),
     );
 
-    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
+    let data = parse(
+        &export(&source, false, None, Host::default(), &no_secrets).unwrap(),
+        None,
+    )
+    .unwrap();
     let target = test_conn();
     let sink = SecretSink::default();
     apply(&target, &data, &sink.saver()).unwrap();
@@ -681,7 +748,7 @@ fn a_legacy_platform_map_never_overwrites_a_real_settings_row() {
 #[test]
 fn a_legacy_platform_map_survives_encryption() {
     let source = test_conn();
-    let text = export(&source, true, Some("pw"), &no_secrets).unwrap();
+    let text = export(&source, true, Some("pw"), Host::default(), &no_secrets).unwrap();
 
     // Rebuild the ciphertext around a payload carrying the old shape.
     let mut envelope: Value = serde_json::from_str(&text).unwrap();
@@ -705,7 +772,11 @@ fn a_backup_without_a_platform_map_is_unaffected() {
     insert_mail_account(&source, "ada@example.com", sample_config(), json!({}));
     store::setting_set(&source, "theme_id", &json!("nord")).unwrap();
 
-    let data = parse(&export(&source, false, None, &no_secrets).unwrap(), None).unwrap();
+    let data = parse(
+        &export(&source, false, None, Host::default(), &no_secrets).unwrap(),
+        None,
+    )
+    .unwrap();
 
     assert_eq!(data.settings["theme_id"], "nord");
     assert_eq!(data.settings.len(), 1);

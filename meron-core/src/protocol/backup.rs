@@ -9,11 +9,16 @@ pub(crate) fn export_mobile_backup(data_dir: &str, params: &Value) -> Result<Val
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let passphrase = opt_str(params, "passphrase");
+    let app_version = opt_str(params, "app_version");
+    let platform = opt_str(params, "platform");
+    let host = crate::backup::Host {
+        platform: &platform,
+        app_version: &app_version,
+    };
     with_mobile_db(data_dir, |conn| {
-        let text = crate::backup::export(&conn, include_secrets, Some(&passphrase), &|account| {
-            load_mobile_secret(&conn, account)
-        })
-        .map_err(|err| format!("{err:#}"))?;
+        let load = |account: &str| load_mobile_secret(&conn, account);
+        let text = crate::backup::export(&conn, include_secrets, Some(&passphrase), host, &load)
+            .map_err(|err| format!("{err:#}"))?;
         Ok(json!({ "backup": text }))
     })
 }

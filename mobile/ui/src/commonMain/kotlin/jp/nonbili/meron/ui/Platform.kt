@@ -8,6 +8,13 @@ import androidx.compose.ui.text.PlatformTextStyle
 expect fun currentTimeMillis(): Long
 
 /**
+ * "android" or "ios", as written into a backup envelope next to the app
+ * version. Each platform versions independently, so the version alone does not
+ * say which build produced a file.
+ */
+expect val platformName: String
+
+/**
  * Whether password fields should start masked. False on iOS, where masking
  * (PasswordVisualTransformation) suppresses the long-press paste menu in
  * Compose Multiplatform.

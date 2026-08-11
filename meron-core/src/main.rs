@@ -823,6 +823,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string();
+            // The Go host owns the product version; core only knows its crate's.
+            // The platform goes with it because desktop and mobile version
+            // independently, so the number alone doesn't identify a build.
+            let app_version = p
+                .get("app_version")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let platform = p
+                .get("platform")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
             let engine = engine.clone();
             let text = tokio::task::spawn_blocking(move || {
                 // Secrets are read up front, with the DB lock released, because
@@ -855,6 +868,10 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     &engine.db.lock().unwrap(),
                     include_secrets,
                     Some(passphrase.as_str()),
+                    backup::Host {
+                        platform: platform.as_str(),
+                        app_version: app_version.as_str(),
+                    },
                     &|account| secrets.get(account).cloned().unwrap_or_default(),
                 )
             })

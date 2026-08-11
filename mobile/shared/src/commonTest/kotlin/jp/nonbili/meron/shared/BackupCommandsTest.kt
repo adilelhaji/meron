@@ -7,14 +7,19 @@ import kotlin.test.assertTrue
 
 class BackupCommandsTest {
     @Test
-    fun exportBackupParamsSerializeSecretsFlagAndPassphrase() {
+    fun exportBackupParamsSerializeSecretsFlagPassphraseAndHostIdentity() {
         assertEquals(
-            """{"include_secrets":false,"passphrase":""}""",
+            """{"include_secrets":false,"passphrase":"","app_version":"","platform":""}""",
             ExportBackupParams().toJson(),
         )
         assertEquals(
-            """{"include_secrets":true,"passphrase":"correct horse"}""",
-            ExportBackupParams(includeSecrets = true, passphrase = "correct horse").toJson(),
+            """{"include_secrets":true,"passphrase":"correct horse","app_version":"0.2.4","platform":"android"}""",
+            ExportBackupParams(
+                includeSecrets = true,
+                passphrase = "correct horse",
+                appVersion = "0.2.4",
+                platform = "android",
+            ).toJson(),
         )
     }
 
@@ -94,8 +99,17 @@ class BackupCommandsTest {
     @Test
     fun backupRequestsUseTheProtocolMethodNames() {
         assertEquals(
-            """{"id":90,"method":"backup.export","params":{"include_secrets":true,"passphrase":"pw"}}""",
-            backupExportRequest(id = 90, params = ExportBackupParams(includeSecrets = true, passphrase = "pw")).toJson(),
+            """{"id":90,"method":"backup.export","params":{"include_secrets":true,"passphrase":"pw","app_version":"1.2.3","platform":"ios"}}""",
+            backupExportRequest(
+                id = 90,
+                params =
+                    ExportBackupParams(
+                        includeSecrets = true,
+                        passphrase = "pw",
+                        appVersion = "1.2.3",
+                        platform = "ios",
+                    ),
+            ).toJson(),
         )
         assertEquals(
             """{"id":91,"method":"backup.import","params":{"backup":"{}","passphrase":""}}""",
