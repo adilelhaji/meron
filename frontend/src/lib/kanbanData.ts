@@ -263,8 +263,78 @@ export function columnSearchHighlightClass(active: boolean, overWallpaper = fals
     : 'border-border bg-raised dark:bg-black/20'
 }
 
-export function columnDropTargetClass(isOver: boolean): string {
+// A column a drag can't land in is drawn as refused rather than inviting, so the
+// user sees the "no" before letting go; the reason itself is shown on hover and
+// repeated as a toast if they drop anyway.
+export function columnDropTargetClass(isOver: boolean, blocked = false): string {
+  if (blocked) {
+    return isOver
+      ? 'border-red-400 bg-red-500/10 ring-2 ring-red-400/40 dark:border-red-900/70'
+      : 'border-dashed opacity-60'
+  }
   return isOver ? 'border-accent bg-accent/10 ring-2 ring-accent/35 dark:bg-accent/15' : ''
+}
+
+/**
+ * Why a drop was refused, as locale keys — the reason is shown on the column
+ * while dragging and toasted if the card is dropped anyway, so it is translated
+ * where it is rendered rather than here (this stays pure and testable).
+ */
+export const KANBAN_DROP_REASONS = {
+  unifiedTarget: 'kanban.drop.unifiedTarget',
+  unknownOrigin: 'kanban.drop.unknownOrigin',
+  feedToMail: 'kanban.drop.feedToMail',
+  mailToFeed: 'kanban.drop.mailToFeed',
+} as const
+
+/**
+ * The locale keys the kanban move path toasts once a drop is under way. Kept
+ * beside the refusal keys so both sets are covered by the same catalogue test.
+ */
+export const KANBAN_MOVE_MESSAGES = {
+  moved: 'kanban.move.moved',
+  failed: 'kanban.move.failed',
+  copyFailed: 'kanban.move.copyFailed',
+  noMatchingMessages: 'kanban.move.noMatchingMessages',
+  copiedNotRemoved: 'kanban.move.copiedNotRemoved',
+  copiedNotRemovedReason: 'kanban.move.copiedNotRemovedReason',
+} as const
+
+/**
+ * What dropping `thread` from `source` onto `target` would do: the move and the
+ * mailbox it leaves from, nothing, or a refusal to explain. A unified column
+ * names a role across accounts rather than one mailbox, so a thread dragged out
+ * of one takes its origin from the card itself; every other column is its own
+ * origin. Pure, so the drop handler and the drag-time column styling agree.
+ */
+export type KanbanMoveResolution =
+  | { kind: 'move'; origin: KanbanColumn }
+  | { kind: 'noop' }
+  | { kind: 'blocked'; reasonKey: string }
+
+export function resolveKanbanMove(
+  source: KanbanColumn,
+  target: KanbanColumn,
+  thread: Pick<Message, 'account_id' | 'folder_id'> | undefined,
+  accounts: { id: string; provider: string; auth_type: string }[],
+): KanbanMoveResolution {
+  const sameColumn = (a: KanbanColumn, b: KanbanColumn) =>
+    a.accountId === b.accountId && folderMatches(a.folderId, b.folderId)
+  if (target.accountId === 'unified') return { kind: 'blocked', reasonKey: KANBAN_DROP_REASONS.unifiedTarget }
+  if (sameColumn(source, target)) return { kind: 'noop' }
+  if (source.accountId === 'unified' && !thread) {
+    return { kind: 'blocked', reasonKey: KANBAN_DROP_REASONS.unknownOrigin }
+  }
+  const origin: KanbanColumn =
+    source.accountId === 'unified' && thread ? { accountId: thread.account_id, folderId: thread.folder_id } : source
+  // The card's own mailbox can be the column it was dropped on — dragging out of
+  // Unified Inbox onto that same account's Inbox column.
+  if (sameColumn(origin, target)) return { kind: 'noop' }
+  const originRSS = isRSSAccount(origin.accountId, accounts)
+  const targetRSS = isRSSAccount(target.accountId, accounts)
+  if (originRSS && !targetRSS) return { kind: 'blocked', reasonKey: KANBAN_DROP_REASONS.feedToMail }
+  if (!originRSS && targetRSS) return { kind: 'blocked', reasonKey: KANBAN_DROP_REASONS.mailToFeed }
+  return { kind: 'move', origin }
 }
 
 // Placeholder text for an empty column, branching on the active filter and

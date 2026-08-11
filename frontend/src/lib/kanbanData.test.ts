@@ -1,12 +1,16 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { accounts$ } from '../states/accounts'
+import { t } from './i18n'
 import { kanban$, setGlobalKanbanFilter } from '../states/kanban'
 import { mail$ } from '../states/mail'
 import { settings$ } from '../states/settings'
 import type { Account, Folder } from '../types'
 import {
+  KANBAN_DROP_REASONS,
+  KANBAN_MOVE_MESSAGES,
   accountLabel,
   activeKanbanColumnFilter,
+  columnDropTargetClass,
   columnEmptyText,
   columnSearchActive,
   folderLabel,
@@ -19,6 +23,7 @@ import {
   loadMoreKanbanColumn,
   mergeLabelFolders,
   nextFoldersSnapshot,
+  resolveKanbanMove,
   searchColumnLabel,
   searchScopeColumn,
   searchTargets,
@@ -758,6 +763,107 @@ describe('subscribeKanbanMailReloads', () => {
       ])
     } finally {
       cleanup()
+    }
+  })
+})
+
+describe('resolveKanbanMove', () => {
+  const mailAccounts = [
+    { id: 'acc1', provider: 'imap', auth_type: 'password' },
+    { id: 'acc2', provider: 'imap', auth_type: 'password' },
+    { id: 'feed1', provider: 'rss', auth_type: 'rss' },
+    { id: 'feed2', provider: 'rss', auth_type: 'rss' },
+  ]
+  const unified = { accountId: 'unified', folderId: 'inbox' }
+
+  it('takes the origin from the card when dragging out of a unified column', () => {
+    const thread = message({ account_id: 'acc2', folder_id: 'INBOX' })
+    expect(resolveKanbanMove(unified, { accountId: 'acc1', folderId: 'Archive' }, thread, mailAccounts)).toEqual({
+      kind: 'move',
+      origin: { accountId: 'acc2', folderId: 'INBOX' },
+    })
+  })
+
+  it('uses the column itself as the origin for a single-account column', () => {
+    const source = { accountId: 'acc1', folderId: 'INBOX' }
+    expect(resolveKanbanMove(source, { accountId: 'acc1', folderId: 'Archive' }, message({}), mailAccounts)).toEqual({
+      kind: 'move',
+      origin: source,
+    })
+  })
+
+  it('resolves the origin even when the card is missing from a single-account column', () => {
+    const source = { accountId: 'acc1', folderId: 'INBOX' }
+    expect(resolveKanbanMove(source, { accountId: 'acc2', folderId: 'INBOX' }, undefined, mailAccounts)).toEqual({
+      kind: 'move',
+      origin: source,
+    })
+  })
+
+  it('does nothing when the card lands back on its own mailbox', () => {
+    const thread = message({ account_id: 'acc1', folder_id: 'INBOX' })
+    // Case-insensitively: a unified card reports "INBOX", the column stores "inbox".
+    expect(resolveKanbanMove(unified, { accountId: 'acc1', folderId: 'inbox' }, thread, mailAccounts).kind).toBe('noop')
+    const source = { accountId: 'acc1', folderId: 'INBOX' }
+    expect(resolveKanbanMove(source, { accountId: 'acc1', folderId: 'INBOX' }, thread, mailAccounts).kind).toBe('noop')
+  })
+
+  it('refuses a unified column as the drop target', () => {
+    expect(resolveKanbanMove({ accountId: 'acc1', folderId: 'INBOX' }, unified, message({}), mailAccounts)).toEqual({
+      kind: 'blocked',
+      reasonKey: KANBAN_DROP_REASONS.unifiedTarget,
+    })
+  })
+
+  it('refuses a unified drag whose card it cannot find', () => {
+    expect(resolveKanbanMove(unified, { accountId: 'acc1', folderId: 'Archive' }, undefined, mailAccounts)).toEqual({
+      kind: 'blocked',
+      reasonKey: KANBAN_DROP_REASONS.unknownOrigin,
+    })
+  })
+
+  it('refuses feed/mail mixes in either direction, resolving the feed through a unified column', () => {
+    const feedItem = message({ account_id: 'feed1', folder_id: 'inbox' })
+    expect(resolveKanbanMove(unified, { accountId: 'acc1', folderId: 'Archive' }, feedItem, mailAccounts)).toEqual({
+      kind: 'blocked',
+      reasonKey: KANBAN_DROP_REASONS.feedToMail,
+    })
+    expect(
+      resolveKanbanMove(
+        { accountId: 'acc1', folderId: 'INBOX' },
+        { accountId: 'feed1', folderId: 'inbox' },
+        message({}),
+        mailAccounts,
+      ),
+    ).toEqual({ kind: 'blocked', reasonKey: KANBAN_DROP_REASONS.mailToFeed })
+  })
+
+  it('allows a feed to move between RSS accounts', () => {
+    const feedItem = message({ account_id: 'feed1', folder_id: 'inbox' })
+    expect(resolveKanbanMove(unified, { accountId: 'feed2', folderId: 'inbox' }, feedItem, mailAccounts)).toEqual({
+      kind: 'move',
+      origin: { accountId: 'feed1', folderId: 'inbox' },
+    })
+  })
+})
+
+describe('columnDropTargetClass', () => {
+  it('marks a refused column, hovered or not', () => {
+    expect(columnDropTargetClass(true, true)).toContain('red')
+    expect(columnDropTargetClass(false, true)).toContain('opacity-60')
+    expect(columnDropTargetClass(true)).toContain('accent')
+    expect(columnDropTargetClass(false)).toBe('')
+  })
+})
+
+describe('kanban move strings', () => {
+  it('name locale keys that every catalog carries', () => {
+    const keys = [...Object.values(KANBAN_DROP_REASONS), ...Object.values(KANBAN_MOVE_MESSAGES)]
+    for (const key of keys) {
+      expect(key.startsWith('kanban.')).toBe(true)
+      // t() falls back to the key itself when nothing is catalogued. The value
+      // covers the one message that interpolates an error.
+      expect(t(key, { error: 'x' })).not.toBe(key)
     }
   })
 })

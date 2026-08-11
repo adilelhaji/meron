@@ -88,10 +88,12 @@ export function KanbanColumnMinimized({
       className={clsx(
         'relative flex h-full shrink-0 flex-col items-center gap-3 rounded-lg border p-2 transition-colors',
         columnSearchHighlightClass(searchActive, overWallpaper),
-        columnDropTargetClass(wrapper.isOver),
+        columnDropTargetClass(wrapper.isOver, !!wrapper.dropRejection),
         wrapper.dragHandle ? 'cursor-grab touch-none active:cursor-grabbing' : 'cursor-pointer',
       )}
-      title={t('kanban.actions.expand')}
+      // Too narrow for the reason the expanded column shows, so it lives in the
+      // tooltip while a card that can't land here is being dragged.
+      title={wrapper.dropRejection || t('kanban.actions.expand')}
       {...wrapper.dragHandle}
       onContextMenu={onContextMenu}
       onClick={() => {

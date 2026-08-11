@@ -60,6 +60,8 @@ export type ColumnWrapper = {
   setNodeRef: (node: HTMLElement | null) => void
   scrollIntoView: () => void
   isOver: boolean
+  /** Why the card currently being dragged can't be dropped here, if it can't. */
+  dropRejection?: string
   style?: CSSProperties
   // Header drag props for reordering.
   dragHandle?: Record<string, unknown>
@@ -281,12 +283,20 @@ function KanbanColumnContent({
     <section
       ref={wrapper.setNodeRef}
       style={{ width, ...wrapper.style }}
+      title={wrapper.dropRejection}
       className={clsx(
         'relative flex h-full shrink-0 flex-col rounded-lg border transition-colors',
         columnSearchHighlightClass(searchActive, overWallpaper),
-        columnDropTargetClass(wrapper.isOver),
+        columnDropTargetClass(wrapper.isOver, !!wrapper.dropRejection),
       )}
     >
+      {wrapper.isOver && wrapper.dropRejection && (
+        <div className="pointer-events-none absolute inset-x-3 top-1/2 z-20 -translate-y-1/2">
+          <p className="rounded-xl border border-red-200 bg-red-50 p-3 text-center text-[0.6875rem] font-medium leading-relaxed text-red-600 shadow-sm dark:border-red-900/50 dark:bg-red-950/90 dark:text-red-400">
+            {wrapper.dropRejection}
+          </p>
+        </div>
+      )}
       {bulkInColumn ? (
         <BulkActionBar
           items={bulkItems}
@@ -487,12 +497,14 @@ function KanbanColumnContent({
 export function SortableColumn({
   boardId,
   column,
+  dropRejection,
   onMoveThread,
   onSearchColumn,
   threadMenu,
 }: {
   boardId: string
   column: KanbanColumn
+  dropRejection?: string
   onMoveThread: (threadId: string, source: KanbanColumn, target: KanbanColumn) => void
   onSearchColumn: (column: KanbanColumn) => void
   threadMenu: ThreadContextMenuController
@@ -527,6 +539,7 @@ export function SortableColumn({
         setNodeRef: setColumnNodeRef,
         scrollIntoView: scrollColumnIntoView,
         isOver,
+        dropRejection,
         style,
         dragHandle: { ...attributes, ...listeners },
       }}

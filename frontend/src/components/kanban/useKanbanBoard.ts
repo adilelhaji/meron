@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 import { useValue } from '@legendapp/state/react'
 import { invoke } from '../../lib/bridge'
+import { t } from '../../lib/i18n'
 import { moveFeed } from '../../states/feeds'
 import { showToast } from '../../states/ui'
 import { kanbanColumnKey, kanban$, reorderKanbanColumn, type KanbanColumn } from '../../states/kanban'
 import type { Account, Message } from '../../types'
 import {
+  KANBAN_MOVE_MESSAGES,
   SEARCH_DEBOUNCE_MS,
   isRSSAccount,
   loadKanbanColumn,
+  resolveKanbanMove,
   searchTargets,
   subscribeKanbanMailReloads,
   useFoldersByAccount,
@@ -133,11 +136,6 @@ export function useKanbanDnd(boardId: string, accounts: Account[]) {
   const [dragPreview, setDragPreview] = useState<{ thread: Message; column: KanbanColumn } | null>(null)
 
   async function moveThread(threadId: string, source: KanbanColumn, target: KanbanColumn) {
-    if (source.folderId === target.folderId && source.accountId === target.accountId) return
-    if (source.accountId === 'unified' || target.accountId === 'unified') {
-      showToast('Unified columns are read-only. Select an account to move threads.', 'error')
-      return
-    }
     const queryForColumn = (column: KanbanColumn) => {
       const query = kanban$.searchQuery.peek().trim()
       const scope = kanban$.searchScope.peek()
@@ -149,10 +147,23 @@ export function useKanbanDnd(boardId: string, accounts: Account[]) {
     const sourceBefore = kanban$.threads[sourceKey].peek() ?? []
     const targetBefore = kanban$.threads[targetKey].peek() ?? []
     const movedThread = sourceBefore.find((thread) => thread.thread_id === threadId)
-    const sourceRSS = isRSSAccount(source.accountId, accounts)
-    const targetRSS = isRSSAccount(target.accountId, accounts)
-
-    if (sourceRSS && targetRSS) {
+    const resolution = resolveKanbanMove(source, target, movedThread, accounts)
+    if (resolution.kind === 'noop') return
+    if (resolution.kind === 'blocked') {
+      showToast(t(resolution.reasonKey), 'error')
+      return
+    }
+    const origin = resolution.origin
+    // The account's own column may also be on the board; it shows the same
+    // mailbox the thread just left, so it needs the reload too.
+    const originKey = kanbanColumnKey(origin)
+    const reloadColumns =
+      originKey === sourceKey || originKey === targetKey ? [source, target] : [source, target, origin]
+    const reloadAll = () =>
+      Promise.all(reloadColumns.map((column) => loadKanbanColumn(column, false, queryForColumn(column))))
+    // Feed↔mail mismatches were already refused above, so both flags agreeing is
+    // the only way either is true here.
+    if (isRSSAccount(origin.accountId, accounts) && isRSSAccount(target.accountId, accounts)) {
       kanban$.movingThread.set(threadId)
       try {
         if (movedThread) {
@@ -163,10 +174,7 @@ export function useKanbanDnd(boardId: string, accounts: Account[]) {
           ])
         }
         await moveFeed(threadId, target.accountId)
-        await Promise.all([
-          loadKanbanColumn(source, false, queryForColumn(source)),
-          loadKanbanColumn(target, false, queryForColumn(target)),
-        ])
+        await reloadAll()
       } catch {
         kanban$.threads[sourceKey].set(sourceBefore)
         kanban$.threads[targetKey].set(targetBefore)
@@ -176,27 +184,18 @@ export function useKanbanDnd(boardId: string, accounts: Account[]) {
       return
     }
 
-    if (sourceRSS) {
-      showToast('RSS feeds can only be moved to RSS accounts.', 'error')
-      return
-    }
-    if (targetRSS) {
-      showToast("Mail threads can't be moved into RSS feeds.", 'error')
-      return
-    }
-
     kanban$.movingThread.set(threadId)
     try {
       if (movedThread) {
         kanban$.threads[sourceKey].set(sourceBefore.filter((thread) => thread.thread_id !== threadId))
         kanban$.threads[targetKey].set([
-          { ...movedThread, folder_id: target.folderId },
+          { ...movedThread, account_id: target.accountId, folder_id: target.folderId },
           ...targetBefore.filter((thread) => thread.thread_id !== threadId),
         ])
       }
-      if (source.accountId === target.accountId) {
+      if (origin.accountId === target.accountId) {
         await invoke('mail.move', { thread_id: threadId, target_folder_id: target.folderId })
-        showToast('Thread moved')
+        showToast(t(KANBAN_MOVE_MESSAGES.moved))
       } else {
         const copyRes = await invoke<{ copied?: number }>('mail.copy', {
           thread_id: threadId,
@@ -204,34 +203,31 @@ export function useKanbanDnd(boardId: string, accounts: Account[]) {
           target_folder_id: target.folderId,
         })
         if (typeof copyRes?.copied === 'number' && copyRes.copied <= 0) {
-          throw new Error('Copy failed: no matching messages found')
+          throw new Error(t(KANBAN_MOVE_MESSAGES.copyFailed))
         }
         try {
           const deleteRes = await invoke<{ deleted?: number }>('mail.delete', {
             thread_id: threadId,
-            folder: source.folderId,
+            folder: origin.folderId,
           })
           if (typeof deleteRes?.deleted === 'number' && deleteRes.deleted <= 0) {
-            throw new Error('no matching messages found')
+            throw new Error(t(KANBAN_MOVE_MESSAGES.noMatchingMessages))
           }
-          showToast('Thread moved')
+          showToast(t(KANBAN_MOVE_MESSAGES.moved))
         } catch (error) {
           showToast(
             error instanceof Error
-              ? `Copied, but couldn't move original to Trash: ${error.message}`
-              : "Copied, but couldn't move original to Trash",
+              ? t(KANBAN_MOVE_MESSAGES.copiedNotRemovedReason, { error: error.message })
+              : t(KANBAN_MOVE_MESSAGES.copiedNotRemoved),
             'error',
           )
         }
       }
-      await Promise.all([
-        loadKanbanColumn(source, false, queryForColumn(source)),
-        loadKanbanColumn(target, false, queryForColumn(target)),
-      ])
+      await reloadAll()
     } catch (error) {
       kanban$.threads[sourceKey].set(sourceBefore)
       kanban$.threads[targetKey].set(targetBefore)
-      showToast(error instanceof Error ? error.message : 'Move failed', 'error')
+      showToast(error instanceof Error ? error.message : t(KANBAN_MOVE_MESSAGES.failed), 'error')
       await loadKanbanColumn(source, false, queryForColumn(source))
     } finally {
       kanban$.movingThread.set('')
@@ -273,7 +269,9 @@ export function useKanbanDnd(boardId: string, accounts: Account[]) {
     const source = activeData?.source as KanbanColumn | undefined
     const target = overData?.column as KanbanColumn | undefined
     if (!source || !target) return
-    void moveThread(String(event.active.id), source, target)
+    // Starred feed cards drag under their message id, so take the thread id from
+    // the payload the card set rather than from the draggable's id.
+    void moveThread(String(activeData?.threadId ?? event.active.id), source, target)
   }
 
   return { dragPreview, setDragPreview, moveThread, handleDragStart, handleDragEnd }

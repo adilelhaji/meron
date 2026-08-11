@@ -29,7 +29,7 @@ import { KanbanDragPreview } from './KanbanThreadCard'
 import { useThreadContextMenu } from '../threads/ThreadContextMenu'
 import { SearchScopeDropdown } from './SearchScopeDropdown'
 import { BoardMenu, FilterSwitch } from './KanbanBoardMenu'
-import { isRSSAccount, loadKanbanColumn, useFoldersByAccount } from '../../lib/kanbanData'
+import { isRSSAccount, loadKanbanColumn, resolveKanbanMove, useFoldersByAccount } from '../../lib/kanbanData'
 import { wallpaperCss } from '../../lib/wallpapers'
 import { useKanbanBoardSync, useKanbanDnd } from './useKanbanBoard'
 
@@ -76,6 +76,17 @@ export function KanbanView({ boardId }: { boardId: string }) {
   // One controller for the whole board so a right-click in one column closes any
   // menu open in another (only one thread menu can be open at a time).
   const threadMenu = useThreadContextMenu(accounts)
+  // Only a thread drag sets a preview (a column reorder clears it), so this is
+  // empty while columns are being rearranged.
+  const dropRejections = useMemo<Record<string, string>>(() => {
+    if (!dragPreview) return {}
+    const rejections: Record<string, string> = {}
+    for (const column of visibleColumns) {
+      const resolution = resolveKanbanMove(dragPreview.column, column, dragPreview.thread, accounts)
+      if (resolution.kind === 'blocked') rejections[kanbanColumnKey(column)] = t(resolution.reasonKey)
+    }
+    return rejections
+  }, [accounts, dragPreview, t, visibleColumns])
 
   useEffect(() => {
     clearBulkSelection()
@@ -314,6 +325,9 @@ export function KanbanView({ boardId }: { boardId: string }) {
                     key={kanbanColumnKey(column)}
                     boardId={boardId}
                     column={column}
+                    // While a card is in the air, every column that would refuse
+                    // it says so up front instead of only after the drop.
+                    dropRejection={dropRejections[kanbanColumnKey(column)]}
                     onMoveThread={moveThread}
                     onSearchColumn={searchColumn}
                     threadMenu={threadMenu}
