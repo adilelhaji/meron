@@ -1,0 +1,3 @@
+- Support backup and restore
+- Allow dragging threads out of unified Kanban columns
+- Restore Ctrl+Z undo in plain text fields

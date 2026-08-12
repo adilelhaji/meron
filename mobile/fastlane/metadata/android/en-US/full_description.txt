@@ -1,10 +1,11 @@
 <h2>Features</h2>
 <ul>
-  <li>Connect Gmail, Outlook, and standard IMAP/SMTP accounts</li>
-  <li>Sign in securely with OAuth through in-app browser tabs</li>
-  <li>Organize your inbox on a kanban-style board</li>
-  <li>Follow RSS feeds alongside your mail</li>
-  <li>Search across your mail, including in the kanban view</li>
+  <li>Unified Inbox, kanban and chat views</li>
+  <li>IMAP/SMTP email and RSS/Atom feeds</li>
+  <li>Threaded conversations with rich-text composing and media galleries</li>
+  <li>Easy setup with OAuth or automatic mailbox discovery</li>
+  <li>Encrypted local storage with credentials kept in the OS keyring</li>
+  <li>Themes and 20+ languages</li>
 </ul>
 
 <h2>How it works</h2>
