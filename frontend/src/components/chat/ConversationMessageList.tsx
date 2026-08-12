@@ -39,6 +39,7 @@ export function ConversationMessageList({
   wallpaperClassName,
   wallpaperStyle,
   onScroll,
+  onSetScrollTop,
   onOpenContextMenu,
 }: {
   messages: Message[]
@@ -57,6 +58,9 @@ export function ConversationMessageList({
   wallpaperClassName: string
   wallpaperStyle?: CSSProperties
   onScroll: () => void
+  /** Repositions the container through useConversationScroll's bookkeeping, so
+   *  the move is not mistaken for the reader scrolling. */
+  onSetScrollTop: (scrollTop: number) => void
   onOpenContextMenu: (state: MessageContextMenuState) => void
 }) {
   const { t } = useTranslation()
@@ -114,13 +118,13 @@ export function ConversationMessageList({
       requestAnimationFrame(() => {
         const el = scrollRef.current
         if (el && activeThreadIdRef.current === loadingThreadId) {
-          el.scrollTop = prevTop + (el.scrollHeight - prevHeight)
+          onSetScrollTop(prevTop + (el.scrollHeight - prevHeight))
         }
         autoLoadInFlightRef.current = false
       })
     }
     void loadMoreMessages(activeThreadId).then(restoreScrollPosition, restoreScrollPosition)
-  }, [activeThreadId, messagesCursor, messagesLoadingMore, scrollRef])
+  }, [activeThreadId, messagesCursor, messagesLoadingMore, scrollRef, onSetScrollTop])
 
   const handleScroll = useCallback(() => {
     onScroll()

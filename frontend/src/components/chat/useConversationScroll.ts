@@ -3,6 +3,22 @@ import { useValue } from '@legendapp/state/react'
 import { markMessagesRead } from '../../states/mail'
 import { thread$ } from '../../states/thread'
 import type { Message } from '../../types'
+import {
+  anchorScrollTop,
+  isUserScroll,
+  OPEN_ANCHOR_WINDOW_MS,
+  resolveOpenScroll,
+  resolveResizeScrollTop,
+  type ScrollMetrics,
+} from './conversationScroll'
+
+function readScrollMetrics(container: HTMLElement): ScrollMetrics {
+  return {
+    scrollTop: container.scrollTop,
+    scrollHeight: container.scrollHeight,
+    clientHeight: container.clientHeight,
+  }
+}
 
 // Owns the conversation scroll container and all of its positioning behaviour:
 // restoring scroll when returning to a thread, autoscrolling on new messages,
@@ -27,10 +43,45 @@ export function useConversationScroll(
   // arrived" apart from "read state changed" so we don't yank the user's scroll.
   const positionedThreadRef = useRef('')
   const messageCountRef = useRef(0)
-  // Message a starred-list jump landed on. While set, the ResizeObserver below
-  // re-anchors to it (instead of snapping to the bottom) so late-loading images
-  // above don't push it out of view; released shortly after the jump.
+  // Message the last positioning landed on — a starred-list jump, or the first
+  // unread on open. While set, the ResizeObserver below re-anchors to it (instead
+  // of snapping to the bottom) so bodies growing from their placeholder height
+  // don't push it out of view; released shortly after the jump.
   const pinnedMessageIdRef = useRef('')
+  const pinReleaseTimerRef = useRef(0)
+
+  // Last position we assigned ourselves, so scroll events we caused can be told
+  // apart from the reader's — see isUserScroll.
+  const expectedScrollTopRef = useRef<number | null>(null)
+
+  const applyScrollTop = useCallback((container: HTMLElement, scrollTop: number) => {
+    container.scrollTop = scrollTop
+    // Read it back: the browser clamps to the scrollable range, and the clamped
+    // value is what the scroll event will report.
+    expectedScrollTopRef.current = container.scrollTop
+  }, [])
+
+  // Same bookkeeping for the message list's own repositioning (holding the view
+  // still while older history is prepended): without it that assignment reads as
+  // the reader scrolling and drops the anchor.
+  const setScrollTop = useCallback(
+    (scrollTop: number) => {
+      const container = scrollRef.current
+      if (container) applyScrollTop(container, scrollTop)
+    },
+    [applyScrollTop],
+  )
+
+  const pinMessage = useCallback((messageId: string) => {
+    pinnedMessageIdRef.current = messageId
+    window.clearTimeout(pinReleaseTimerRef.current)
+    pinReleaseTimerRef.current = window.setTimeout(() => {
+      pinnedMessageIdRef.current = ''
+    }, OPEN_ANCHOR_WINDOW_MS)
+  }, [])
+
+  useEffect(() => () => window.clearTimeout(pinReleaseTimerRef.current), [])
+
   const pendingScrollMessageId = useValue(thread$.pendingScrollMessageId)
 
   const saveConversationScroll = useCallback(
@@ -73,6 +124,12 @@ export function useConversationScroll(
   }, [activeThreadId, messages])
 
   const handleConversationScroll = useCallback(() => {
+    const container = scrollRef.current
+    // The reader moving the view — including by dragging the scrollbar, which
+    // dispatches no mouse events here — outranks the settle-window anchor.
+    if (container && pinnedMessageIdRef.current && isUserScroll(container.scrollTop, expectedScrollTopRef.current)) {
+      pinnedMessageIdRef.current = ''
+    }
     saveConversationScroll()
     maybeMarkRead()
   }, [maybeMarkRead, saveConversationScroll])
@@ -101,24 +158,17 @@ export function useConversationScroll(
     lastScrollHeightRef.current = container.scrollHeight
 
     const observer = new ResizeObserver(() => {
-      if (pinnedMessageIdRef.current) {
-        const pinned = container.querySelector<HTMLElement>(
-          `[data-message-id="${CSS.escape(pinnedMessageIdRef.current)}"]`,
-        )
-        if (pinned) {
-          container.scrollTop = Math.max(0, pinned.offsetTop - container.offsetTop - 24)
-          lastScrollHeightRef.current = container.scrollHeight
-          maybeMarkRead()
-          return
-        }
-      }
-      // Keep the view pinned to the bottom only when it already was (content
-      // grew under the fold, e.g. images loading after open). A reader scrolled
-      // up — to star or reread something — must not be yanked back down.
-      const previousDistanceFromBottom = lastScrollHeightRef.current - container.scrollTop - container.clientHeight
-
-      if (previousDistanceFromBottom <= 160) {
-        container.scrollTop = container.scrollHeight
+      const pinned = pinnedMessageIdRef.current
+        ? container.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(pinnedMessageIdRef.current)}"]`)
+        : null
+      const scrollTop = resolveResizeScrollTop({
+        metrics: readScrollMetrics(container),
+        previousScrollHeight: lastScrollHeightRef.current,
+        containerOffsetTop: container.offsetTop,
+        pinnedOffsetTop: pinned ? pinned.offsetTop : null,
+      })
+      if (scrollTop !== null) {
+        applyScrollTop(container, scrollTop)
       }
       lastScrollHeightRef.current = container.scrollHeight
       maybeMarkRead()
@@ -126,7 +176,7 @@ export function useConversationScroll(
 
     observer.observe(wrapper)
     return () => observer.disconnect()
-  }, [activeTab, activeThreadId, messages])
+  }, [activeTab, activeThreadId, messages, applyScrollTop])
 
   useLayoutEffect(() => {
     const container = scrollRef.current
@@ -143,15 +193,14 @@ export function useConversationScroll(
         positionedThreadRef.current = activeThreadId
         messageCountRef.current = messages.length
         pendingScrollRestoreThreadRef.current = ''
-        pinnedMessageIdRef.current = pendingScrollMessageId
-        container.scrollTop = Math.max(0, target.offsetTop - container.offsetTop - 24)
+        pinMessage(pendingScrollMessageId)
+        applyScrollTop(container, anchorScrollTop(target.offsetTop, container.offsetTop))
         thread$.flashMessageId.set(pendingScrollMessageId)
         window.setTimeout(() => {
-          pinnedMessageIdRef.current = ''
           if (thread$.flashMessageId.peek() === pendingScrollMessageId) {
             thread$.flashMessageId.set('')
           }
-        }, 1800)
+        }, OPEN_ANCHOR_WINDOW_MS)
         maybeMarkRead()
         return
       }
@@ -160,40 +209,44 @@ export function useConversationScroll(
     const isNewThread = positionedThreadRef.current !== activeThreadId
     const grew = messages.length > messageCountRef.current
     messageCountRef.current = messages.length
-    const shouldRestoreScroll = pendingScrollRestoreThreadRef.current === activeThreadId
-
-    if (shouldRestoreScroll) {
+    let savedScrollTop: number | null = null
+    if (pendingScrollRestoreThreadRef.current === activeThreadId) {
       pendingScrollRestoreThreadRef.current = ''
-      const savedTop = conversationScrollTopRef.current.get(activeThreadId)
-      if (savedTop !== undefined) {
-        container.scrollTop = Math.min(savedTop, Math.max(0, container.scrollHeight - container.clientHeight))
-        maybeMarkRead()
-        return
-      }
+      savedScrollTop = conversationScrollTopRef.current.get(activeThreadId) ?? null
     }
 
-    if (!isNewThread) {
-      if (!grew) return
-      const distanceFromBottom = container.scrollHeight - container.scrollTop - container.clientHeight
-      if (distanceFromBottom > 160) return
-      container.scrollTop = container.scrollHeight
-      return
+    const hasUnread = messages.some((message) => message.unread)
+    const firstUnread = hasUnread ? container.querySelector<HTMLElement>('[data-unread="true"]') : null
+    if (isNewThread) {
+      positionedThreadRef.current = activeThreadId
     }
 
-    positionedThreadRef.current = activeThreadId
-    if (messages.some((message) => message.unread)) {
-      const firstUnread = container.querySelector<HTMLElement>('[data-unread="true"]')
-      if (!firstUnread) {
-        maybeMarkRead()
-        return
-      }
-      container.scrollTop = Math.max(0, firstUnread.offsetTop - container.offsetTop - 24)
-      maybeMarkRead()
-    } else {
-      container.scrollTop = container.scrollHeight
-      maybeMarkRead()
+    const plan = resolveOpenScroll({
+      isNewThread,
+      grew,
+      savedScrollTop,
+      metrics: readScrollMetrics(container),
+      containerOffsetTop: container.offsetTop,
+      hasUnread,
+      firstUnreadOffsetTop: firstUnread ? firstUnread.offsetTop : null,
+    })
+    if (plan.pin && firstUnread?.dataset.messageId) {
+      pinMessage(firstUnread.dataset.messageId)
     }
-  }, [activeTab, activeThreadId, messages.length, unreadKey, maybeMarkRead, pendingScrollMessageId])
+    if (plan.scrollTop !== null) {
+      applyScrollTop(container, plan.scrollTop)
+    }
+    maybeMarkRead()
+  }, [
+    activeTab,
+    activeThreadId,
+    messages.length,
+    unreadKey,
+    maybeMarkRead,
+    pendingScrollMessageId,
+    pinMessage,
+    applyScrollTop,
+  ])
 
-  return { scrollRef, bottomAnchorRef, messagesWrapperRef, handleConversationScroll, maybeMarkRead }
+  return { scrollRef, bottomAnchorRef, messagesWrapperRef, handleConversationScroll, maybeMarkRead, setScrollTop }
 }

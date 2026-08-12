@@ -129,12 +129,8 @@ export function MessagePane() {
   const mobileThreadSearchInputRef = useRef<HTMLInputElement | null>(null)
   const { threadSearchOpen, searchMatches, activeSearchIndex, activeSearchId, goToSearchMatch } =
     useThreadSearch(messages)
-  const { scrollRef, bottomAnchorRef, messagesWrapperRef, handleConversationScroll } = useConversationScroll(
-    activeThreadId,
-    messages,
-    conversationActiveTab,
-    unreadKey,
-  )
+  const { scrollRef, bottomAnchorRef, messagesWrapperRef, handleConversationScroll, setScrollTop } =
+    useConversationScroll(activeThreadId, messages, conversationActiveTab, unreadKey)
 
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
 
@@ -269,6 +265,7 @@ export function MessagePane() {
         wallpaperClassName={conversationWallpaper.className}
         wallpaperStyle={conversationWallpaper.style}
         onScroll={handleConversationScroll}
+        onSetScrollTop={setScrollTop}
         onOpenContextMenu={setContextMenu}
       />
 
