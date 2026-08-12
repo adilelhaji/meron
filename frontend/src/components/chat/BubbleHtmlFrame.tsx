@@ -4,9 +4,9 @@ import { Gallery, type GalleryItem } from './Gallery'
 import { HtmlFrame } from './HtmlFrame'
 import { prepareBubbleHtml } from './bubbleHtml'
 import { applyFrameHighlights, clearFrameHighlights } from './frameSearchHighlight'
+import { frameMetrics, measureFrameHeight } from './frameHeight'
 import { useMessageFrameFont } from './useMessageFrameFont'
 
-const MIN_FRAME_HEIGHT = 80
 const DEFAULT_FRAME_HEIGHT = 120
 const HEIGHT_CHANGE_EPSILON = 1
 const FRAME_OVERSCAN = '150% 0px'
@@ -18,10 +18,6 @@ function cacheKeyForHtml(html: string) {
     hash = (Math.imul(hash, 31) + html.charCodeAt(index)) | 0
   }
   return `${html.length}:${hash}`
-}
-
-function clampHeight(height: number) {
-  return Math.max(MIN_FRAME_HEIGHT, Math.ceil(height))
 }
 
 // Renders an email's HTML body in a self-sizing sandboxed iframe, wraps each
@@ -122,6 +118,8 @@ export function BubbleHtmlFrame({
     (doc: Document) => {
       let animationFrame = 0
       let disposed = false
+      // Per document: what its out-of-flow content was last seen to need.
+      let overflowExtent = 0
       const cleanupFns: Array<() => void> = []
 
       const commitHeight = (nextHeight: number) => {
@@ -147,19 +145,9 @@ export function BubbleHtmlFrame({
 
       const measure = () => {
         wrapOverflowingTables()
-        const bodyRect = doc.body?.getBoundingClientRect()
-        const bodyHeight = bodyRect ? bodyRect.top + bodyRect.height : 0
-        // Every term here is in the frame's own coordinate space: rects always
-        // include zoom, and the root element is never zoomed (only the body is,
-        // for the message text size). The body's scrollHeight / offsetHeight are
-        // deliberately left out — engines disagree on whether those report the
-        // zoomed or the unzoomed box, so mixing them in would size the frame off
-        // by the zoom factor in one direction or the other. Content overflowing
-        // the body is still covered: the root's scrollHeight spans it.
-        const nextHeight = clampHeight(
-          Math.max(bodyHeight, doc.documentElement?.scrollHeight ?? 0, doc.documentElement?.offsetHeight ?? 0),
-        )
-        commitHeight(nextHeight)
+        const measurement = measureFrameHeight(frameMetrics(doc), overflowExtent)
+        overflowExtent = measurement.overflowExtent
+        commitHeight(measurement.height)
       }
 
       // The body can't scroll sideways (the frame is `scrolling="no"` so it can

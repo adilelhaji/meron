@@ -744,17 +744,59 @@ internal fun HtmlMessageBody(
                     // Dropping initial-scale lets WebView pick the fit scale.
                     meta.setAttribute('content', 'width=' + Math.ceil(natural));
                   }
+                  // The root element is the one that scrolls, so its scrollHeight
+                  // never drops below the view's own height -- sizing off it pins
+                  // a short mail to whatever height the view was first laid out
+                  // at and lets the measurement only ever grow, padding a
+                  // one-line message out with blank space. Measure the boxes,
+                  // whose heights are auto and so track the content, and keep
+                  // scrollHeight purely as an overflow signal for content that
+                  // escapes the body (an absolutely positioned block whose
+                  // containing block is the initial one reaches nothing else).
+                  //
+                  // That signal only says anything while the view is still
+                  // shorter than the content: once it grows to fit, scrollHeight
+                  // and clientHeight agree again and the reading is
+                  // indistinguishable from an empty document. So an extent, once
+                  // seen, is carried as a floor for the rest of this document --
+                  // re-deriving it each pass is what would make the view
+                  // oscillate between the overflow height and the empty box.
+                  //
+                  // A floor is only worth carrying for a scroll area the boxes
+                  // cannot account for. A tall ordinary mail overflows the
+                  // view's first layout too, and retaining that would pin it
+                  // there: text that reflows shorter once the view settles at
+                  // its width could never give the height back.
+                  //
+                  // The desktop frame applies the same rules; its arithmetic
+                  // (and the tests pinning it) lives in chat/frameHeight.ts.
+                  var overflowExtent = 0;
+                  function contentHeight() {
+                    var root = document.documentElement;
+                    var body = document.body;
+                    var h = 0;
+                    if (body) {
+                      var rect = body.getBoundingClientRect();
+                      h = Math.max(h, rect.top + rect.height, rect.top + body.scrollHeight);
+                    }
+                    if (root) {
+                      var rootRect = root.getBoundingClientRect();
+                      h = Math.max(h, rootRect.top + rootRect.height);
+                      if (
+                        root.scrollHeight > root.clientHeight + 1 &&
+                        root.scrollHeight > h + 1
+                      ) {
+                        overflowExtent = Math.max(overflowExtent, root.scrollHeight);
+                      }
+                    }
+                    return Math.max(h, overflowExtent);
+                  }
                   function report() {
                     applyWidthFit();
-                    // scrollHeight is in the (possibly widened) layout viewport's
-                    // CSS pixels; the view renders it at fitScale, so scale it
-                    // back to dp or the view gets sized to a phantom tail.
-                    var h = Math.ceil(
-                      Math.max(
-                        document.documentElement.scrollHeight || 0,
-                        document.body ? document.body.scrollHeight : 0
-                      ) * fitScale
-                    );
+                    // The measurement is in the (possibly widened) layout
+                    // viewport's CSS pixels; the view renders it at fitScale, so
+                    // scale it back to dp or the view gets sized to a phantom tail.
+                    var h = Math.ceil(contentHeight() * fitScale);
                     if (window.MeronHeight && window.MeronHeight.report) {
                       window.MeronHeight.report(h);
                     } else if (
