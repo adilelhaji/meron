@@ -63,6 +63,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.11" date="2026-08-13">
+      <description>
+        <ul>
+          <li>Add search action for correspondent mail</li>
+          <li>Improve thread scroll anchoring and read state marking</li>
+          <li>Mark threads unread based on newest message</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.10" date="2026-08-12">
       <description>
         <ul>

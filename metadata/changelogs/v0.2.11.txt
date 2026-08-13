@@ -1,0 +1,3 @@
+- Add search action for correspondent mail
+- Improve thread scroll anchoring and read state marking
+- Mark threads unread based on newest message
