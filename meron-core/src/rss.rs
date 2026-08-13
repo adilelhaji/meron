@@ -697,6 +697,11 @@ pub fn starred_items(conn: &Connection, limit: i64) -> Result<Vec<Value>> {
 pub fn mark_thread_read(conn: &Connection, thread_id: &str, seen: bool) -> Result<()> {
     let (account, sub_id) =
         parse_thread_id(thread_id).ok_or_else(|| anyhow!("invalid RSS thread id: {thread_id}"))?;
+    if !seen {
+        // Marking a feed unread flags its newest item only — see
+        // store::update_rss_newest_item_seen.
+        return store::update_rss_newest_item_seen(conn, &account, &sub_id, seen);
+    }
     store::update_rss_thread_seen(conn, &account, &sub_id, seen)
 }
 

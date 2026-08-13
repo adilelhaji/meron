@@ -1405,7 +1405,18 @@ internal fun MeronMobileState.toggleRead(thread: ThreadSummary) {
                 markRead(MarkReadParams(threadId = backendThreadId, seen = thread.unread, messageIds = itemIds))
             }
         },
-        update = { threads -> threads.map { if (it.id == thread.id) it.copy(unread = !thread.unread) else it } },
+        // Marking unread flags the newest message only (see the core), so the
+        // card comes back as a single unread message rather than claiming every
+        // message in the thread is unread.
+        update = { threads ->
+            threads.map {
+                if (it.id == thread.id) {
+                    it.copy(unread = !thread.unread, unreadCount = if (thread.unread) 0 else 1)
+                } else {
+                    it
+                }
+            }
+        },
     )
 }
 

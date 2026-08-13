@@ -1112,6 +1112,32 @@ pub fn get_thread_headers(
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// The newest message of a thread (or of one subject branch of it), as a
+/// single-element uid list — empty when the thread has no cached messages.
+///
+/// Marking a whole thread unread uses this: the gesture means "bring this back
+/// to me", not "I read none of these", so only the newest message carries the
+/// flag. The thread then shows one unread message and opening it lands on that
+/// message, instead of reopening at the oldest one and shedding the count again
+/// as the reader scrolls down.
+pub fn newest_thread_uids(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    thread_key: &str,
+    subject_filter: Option<&str>,
+) -> Result<Vec<u32>> {
+    // get_thread_headers orders by date ascending, so the newest is last.
+    let newest = get_thread_headers(conn, account, folder, thread_key)?
+        .into_iter()
+        .filter(|header| match subject_filter {
+            Some(filter) => thread_grouping_subject(&header.subject) == filter,
+            None => true,
+        })
+        .next_back();
+    Ok(newest.map(|header| header.uid).into_iter().collect())
+}
+
 pub fn draft_thread_keys(conn: &Connection, account: &str) -> Result<HashSet<String>> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT COALESCE(NULLIF(m.thread_key, ''), 'uid:' || m.uid), m.folder, f.special_use
@@ -1896,6 +1922,25 @@ pub fn update_rss_thread_seen(
 ) -> Result<()> {
     conn.execute(
         "UPDATE messages SET seen = ?3 WHERE account = ?1 AND folder = ?2",
+        params![account, subscription_id, seen as i64],
+    )?;
+    Ok(())
+}
+
+/// The feed equivalent of [`newest_thread_uids`]: flag only the newest item, so
+/// "mark unread" on a feed brings back one item rather than claiming every item
+/// in it is unread.
+pub fn update_rss_newest_item_seen(
+    conn: &Connection,
+    account: &str,
+    subscription_id: &str,
+    seen: bool,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE messages SET seen = ?3 WHERE rowid = (
+             SELECT rowid FROM messages WHERE account = ?1 AND folder = ?2
+             ORDER BY date DESC, uid DESC LIMIT 1
+         )",
         params![account, subscription_id, seen as i64],
     )?;
     Ok(())

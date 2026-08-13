@@ -677,6 +677,21 @@ fn mark_items_then_thread_read() {
 }
 
 #[test]
+fn marking_a_feed_unread_flags_only_its_newest_item() {
+    let conn = rss_conn_with_feed("rss-acct", "feed-1");
+    insert_item(&conn, "rss-acct", "feed-1", "item-1", 100);
+    insert_item(&conn, "rss-acct", "feed-1", "item-2", 200);
+    mark_thread_read(&conn, "rss-acct#rss#feed-1", true).unwrap();
+
+    // "Mark unread" means "bring this feed back", not "I read none of these":
+    // the card shows one unread item and opening it lands on that item.
+    mark_thread_read(&conn, "rss-acct#rss#feed-1", false).unwrap();
+
+    assert_eq!(seen_starred(&conn, "feed-1", "item-1").0, 1);
+    assert_eq!(seen_starred(&conn, "feed-1", "item-2").0, 0);
+}
+
+#[test]
 fn mark_items_then_thread_starred() {
     let conn = rss_conn_with_feed("rss-acct", "feed-1");
     insert_item(&conn, "rss-acct", "feed-1", "item-1", 100);

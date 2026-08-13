@@ -1261,7 +1261,19 @@ pub(crate) fn mark_mobile_thread_read(data_dir: &str, params: &Value) -> Result<
     let parsed = parse_thread_id(&thread_id).ok_or_else(|| "invalid thread_id".to_string())?;
     let engine = crate::ffi::engine_for(data_dir)?;
     with_mobile_db(data_dir, |conn| {
-        let uids = requested_mobile_uids(&conn, &parsed, params)?;
+        let uids = if !seen && !has_requested_mobile_message_ids(params) && parsed.uid.is_none() {
+            // Marking a whole thread unread flags its newest message only.
+            store::newest_thread_uids(
+                &conn,
+                &parsed.account,
+                &parsed.folder,
+                &parsed.thread_key,
+                parsed.subject_filter.as_deref(),
+            )
+            .map_err(|err| err.to_string())?
+        } else {
+            requested_mobile_uids(&conn, &parsed, params)?
+        };
         update_mobile_read_state(&conn, &parsed, params, &uids, seen)?;
         if !uids.is_empty() {
             let creds = load_mobile_account_creds(&conn, &parsed.account)?;
@@ -1612,10 +1624,11 @@ pub(crate) fn update_mobile_read_state(
     uids: &[u32],
     seen: bool,
 ) -> Result<(), String> {
-    if has_requested_mobile_message_ids(params) || parsed.subject_filter.is_some() {
+    if has_requested_mobile_message_ids(params) || parsed.subject_filter.is_some() || !seen {
         // Explicit message ids, or a subject-branched card: `uids` is already
         // scoped to exactly the acted-on messages. The whole-thread update
         // below would flip sibling branches sharing the root thread_key.
+        // Marking unread is per-uid too — only the newest message was flagged.
         for uid in uids {
             store::update_message_seen(conn, &parsed.account, &parsed.folder, *uid, seen)
                 .map_err(|err| err.to_string())?;

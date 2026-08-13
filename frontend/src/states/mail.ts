@@ -1179,34 +1179,41 @@ export async function markThreadRead(threadId: string) {
   }
 }
 
+// Flag a thread as unread. The gesture means "bring this back to me", so it
+// marks the newest message only — matching the core, which does the same
+// server-side. Marking every message unread would reopen the thread at its
+// oldest message and shed the count again as the reader scrolls down.
 export async function markThreadUnread(threadId: string) {
   if (!threadId) return
-  const alreadyAllUnread =
+  const threadMessages = mail$.messages.get().filter((message) => message.thread_id === threadId)
+  const newestMessage = threadMessages.reduce<Message | null>(
+    (newest, message) => (!newest || message.date >= newest.date ? message : newest),
+    null,
+  )
+  const alreadyUnread =
     !mail$.threads.get().some((thread) => thread.thread_id === threadId && !thread.unread) &&
-    !mail$.messages.get().some((message) => message.thread_id === threadId && !message.unread) &&
+    (!newestMessage || newestMessage.unread) &&
     !Object.values(kanban$.threads.get()).some((threads) =>
       threads.some((thread) => thread.thread_id === threadId && !thread.unread),
     )
-  if (alreadyAllUnread) return
+  if (alreadyUnread) return
 
   mail$.readThreads[threadId].delete()
 
   mail$.threads.set(
     mail$.threads
       .get()
-      .map((thread) =>
-        thread.thread_id === threadId
-          ? { ...thread, unread: true, unread_count: Math.max(1, thread.unread_count ?? 0) }
-          : thread,
-      ),
+      .map((thread) => (thread.thread_id === threadId ? { ...thread, unread: true, unread_count: 1 } : thread)),
   )
-  mail$.messages.set(
-    mail$.messages.get().map((message) => (message.thread_id === threadId ? { ...message, unread: true } : message)),
-  )
+  if (newestMessage) {
+    mail$.messages.set(
+      mail$.messages.get().map((message) => (message.id === newestMessage.id ? { ...message, unread: true } : message)),
+    )
+  }
   updateKanbanThread(threadId, (thread) => ({
     ...thread,
     unread: true,
-    unread_count: Math.max(1, thread.unread_count ?? 0),
+    unread_count: 1,
   }))
 
   applyMutationFolderUnreads(await invoke<MutationResult>('mail.markRead', { thread_id: threadId, seen: false }))

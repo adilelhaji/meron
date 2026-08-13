@@ -1792,6 +1792,53 @@ fn search_messages_returns_empty_for_blank_query() {
 }
 
 #[test]
+fn newest_thread_uids_names_only_the_latest_message() {
+    let conn = test_conn();
+    conn.execute(
+        "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date, seen, thread_key)
+         VALUES('acct', 'INBOX', '1', 1, 'Topic', 'Them', 'them@example.com', 100, 1, 'topic-key'),
+               ('acct', 'INBOX', '2', 2, 'Topic', 'Them', 'them@example.com', 300, 1, 'topic-key'),
+               ('acct', 'INBOX', '3', 3, 'Topic', 'Them', 'them@example.com', 200, 1, 'topic-key')",
+        params![],
+    )
+    .unwrap();
+
+    // Marking a thread unread flags this one message, so the thread comes back
+    // as a single unread message rather than an all-unread thread.
+    let uids = newest_thread_uids(&conn, "acct", "INBOX", "topic-key", None).unwrap();
+
+    assert_eq!(uids, vec![2]);
+}
+
+#[test]
+fn newest_thread_uids_stays_within_a_subject_branch() {
+    let conn = test_conn();
+    conn.execute(
+        "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date, seen, thread_key)
+         VALUES('acct', 'INBOX', '1', 1, 'Invoice', 'Them', 'them@example.com', 100, 1, 'root'),
+               ('acct', 'INBOX', '2', 2, 'Re: Receipt', 'Them', 'them@example.com', 400, 1, 'root'),
+               ('acct', 'INBOX', '3', 3, 'Re: Invoice', 'Them', 'them@example.com', 300, 1, 'root')",
+        params![],
+    )
+    .unwrap();
+
+    let uids = newest_thread_uids(&conn, "acct", "INBOX", "root", Some("Invoice")).unwrap();
+
+    assert_eq!(uids, vec![3]);
+}
+
+#[test]
+fn newest_thread_uids_is_empty_for_an_unknown_thread() {
+    let conn = test_conn();
+
+    assert!(
+        newest_thread_uids(&conn, "acct", "INBOX", "missing", None)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
 fn get_thread_headers_all_folders_sorts_chronologically_by_parsed_date() {
     let conn = test_conn();
     // Insert via the real RFC 2822 parser (the ingestion path), so this also

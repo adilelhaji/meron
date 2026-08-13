@@ -1805,6 +1805,16 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 explicit_uids
             } else if thread_key.is_empty() {
                 uid.into_iter().collect::<Vec<_>>()
+            } else if !seen {
+                // Marking a whole thread unread flags its newest message only.
+                let db = engine.db.lock().unwrap();
+                store::newest_thread_uids(
+                    &db,
+                    &account,
+                    &folder,
+                    &thread_key,
+                    subject_filter.as_deref(),
+                )?
             } else {
                 // Only touch the thread's messages whose flag actually differs.
                 let db = engine.db.lock().unwrap();
@@ -1831,9 +1841,11 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
             {
                 let db = engine.db.lock().unwrap();
-                if thread_key.is_empty() || subject_filter.is_some() {
+                if thread_key.is_empty() || subject_filter.is_some() || !seen {
                     // Branch-scoped: a whole-thread update would flip sibling
-                    // subject branches sharing the root thread_key.
+                    // subject branches sharing the root thread_key. Marking
+                    // unread is per-uid for the same reason — only the newest
+                    // message was flagged.
                     for marked_uid in &uids {
                         store::update_message_seen(&db, &account, &folder, *marked_uid, seen)?;
                     }
