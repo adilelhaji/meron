@@ -4,13 +4,37 @@ import { markMessagesRead } from '../../states/mail'
 import { thread$ } from '../../states/thread'
 import type { Message } from '../../types'
 import {
+  ANCHOR_GAP_PX,
   anchorScrollTop,
+  collectManualUnreadIds,
+  isMessageRead,
   isUserScroll,
   OPEN_ANCHOR_WINDOW_MS,
+  pinnedScrollTop,
   resolveOpenScroll,
   resolveResizeScrollTop,
+  type ScrollAnchor,
   type ScrollMetrics,
 } from './conversationScroll'
+
+/** The message at the top of the viewport and how far into it the view has
+ *  scrolled — a position that survives bodies growing from placeholder size. */
+function readScrollAnchor(container: HTMLElement): ScrollAnchor | null {
+  const elements = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'))
+  let anchor: HTMLElement | null = null
+  for (const element of elements) {
+    if (element.offsetTop - container.offsetTop > container.scrollTop) break
+    anchor = element
+  }
+  // Scrolled above the first message (the load-earlier row): anchor to it
+  // anyway, with the negative offset that puts it back below the top edge.
+  anchor ??= elements[0] ?? null
+  if (!anchor?.dataset.messageId) return null
+  return {
+    messageId: anchor.dataset.messageId,
+    offset: container.scrollTop - (anchor.offsetTop - container.offsetTop),
+  }
+}
 
 function readScrollMetrics(container: HTMLElement): ScrollMetrics {
   return {
@@ -36,8 +60,11 @@ export function useConversationScroll(
   const messagesWrapperRef = useRef<HTMLDivElement | null>(null)
   const lastScrollHeightRef = useRef(0)
   const markingMessageIdsRef = useRef(new Set<string>())
-  const conversationScrollTopRef = useRef(new Map<string, number>())
-  const pendingScrollRestoreThreadRef = useRef('')
+  const conversationAnchorRef = useRef(new Map<string, ScrollAnchor>())
+  // Threads awaiting a scroll restore. A single slot would lose the first one
+  // when the reader leaves A for B and comes back: switching to A overwrites
+  // the pending thread with B, and A restores nothing.
+  const pendingScrollRestoreRef = useRef(new Set<string>())
   // Thread we've already done the one-time open positioning for, and the message
   // count at the last positioning — used to tell "thread opened" / "new message
   // arrived" apart from "read state changed" so we don't yank the user's scroll.
@@ -47,7 +74,7 @@ export function useConversationScroll(
   // unread on open. While set, the ResizeObserver below re-anchors to it (instead
   // of snapping to the bottom) so bodies growing from their placeholder height
   // don't push it out of view; released shortly after the jump.
-  const pinnedMessageIdRef = useRef('')
+  const pinnedRef = useRef<ScrollAnchor | null>(null)
   const pinReleaseTimerRef = useRef(0)
 
   // Last position we assigned ourselves, so scroll events we caused can be told
@@ -72,25 +99,61 @@ export function useConversationScroll(
     [applyScrollTop],
   )
 
-  const pinMessage = useCallback((messageId: string) => {
-    pinnedMessageIdRef.current = messageId
+  // The settle window runs from the last time the anchor was applied, not from
+  // the first: a body that is still growing keeps it alive. Otherwise the pin
+  // can expire mid-expansion — and while the target is out of reach the view
+  // sits clamped at the bottom, which the unpinned rule then reads as "the
+  // reader is at the bottom" and keeps it there.
+  const armPinRelease = useCallback(() => {
     window.clearTimeout(pinReleaseTimerRef.current)
     pinReleaseTimerRef.current = window.setTimeout(() => {
-      pinnedMessageIdRef.current = ''
+      pinnedRef.current = null
     }, OPEN_ANCHOR_WINDOW_MS)
   }, [])
+
+  const pinMessage = useCallback(
+    (messageId: string, offset = -ANCHOR_GAP_PX) => {
+      pinnedRef.current = { messageId, offset }
+      armPinRelease()
+    },
+    [armPinRelease],
+  )
 
   useEffect(() => () => window.clearTimeout(pinReleaseTimerRef.current), [])
 
   const pendingScrollMessageId = useValue(thread$.pendingScrollMessageId)
 
+  // Messages the reader turned unread by hand while the thread was open, and the
+  // unread flags of the last render they were derived from. Declared as a layout
+  // effect ahead of the positioning ones below so the set is filled before any
+  // of them can mark the message read again in the same commit.
+  const heldUnreadIdsRef = useRef(new Set<string>())
+  const previousUnreadRef = useRef(new Map<string, boolean>())
+  const trackedUnreadThreadRef = useRef('')
+
+  useLayoutEffect(() => {
+    if (activeThreadId !== trackedUnreadThreadRef.current) {
+      trackedUnreadThreadRef.current = activeThreadId
+      heldUnreadIdsRef.current.clear()
+      previousUnreadRef.current.clear()
+    }
+    const previous = previousUnreadRef.current
+    for (const id of collectManualUnreadIds(messages, previous)) {
+      heldUnreadIdsRef.current.add(id)
+    }
+    for (const message of messages) {
+      previous.set(message.id, !!message.unread)
+    }
+  }, [activeThreadId, messages, unreadKey])
+
   const saveConversationScroll = useCallback(
     (restoreOnReturn = false) => {
       const container = scrollRef.current
       if (!container || !activeThreadId) return
-      conversationScrollTopRef.current.set(activeThreadId, container.scrollTop)
+      const anchor = readScrollAnchor(container)
+      if (anchor) conversationAnchorRef.current.set(activeThreadId, anchor)
       if (restoreOnReturn) {
-        pendingScrollRestoreThreadRef.current = activeThreadId
+        pendingScrollRestoreRef.current.add(activeThreadId)
       }
     },
     [activeThreadId],
@@ -103,13 +166,24 @@ export function useConversationScroll(
     if (!hasUnread) return
 
     const containerRect = container.getBoundingClientRect()
+    const isVisible = (element: HTMLElement) => {
+      const rect = element.getBoundingClientRect()
+      return rect.top < containerRect.bottom && rect.bottom > containerRect.top
+    }
+    const isRead = (element: HTMLElement) => isMessageRead(element.getBoundingClientRect(), containerRect)
+
+    // "Mark as unread" on a message the reader is looking at would otherwise be
+    // undone by the very next scroll or body resize. Hold off until it leaves
+    // the viewport, after which reading it again marks it read as usual.
+    for (const id of heldUnreadIdsRef.current) {
+      const element = container.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
+      if (!element || !isVisible(element)) heldUnreadIdsRef.current.delete(id)
+    }
+
     const visibleMessageIds = Array.from(container.querySelectorAll<HTMLElement>('[data-unread="true"]'))
-      .filter((element) => {
-        const rect = element.getBoundingClientRect()
-        return rect.top < containerRect.bottom && rect.bottom > containerRect.top
-      })
+      .filter(isRead)
       .map((element) => element.dataset.messageId)
-      .filter((id): id is string => !!id && !markingMessageIdsRef.current.has(id))
+      .filter((id): id is string => !!id && !markingMessageIdsRef.current.has(id) && !heldUnreadIdsRef.current.has(id))
 
     if (visibleMessageIds.length === 0) return
     for (const id of visibleMessageIds) {
@@ -127,8 +201,8 @@ export function useConversationScroll(
     const container = scrollRef.current
     // The reader moving the view — including by dragging the scrollbar, which
     // dispatches no mouse events here — outranks the settle-window anchor.
-    if (container && pinnedMessageIdRef.current && isUserScroll(container.scrollTop, expectedScrollTopRef.current)) {
-      pinnedMessageIdRef.current = ''
+    if (container && pinnedRef.current && isUserScroll(container.scrollTop, expectedScrollTopRef.current)) {
+      pinnedRef.current = null
     }
     saveConversationScroll()
     maybeMarkRead()
@@ -158,25 +232,27 @@ export function useConversationScroll(
     lastScrollHeightRef.current = container.scrollHeight
 
     const observer = new ResizeObserver(() => {
-      const pinned = pinnedMessageIdRef.current
-        ? container.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(pinnedMessageIdRef.current)}"]`)
+      const pin = pinnedRef.current
+      const pinned = pin
+        ? container.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(pin.messageId)}"]`)
         : null
       const scrollTop = resolveResizeScrollTop({
         metrics: readScrollMetrics(container),
         previousScrollHeight: lastScrollHeightRef.current,
         containerOffsetTop: container.offsetTop,
-        pinnedOffsetTop: pinned ? pinned.offsetTop : null,
+        pinned: pinned && pin ? { offsetTop: pinned.offsetTop, offset: pin.offset } : null,
       })
       if (scrollTop !== null) {
         applyScrollTop(container, scrollTop)
       }
+      if (pinned) armPinRelease()
       lastScrollHeightRef.current = container.scrollHeight
       maybeMarkRead()
     })
 
     observer.observe(wrapper)
     return () => observer.disconnect()
-  }, [activeTab, activeThreadId, messages, applyScrollTop])
+  }, [activeTab, activeThreadId, messages, applyScrollTop, armPinRelease])
 
   useLayoutEffect(() => {
     const container = scrollRef.current
@@ -192,7 +268,7 @@ export function useConversationScroll(
       if (target) {
         positionedThreadRef.current = activeThreadId
         messageCountRef.current = messages.length
-        pendingScrollRestoreThreadRef.current = ''
+        pendingScrollRestoreRef.current.delete(activeThreadId)
         pinMessage(pendingScrollMessageId)
         applyScrollTop(container, anchorScrollTop(target.offsetTop, container.offsetTop))
         thread$.flashMessageId.set(pendingScrollMessageId)
@@ -209,17 +285,19 @@ export function useConversationScroll(
     const isNewThread = positionedThreadRef.current !== activeThreadId
     const grew = messages.length > messageCountRef.current
     messageCountRef.current = messages.length
+    let savedAnchor: ScrollAnchor | null = null
     let savedScrollTop: number | null = null
-    if (pendingScrollRestoreThreadRef.current === activeThreadId) {
-      pendingScrollRestoreThreadRef.current = ''
-      savedScrollTop = conversationScrollTopRef.current.get(activeThreadId) ?? null
+    if (pendingScrollRestoreRef.current.delete(activeThreadId)) {
+      savedAnchor = conversationAnchorRef.current.get(activeThreadId) ?? null
+      const saved = savedAnchor
+        ? container.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(savedAnchor.messageId)}"]`)
+        : null
+      savedScrollTop =
+        saved && savedAnchor ? pinnedScrollTop(saved.offsetTop, container.offsetTop, savedAnchor.offset) : null
     }
 
     const hasUnread = messages.some((message) => message.unread)
     const firstUnread = hasUnread ? container.querySelector<HTMLElement>('[data-unread="true"]') : null
-    if (isNewThread) {
-      positionedThreadRef.current = activeThreadId
-    }
 
     const plan = resolveOpenScroll({
       isNewThread,
@@ -230,13 +308,26 @@ export function useConversationScroll(
       hasUnread,
       firstUnreadOffsetTop: firstUnread ? firstUnread.offsetTop : null,
     })
-    if (plan.pin && firstUnread?.dataset.messageId) {
+    // Only a pass that actually positioned counts as done. Bailing out because
+    // the unread message is not in the DOM yet must leave the thread open for
+    // another try, or the view stays wherever the previous thread left it.
+    if (isNewThread && plan.scrollTop !== null) {
+      positionedThreadRef.current = activeThreadId
+    }
+    if (plan.pin === 'unread' && firstUnread?.dataset.messageId) {
       pinMessage(firstUnread.dataset.messageId)
+    } else if (plan.pin === 'restore' && savedAnchor) {
+      pinMessage(savedAnchor.messageId, savedAnchor.offset)
     }
     if (plan.scrollTop !== null) {
       applyScrollTop(container, plan.scrollTop)
     }
-    maybeMarkRead()
+    // Only a positioning pass marks read. A bare read-state change must not:
+    // it is what "mark as unread" produces, and marking there would undo it
+    // before the reader sees anything happen.
+    if (isNewThread || savedScrollTop !== null) {
+      maybeMarkRead()
+    }
   }, [
     activeTab,
     activeThreadId,

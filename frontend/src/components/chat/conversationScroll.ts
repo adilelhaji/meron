@@ -33,15 +33,68 @@ export function isUserScroll(scrollTop: number, expectedScrollTop: number | null
   return Math.abs(scrollTop - expectedScrollTop) > SCROLL_MATCH_TOLERANCE_PX
 }
 
+/**
+ * Ids of messages that just went from read to unread — the reader picking "Mark
+ * as unread" on a message that is very likely still on screen. Scroll-driven
+ * read marking has to leave those alone until they scroll away, or the action
+ * undoes itself. A message first seen already unread (no entry in
+ * `previousUnread`) is not one of these: that is simply an unread message the
+ * thread arrived with, and reading it marks it read as usual.
+ */
+export function collectManualUnreadIds(
+  messages: readonly { id: string; unread?: boolean }[],
+  previousUnread: ReadonlyMap<string, boolean>,
+): string[] {
+  return messages.filter((message) => message.unread && previousUnread.get(message.id) === false).map((m) => m.id)
+}
+
+export type VerticalBounds = {
+  top: number
+  bottom: number
+}
+
+/**
+ * Whether a message counts as read from where the view sits. Two ways to have
+ * read it: its bottom came into view, so all of it has been on screen, or its
+ * top has passed above the container's edge, so the reader scrolled through it
+ * — the case for a message taller than the viewport, which would otherwise
+ * never show its bottom. Merely peeking in from below is not reading: that is
+ * the next message waiting its turn.
+ */
+export function isMessageRead(message: VerticalBounds, container: VerticalBounds): boolean {
+  return message.top < container.top || message.bottom <= container.bottom
+}
+
 export type ScrollMetrics = {
   scrollTop: number
   scrollHeight: number
   clientHeight: number
 }
 
+/**
+ * Where to scroll to put a message back where it belongs. `offset` is the gap
+ * between the container's top edge and the message's: negative leaves the
+ * message below the edge (the anchor gap), positive means the reader had
+ * scrolled that far into it.
+ */
+export function pinnedScrollTop(targetOffsetTop: number, containerOffsetTop: number, offset: number): number {
+  return Math.max(0, targetOffsetTop - containerOffsetTop + offset)
+}
+
 /** Where to scroll so `targetOffsetTop` sits just below the container's top. */
 export function anchorScrollTop(targetOffsetTop: number, containerOffsetTop: number): number {
-  return Math.max(0, targetOffsetTop - containerOffsetTop - ANCHOR_GAP_PX)
+  return pinnedScrollTop(targetOffsetTop, containerOffsetTop, -ANCHOR_GAP_PX)
+}
+
+/**
+ * A scroll position expressed as content rather than pixels: the message at the
+ * top of the viewport and how far into it the reader had scrolled. Message
+ * bodies measure asynchronously, so a raw scrollTop saved before they settle
+ * means something different by the time it is restored.
+ */
+export type ScrollAnchor = {
+  messageId: string
+  offset: number
 }
 
 function bottomScrollTop(metrics: ScrollMetrics): number {
@@ -58,18 +111,18 @@ export function resolveResizeScrollTop({
   metrics,
   previousScrollHeight,
   containerOffsetTop,
-  pinnedOffsetTop,
+  pinned,
 }: {
   metrics: ScrollMetrics
   previousScrollHeight: number
   containerOffsetTop: number
-  /** offsetTop of the pinned message, or null when nothing is pinned. */
-  pinnedOffsetTop: number | null
+  /** Measured position of the pinned message, or null when nothing is pinned. */
+  pinned: { offsetTop: number; offset: number } | null
 }): number | null {
   // A pinned target wins: bodies growing above it must not push it out of view,
   // and its own growth must not read as "the reader is at the bottom".
-  if (pinnedOffsetTop !== null) {
-    return anchorScrollTop(pinnedOffsetTop, containerOffsetTop)
+  if (pinned !== null) {
+    return pinnedScrollTop(pinned.offsetTop, containerOffsetTop, pinned.offset)
   }
   // Keep the view pinned to the bottom only when it already was (content grew
   // under the fold, e.g. images loading after open). A reader scrolled up — to
@@ -82,8 +135,9 @@ export function resolveResizeScrollTop({
 export type OpenScrollPlan = {
   /** Target scroll position, or null to leave the view where it is. */
   scrollTop: number | null
-  /** Whether the target should be held against resizes for the anchor window. */
-  pin: boolean
+  /** Which anchor to hold against resizes for the settle window, if any: the
+   *  first unread message, or the saved anchor a restore landed on. */
+  pin: 'unread' | 'restore' | null
 }
 
 /**
@@ -111,28 +165,39 @@ export function resolveOpenScroll({
   /** offsetTop of the first unread message, or null when none is rendered. */
   firstUnreadOffsetTop: number | null
 }): OpenScrollPlan {
+  const unreadAnchor = firstUnreadOffsetTop === null ? null : anchorScrollTop(firstUnreadOffsetTop, containerOffsetTop)
+
   if (savedScrollTop !== null) {
-    return { scrollTop: Math.min(savedScrollTop, bottomScrollTop(metrics)), pin: false }
+    const restored = Math.min(savedScrollTop, bottomScrollTop(metrics))
+    // Unread above where the reader stopped means they left something behind —
+    // most often by marking a message unread on purpose. Coming back should
+    // show that message, not the position they scrolled away from. Unread below
+    // is simply the thread continuing, so the saved position still wins.
+    if (unreadAnchor !== null && unreadAnchor < restored) return { scrollTop: unreadAnchor, pin: 'unread' }
+    // Pinned like any other target: the saved position was measured against
+    // settled bodies, and restoring it against placeholder heights would let
+    // the next resize snap the view to the bottom.
+    return { scrollTop: restored, pin: 'restore' }
   }
 
   if (!isNewThread) {
     // A read-state change or a re-render is not a reason to move the view; only
     // a newly arrived message is, and only for a reader already at the bottom.
-    if (!grew) return { scrollTop: null, pin: false }
+    if (!grew) return { scrollTop: null, pin: null }
     const distanceFromBottom = metrics.scrollHeight - metrics.scrollTop - metrics.clientHeight
-    if (distanceFromBottom > BOTTOM_STICK_PX) return { scrollTop: null, pin: false }
-    return { scrollTop: metrics.scrollHeight, pin: false }
+    if (distanceFromBottom > BOTTOM_STICK_PX) return { scrollTop: null, pin: null }
+    return { scrollTop: metrics.scrollHeight, pin: null }
   }
 
-  if (firstUnreadOffsetTop === null) {
+  if (unreadAnchor === null) {
     // Unread messages the container hasn't rendered yet (a thread still
     // loading): leave the view alone rather than jumping to the bottom of a
     // list that is about to change under it.
-    if (hasUnread) return { scrollTop: null, pin: false }
-    return { scrollTop: metrics.scrollHeight, pin: false }
+    if (hasUnread) return { scrollTop: null, pin: null }
+    return { scrollTop: metrics.scrollHeight, pin: null }
   }
   // Bodies still carry their placeholder height here, so the first expansion
   // would otherwise look like "content grew under the fold" and snap the view
   // to the bottom — past the unread messages the reader opened the thread for.
-  return { scrollTop: anchorScrollTop(firstUnreadOffsetTop, containerOffsetTop), pin: true }
+  return { scrollTop: unreadAnchor, pin: 'unread' }
 }
