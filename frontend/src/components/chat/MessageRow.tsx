@@ -46,6 +46,7 @@ export function MessageRow({
   const {
     outgoing,
     isDraft,
+    isRSS,
     recipientSummary,
     allRecipientSummary,
     fromRaw,
@@ -172,14 +173,18 @@ export function MessageRow({
                 {t('chat.toRecipients', { recipients: allRecipientSummary })}
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => setMetaOpen((open) => !open)}
-              title={metaOpen ? t('chat.hideDetails') : t('chat.showDetails')}
-              className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-secondary hover:bg-black/[0.05] hover:text-primary dark:hover:bg-white/[0.08] cursor-pointer transition-colors"
-            >
-              <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
-            </button>
+            {/* A feed item has no recipients, so the details panel could only
+                repeat the feed name the header already shows. */}
+            {!isRSS && (
+              <button
+                type="button"
+                onClick={() => setMetaOpen((open) => !open)}
+                title={metaOpen ? t('chat.hideDetails') : t('chat.showDetails')}
+                className="flex h-4 w-4 shrink-0 items-center justify-center rounded text-secondary hover:bg-black/[0.05] hover:text-primary dark:hover:bg-white/[0.08] cursor-pointer transition-colors"
+              >
+                <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
+              </button>
+            )}
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 text-[0.65625rem] text-secondary/80">

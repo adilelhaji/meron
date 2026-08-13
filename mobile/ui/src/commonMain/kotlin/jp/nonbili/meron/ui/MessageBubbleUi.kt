@@ -69,6 +69,7 @@ internal fun MessageBubble(
     // actions (forward, edit as new, delete) [actionsEnabled] gates.
     itemActionsEnabled: Boolean,
     showSubject: Boolean,
+    isRss: Boolean,
     onForward: (MessageBody) -> Unit,
     onEditAsNew: (MessageBody) -> Unit,
     onOpenDraft: (MessageBody) -> Unit,
@@ -138,12 +139,14 @@ internal fun MessageBubble(
                 // The toggle is on every bubble, even a draft with no recipients
                 // yet: the details always lead with From, and a chevron that
                 // came and went between messages read as an arbitrary
-                // difference between them.
+                // difference between them. A feed item is the exception — it
+                // has no recipients at all, so the details could only repeat
+                // the feed name the header already shows.
                 Row(
                     Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(4.dp))
-                        .clickable { addressesOpen = !addressesOpen },
+                        .then(if (isRss) Modifier else Modifier.clickable { addressesOpen = !addressesOpen }),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
@@ -170,12 +173,14 @@ internal fun MessageBubble(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    Icon(
-                        if (addressesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                        contentDescription = if (addressesOpen) tr("chat.hideDetails") else tr("chat.showDetails"),
-                        modifier = Modifier.size(14.dp),
-                        tint = textColor.copy(alpha = 0.55f),
-                    )
+                    if (!isRss) {
+                        Icon(
+                            if (addressesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                            contentDescription = if (addressesOpen) tr("chat.hideDetails") else tr("chat.showDetails"),
+                            modifier = Modifier.size(14.dp),
+                            tint = textColor.copy(alpha = 0.55f),
+                        )
+                    }
                 }
                 if (folderIsDrafts(message.folderId)) {
                     Surface(

@@ -63,6 +63,7 @@ internal fun MessageRow(
     actionsEnabled: Boolean,
     itemActionsEnabled: Boolean,
     showSubject: Boolean,
+    isRss: Boolean,
     onForward: (MessageBody) -> Unit,
     onEditAsNew: (MessageBody) -> Unit,
     onOpenDraft: (MessageBody) -> Unit,
@@ -149,16 +150,21 @@ internal fun MessageRow(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            Icon(
-                                if (addressesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                                contentDescription = if (addressesOpen) tr("chat.hideDetails") else tr("chat.showDetails"),
-                                modifier =
-                                    Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .clickable { addressesOpen = !addressesOpen }
-                                        .size(16.dp),
-                                tint = mutedColor,
-                            )
+                            // A feed item has no recipients, so its details
+                            // could only repeat the feed name above.
+                            if (!isRss) {
+                                Icon(
+                                    if (addressesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                                    contentDescription =
+                                        if (addressesOpen) tr("chat.hideDetails") else tr("chat.showDetails"),
+                                    modifier =
+                                        Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .clickable { addressesOpen = !addressesOpen }
+                                            .size(16.dp),
+                                    tint = mutedColor,
+                                )
+                            }
                         }
                         if (!outgoing && message.fromAddr.isNotBlank()) {
                             Text(

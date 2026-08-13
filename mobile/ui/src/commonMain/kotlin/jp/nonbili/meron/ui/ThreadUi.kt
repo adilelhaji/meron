@@ -153,7 +153,7 @@ internal fun ThreadScreen(
     onComposeTo: (String) -> Unit,
     onCopyMessageText: (String, String) -> Unit,
     onRetryLoadMessages: () -> Unit,
-    onMessagesScrolledPast: (List<String>) -> Unit,
+    onMessagesRead: (List<String>) -> Unit,
     onViewedToBottom: () -> Unit,
     snackbarHost: SnackbarHostState,
 ) {
@@ -277,12 +277,30 @@ internal fun ThreadScreen(
     // ids are remembered per open so each is sent at most once.
     val currentMessages by rememberUpdatedState(messages)
     val currentHeaderItemCount by rememberUpdatedState(if (canLoadOlder || loadingOlder) 1 else 0)
-    val currentOnMessagesScrolledPast by rememberUpdatedState(onMessagesScrolledPast)
+    val currentOnMessagesRead by rememberUpdatedState(onMessagesRead)
     val currentOnViewedToBottom by rememberUpdatedState(onViewedToBottom)
     if (thread != null) {
         val density = LocalDensity.current
         val markedReadIds = remember(thread.id) { mutableSetOf<String>() }
         var viewedToBottomSent by remember(thread.id) { mutableStateOf(false) }
+        // Messages the reader turned unread by hand, held out of scroll marking
+        // until they leave the viewport — otherwise the next layout change
+        // (rotation, a body finishing its measurement, older messages loading)
+        // marks them read again and the action looks like it did nothing.
+        val heldUnreadIds = remember(thread.id) { mutableSetOf<String>() }
+        val previousUnread = remember(thread.id) { mutableMapOf<String, Boolean>() }
+        for (id in manualUnreadIds(messages, previousUnread)) {
+            heldUnreadIds += id
+            // Forget that it was ever marked read, so revisiting the thread and
+            // reading it again marks it read as usual.
+            markedReadIds -= id
+        }
+        // A message that is no longer unread has nothing left to protect —
+        // the reader marked it read again, or the request rolled back. Holding
+        // its id would keep the whole-thread marking below switched off for
+        // every other message too.
+        heldUnreadIds.retainAll { id -> messages.any { it.id == id && it.unread } }
+        messages.forEach { previousUnread[it.id] = it.unread }
         LaunchedEffect(thread.id) {
             val topSlackPx = with(density) { 24.dp.roundToPx() }
             val bottomSlackPx = with(density) { 160.dp.roundToPx() }
@@ -297,18 +315,27 @@ internal fun ThreadScreen(
             }.collect { snapshot ->
                 val msgs = currentMessages
                 if (msgs.isEmpty()) return@collect
-                val passedIds =
-                    scrolledPastMessageIndices(
+                // A held message is released once it is out of view; reading it
+                // again then marks it read like any other.
+                val visibleIndices = snapshot.visible.mapTo(mutableSetOf()) { it.index }
+                heldUnreadIds.removeAll { id ->
+                    val messageIndex = msgs.indexOfFirst { it.id == id }
+                    messageIndex < 0 || (messageIndex + currentHeaderItemCount) !in visibleIndices
+                }
+                val readIds =
+                    readMessageIndices(
                         visible = snapshot.visible,
                         firstVisibleIndex = snapshot.firstVisibleIndex,
                         headerItemCount = currentHeaderItemCount,
                         messageCount = msgs.size,
                         topSlackPx = topSlackPx,
+                        viewportEndOffset = snapshot.viewportEndOffset,
                     ).mapNotNull { msgs.getOrNull(it) }
                         .filter { it.unread }
                         .map { it.id }
+                        .filter { it !in heldUnreadIds }
                         .filter { markedReadIds.add(it) }
-                if (passedIds.isNotEmpty()) currentOnMessagesScrolledPast(passedIds)
+                if (readIds.isNotEmpty()) currentOnMessagesRead(readIds)
                 val atBottom =
                     listViewedToBottom(
                         visible = snapshot.visible,
@@ -316,7 +343,12 @@ internal fun ThreadScreen(
                         viewportEndOffset = snapshot.viewportEndOffset,
                         bottomSlackPx = bottomSlackPx,
                     )
-                if (atBottom && (!viewedToBottomSent || msgs.any { it.unread })) {
+                // Reaching the bottom marks the whole thread read — including
+                // messages on older pages that are not loaded — so it has to
+                // stand down while a hand-unread message is on screen, or it
+                // undoes the action the held set just protected. It resumes as
+                // soon as that message scrolls out of view.
+                if (atBottom && heldUnreadIds.isEmpty() && (!viewedToBottomSent || msgs.any { it.unread })) {
                     viewedToBottomSent = true
                     currentOnViewedToBottom()
                 }
@@ -581,6 +613,7 @@ internal fun ThreadScreen(
                                         actionsEnabled = !isRss,
                                         itemActionsEnabled = true,
                                         showSubject = isRss,
+                                        isRss = isRss,
                                         onForward = onForward,
                                         onEditAsNew = onEditAsNew,
                                         onOpenDraft = onOpenDraft,
@@ -609,6 +642,7 @@ internal fun ThreadScreen(
                                         actionsEnabled = !isRss,
                                         itemActionsEnabled = true,
                                         showSubject = isRss,
+                                        isRss = isRss,
                                         onForward = onForward,
                                         onEditAsNew = onEditAsNew,
                                         onOpenDraft = onOpenDraft,

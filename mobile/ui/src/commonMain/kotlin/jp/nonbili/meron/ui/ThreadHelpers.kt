@@ -56,31 +56,52 @@ internal data class ThreadScrollSnapshot(
     val viewportEndOffset: Int,
 )
 
-// Indices (into the message list) of the messages whose bubbles have fully
-// scrolled past the top of the viewport. `headerItemCount` counts the list
-// items above the messages (the load-older row); `topSlackPx` mirrors
-// desktop's 24px grace so a bubble only counts once it is clearly out of view.
-internal fun scrolledPastMessageIndices(
+// Ids of messages that just went from read to unread — the reader picking
+// "Mark as unread" on a message that is very likely still on screen. Scroll
+// marking has to leave those alone until they scroll away, or the action undoes
+// itself on the next layout change. A message first seen already unread (no
+// entry in `previousUnread`) is not one of these: it is simply an unread
+// message the thread arrived with, and reading it marks it read as usual.
+// Mirrors collectManualUnreadIds on desktop.
+internal fun manualUnreadIds(
+    messages: List<MessageBody>,
+    previousUnread: Map<String, Boolean>,
+): List<String> = messages.filter { it.unread && previousUnread[it.id] == false }.map { it.id }
+
+// Indices (into the message list) of the messages that count as read from where
+// the list sits: their top has passed above the viewport, so the reader scrolled
+// through them — the only way a message taller than the screen ever counts — or
+// their bottom came into view, so all of them has been on screen. A bubble
+// merely peeking in from the bottom is the next message waiting its turn, not
+// one that was read. Mirrors isMessageRead on desktop.
+//
+// `headerItemCount` counts the list items above the messages (the load-older
+// row). `topSlackPx` is the grace on the top edge: unlike desktop, which lands
+// its open anchor 24px below the edge, mobile scrolls the anchored item flush
+// to it, so a pixel of rounding must not read as "scrolled past".
+internal fun readMessageIndices(
     visible: List<ListItemGeometry>,
     firstVisibleIndex: Int,
     headerItemCount: Int,
     messageCount: Int,
     topSlackPx: Int,
+    viewportEndOffset: Int,
 ): List<Int> {
-    val passed = mutableListOf<Int>()
+    val read = mutableListOf<Int>()
     for (messageIndex in 0 until messageCount) {
         val itemIndex = messageIndex + headerItemCount
         val geometry = visible.firstOrNull { it.index == itemIndex }
-        val isPast =
+        val isRead =
             if (geometry != null) {
-                geometry.offset + geometry.size < topSlackPx
+                geometry.offset < -topSlackPx || geometry.offset + geometry.size <= viewportEndOffset
             } else {
+                // Not in the visible window: above it means read, below it means
+                // the reader has not reached it yet.
                 itemIndex < firstVisibleIndex
             }
-        if (!isPast) break
-        passed += messageIndex
+        if (isRead) read += messageIndex
     }
-    return passed
+    return read
 }
 
 // True when the last list item is visible with its bottom within

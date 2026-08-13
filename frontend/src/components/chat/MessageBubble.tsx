@@ -26,6 +26,7 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
   const {
     outgoing,
     isDraft,
+    isRSS,
     useHtmlBody,
     recipientSummary,
     fromRaw,
@@ -97,14 +98,18 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
                 </span>
               )
             )}
-            <button
-              type="button"
-              onClick={() => setMetaOpen((open) => !open)}
-              title={metaOpen ? t('chat.hideDetails') : t('chat.showDetails')}
-              className="flex items-center justify-center w-4 h-4 rounded text-secondary hover:text-primary hover:bg-black/[0.05] dark:hover:bg-white/[0.08] cursor-pointer transition-colors"
-            >
-              <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
-            </button>
+            {/* A feed item has no recipients, so the details panel could only
+                repeat the feed name the header already shows. */}
+            {!isRSS && (
+              <button
+                type="button"
+                onClick={() => setMetaOpen((open) => !open)}
+                title={metaOpen ? t('chat.hideDetails') : t('chat.showDetails')}
+                className="flex items-center justify-center w-4 h-4 rounded text-secondary hover:text-primary hover:bg-black/[0.05] dark:hover:bg-white/[0.08] cursor-pointer transition-colors"
+              >
+                <ChevronDown size={12} className={`transition-transform ${metaOpen ? 'rotate-180' : ''}`} />
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-1 text-[0.65625rem] text-secondary/80 select-none shrink-0">
             {isDraft && (
