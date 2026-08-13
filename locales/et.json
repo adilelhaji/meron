@@ -157,6 +157,7 @@
   "chat.moreActions": "Veel toiminguid",
   "chat.moreMessageActions": "Veel sõnumi toiminguid",
   "chat.newMessageTo": "Uus sõnum aadressile {email}",
+  "chat.viewMessagesWith": "Kuva sõnumid kasutajaga {name}",
   "chat.nextImage": "Järgmine pilt",
   "chat.nextMatch": "Järgmine vaste",
   "chat.noConversationParticipants": "Vestluses osalejaid pole.",

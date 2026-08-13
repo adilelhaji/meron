@@ -157,6 +157,7 @@
   "chat.moreActions": "Hành động khác",
   "chat.moreMessageActions": "Hành động tin nhắn khác",
   "chat.newMessageTo": "Tin nhắn mới gửi đến {email}",
+  "chat.viewMessagesWith": "Xem thư với {name}",
   "chat.nextImage": "Ảnh tiếp theo",
   "chat.nextMatch": "Kết quả tiếp theo",
   "chat.noConversationParticipants": "Không có người tham gia cuộc trò chuyện.",

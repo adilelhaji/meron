@@ -157,6 +157,7 @@
   "chat.moreActions": "Fler åtgärder",
   "chat.moreMessageActions": "Fler meddelandeåtgärder",
   "chat.newMessageTo": "Nytt meddelande till {email}",
+  "chat.viewMessagesWith": "Visa meddelanden med {name}",
   "chat.nextImage": "Nästa bild",
   "chat.nextMatch": "Nästa matchning",
   "chat.noConversationParticipants": "Inga konversationsdeltagare.",

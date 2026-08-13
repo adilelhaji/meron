@@ -157,6 +157,7 @@
   "chat.moreActions": "Plus d'actions",
   "chat.moreMessageActions": "Plus d'actions sur le message",
   "chat.newMessageTo": "Nouveau message à {email}",
+  "chat.viewMessagesWith": "Afficher les messages avec {name}",
   "chat.nextImage": "Image suivante",
   "chat.nextMatch": "Correspondance suivante",
   "chat.noConversationParticipants": "Aucun participant à la conversation.",

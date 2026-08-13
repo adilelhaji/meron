@@ -22,6 +22,7 @@ import { useConversationScroll } from './useConversationScroll'
 import { ArrowRight } from 'lucide-react'
 import { wallpaperCss } from '../../lib/wallpapers'
 import { clearMediaSession } from '../../lib/mediaSession'
+import { openCorrespondentMail } from '../../states/kanban'
 import type { Message, MessageTab } from '../../types'
 
 function threadFromTab(tab: MessageTab, fallback: Message | null): Message {
@@ -320,6 +321,9 @@ export function MessagePane() {
                 accountId: activeThread.account_id,
                 to: person.name && person.name !== person.email ? `${person.name} <${person.email}>` : person.email,
               })
+            }
+            onViewMessagesWith={(person) =>
+              openCorrespondentMail(activeThread.account_id, activeThread.folder_id, person.email)
             }
             onClose={() => thread$.mediaOpen.set(false)}
           />

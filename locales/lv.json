@@ -157,6 +157,7 @@
   "chat.moreActions": "Vairāk darbību",
   "chat.moreMessageActions": "Vairāk ziņojumu darbību",
   "chat.newMessageTo": "Jauns ziņojums lietotājam {email}",
+  "chat.viewMessagesWith": "Skatīt saraksti ar {name}",
   "chat.nextImage": "Nākamais attēls",
   "chat.nextMatch": "Nākamā sakritība",
   "chat.noConversationParticipants": "Nav sarunas dalībnieku.",

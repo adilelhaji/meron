@@ -157,6 +157,7 @@
   "chat.moreActions": "Daha fazla eylem",
   "chat.moreMessageActions": "Daha fazla mesaj eylemi",
   "chat.newMessageTo": "{email} adresine yeni mesaj",
+  "chat.viewMessagesWith": "{name} ile mesajları görüntüle",
   "chat.nextImage": "Sonraki resim",
   "chat.nextMatch": "Sonraki eşleşme",
   "chat.noConversationParticipants": "Konuşma katılımcısı yok.",

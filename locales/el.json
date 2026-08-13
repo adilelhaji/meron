@@ -157,6 +157,7 @@
   "chat.moreActions": "Περισσότερες ενέργειες",
   "chat.moreMessageActions": "Περισσότερες ενέργειες μηνύματος",
   "chat.newMessageTo": "Νέο μήνυμα προς {email}",
+  "chat.viewMessagesWith": "Προβολή μηνυμάτων με {name}",
   "chat.nextImage": "Επόμενη εικόνα",
   "chat.nextMatch": "Επόμενη αντιστοίχιση",
   "chat.noConversationParticipants": "Δεν υπάρχουν συμμετέχοντες στη συνομιλία.",

@@ -1,5 +1,5 @@
 import { useEffect, useState, type MouseEvent } from 'react'
-import { ChevronLeft, Copy, Download, File, Image, Loader2, Play, SquarePen, Users, X } from 'lucide-react'
+import { ChevronLeft, Copy, Download, File, Image, Loader2, Play, Search, SquarePen, Users, X } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
@@ -50,6 +50,7 @@ interface ConversationDetailsPanelProps {
   loading: boolean
   onOpenImage: (galleryIndex: number) => void
   onComposeTo: (person: Participant) => void
+  onViewMessagesWith: (person: Participant) => void
   onClose: () => void
 }
 
@@ -64,6 +65,7 @@ export function ConversationDetailsPanel({
   loading,
   onOpenImage,
   onComposeTo,
+  onViewMessagesWith,
   onClose,
 }: ConversationDetailsPanelProps) {
   const { t } = useTranslation()
@@ -227,6 +229,14 @@ export function ConversationDetailsPanel({
           className="fixed z-[81] min-w-[180px] rounded-xl border border-border bg-header p-1 shadow-xl"
           onContextMenu={(event) => event.preventDefault()}
         >
+          <MenuItem
+            icon={<Search size={13} className="text-accent" />}
+            label={t('chat.viewMessagesWith', { name: personMenu.person.name || personMenu.person.email })}
+            onClick={() => {
+              onViewMessagesWith(personMenu.person)
+              setPersonMenu(null)
+            }}
+          />
           <MenuItem
             icon={<Copy size={13} className="text-accent" />}
             label={t('chat.copyEmailAddress')}

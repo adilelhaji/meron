@@ -157,6 +157,7 @@
   "chat.moreActions": "更多操作",
   "chat.moreMessageActions": "更多消息操作",
   "chat.newMessageTo": "给 {email} 的新邮件",
+  "chat.viewMessagesWith": "查看与{name}的邮件",
   "chat.nextImage": "下一张图片",
   "chat.nextMatch": "下一个匹配",
   "chat.noConversationParticipants": "没有对话参与者。",

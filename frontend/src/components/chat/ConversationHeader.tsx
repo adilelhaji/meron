@@ -22,7 +22,7 @@ import { useTranslation } from '../../lib/i18n'
 import { showToast, ui$ } from '../../states/ui'
 import { archiveThread, deleteThread, starThread } from '../../states/mail'
 import { thread$, type ConversationMode } from '../../states/thread'
-import { closeKanbanPane, kanban$ } from '../../states/kanban'
+import { closeKanbanPane, kanban$, openCorrespondentMail } from '../../states/kanban'
 import { openComposeTab } from '../../states/compose'
 import type { Message } from '../../types'
 import { Avatar } from '../avatar/Avatar'
@@ -319,6 +319,15 @@ export function ConversationHeader({
             disabled={!senderEmail}
             onClick={() => {
               copyHeaderText(senderEmail, 'Email copied')
+              setSenderMenu(null)
+            }}
+          />
+          <MenuItem
+            icon={<Search size={13} className="text-accent" />}
+            label={t('chat.viewMessagesWith', { name: senderDisplayName })}
+            disabled={!senderEmail}
+            onClick={() => {
+              openCorrespondentMail(activeThread.account_id, activeThread.folder_id, senderEmail)
               setSenderMenu(null)
             }}
           />

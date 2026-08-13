@@ -157,6 +157,7 @@
   "chat.moreActions": "更多動作",
   "chat.moreMessageActions": "更多訊息動作",
   "chat.newMessageTo": "傳送新訊息至 {email}",
+  "chat.viewMessagesWith": "查看與{name}的郵件",
   "chat.nextImage": "下一張圖片",
   "chat.nextMatch": "下一個相符項",
   "chat.noConversationParticipants": "沒有對話參與者。",

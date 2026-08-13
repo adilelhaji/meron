@@ -9,6 +9,7 @@ import { compose$, openMessageTab } from './compose'
 import { persistedField } from '../lib/sessionPref'
 import { settings$, type KanbanBoard } from './settings'
 import { invoke } from '../lib/bridge'
+import { thread$ } from './thread'
 
 export type KanbanColumn = {
   accountId: string
@@ -114,8 +115,9 @@ export function forgetDeletedMailViewFolder(folderIds: string[]) {
  * the mail view is already on is a view switch, not a navigation: it keeps that
  * view's folder (e.g. Unified starred) instead of snapping back to `folderId`.
  */
-export function openMailAccount(accountId: string, folderId = 'inbox') {
-  const resumesMailView = !!kanban$.activeBoardId.peek() && ui$.selectedAccount.peek() === accountId
+export function openMailAccount(accountId: string, folderId = 'inbox', resumeCurrentFolder = true) {
+  const resumesMailView =
+    resumeCurrentFolder && !!kanban$.activeBoardId.peek() && ui$.selectedAccount.peek() === accountId
   if (!resumesMailView) {
     // Going somewhere else: drop the stash unused, so closing the board doesn't
     // also write the old folder — two prefs writes for one key can land out of
@@ -131,6 +133,23 @@ export function openMailAccount(accountId: string, folderId = 'inbox') {
   // set above changes nothing and the persist listener never fires — while the
   // pref still holds the folder the paused mail view was on. Write it directly.
   persistMailFolder(folderId)
+}
+
+/** Leave the conversation/board and show mail involving one correspondent.
+ * Mail search already merges the selected folder with Sent, so a bare address
+ * finds both incoming and outgoing messages without provider-specific syntax. */
+export function openCorrespondentMail(accountId: string, folderId: string, email: string) {
+  const query = email.trim()
+  if (!query) return
+  // This action targets the card/conversation folder, so it is a navigation,
+  // not a view resume. Let openMailAccount discard the stash before closing the
+  // board and persist the destination through its single-write path.
+  openMailAccount(accountId, folderId, false)
+  ui$.filterMode.set('all')
+  ui$.query.set(query)
+  ui$.selectedThread.set('')
+  thread$.mediaOpen.set(false)
+  ui$.mobilePane.set('threads')
 }
 
 export function closeKanbanBoard() {

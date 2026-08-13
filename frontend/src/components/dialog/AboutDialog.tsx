@@ -96,12 +96,6 @@ export function AboutDialog() {
             </div>
           </div>
         </div>
-
-        <div className="flex justify-end border-t border-border/70 px-5 py-4">
-          <Button variant="secondary" onClick={onClose}>
-            {t('buttons.close')}
-          </Button>
-        </div>
       </div>
     </div>
   )

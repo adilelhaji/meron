@@ -157,6 +157,7 @@
   "chat.moreActions": "その他のアクション",
   "chat.moreMessageActions": "その他のメッセージアクション",
   "chat.newMessageTo": "{email} への新規メッセージ",
+  "chat.viewMessagesWith": "{name} とのメールを表示",
   "chat.nextImage": "次の画像",
   "chat.nextMatch": "次の検索結果",
   "chat.noConversationParticipants": "会話の参加者はいません。",
