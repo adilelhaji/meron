@@ -214,6 +214,7 @@ fun MeronApp(
     mobileHost: MobileHost = DefaultMobileHost(),
     coreInitJson: String,
     incomingMailtoDraft: ComposeDraft? = null,
+    onMailtoDraftConsumed: () -> Unit = {},
     incomingOAuthCallbackUrl: String? = null,
     incomingNotificationThreadTarget: NotificationThreadTarget? = null,
     /**
@@ -308,6 +309,7 @@ fun MeronApp(
                 drawerState = drawerState,
                 coreInitJson = coreInitJson,
                 incomingMailtoDraft = incomingMailtoDraft,
+                onMailtoDraftConsumed = onMailtoDraftConsumed,
                 incomingOAuthCallbackUrl = incomingOAuthCallbackUrl,
                 incomingNotificationThreadTarget = incomingNotificationThreadTarget,
                 appearanceMode = appearanceMode,
@@ -355,6 +357,7 @@ private fun MeronMobileScreenContent(
     drawerState: androidx.compose.material3.DrawerState,
     coreInitJson: String,
     incomingMailtoDraft: ComposeDraft?,
+    onMailtoDraftConsumed: () -> Unit,
     incomingOAuthCallbackUrl: String?,
     incomingNotificationThreadTarget: NotificationThreadTarget?,
     appearanceMode: AppAppearanceMode,
@@ -745,8 +748,10 @@ private fun MeronMobileScreenContent(
         LaunchedEffect(incomingMailtoDraft, initialAccountsLoaded, appSignatureLoaded) {
             if (!initialAccountsLoaded || !appSignatureLoaded) return@LaunchedEffect
             incomingMailtoDraft?.let { draft ->
-                openMailtoCompose(draft)
-                status = "Loaded compose draft"
+                openMailtoCompose(draft) {
+                    onMailtoDraftConsumed()
+                    status = "Loaded compose draft"
+                }
             }
         }
 

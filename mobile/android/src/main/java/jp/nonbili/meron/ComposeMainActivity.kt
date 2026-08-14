@@ -335,6 +335,7 @@ class ComposeMainActivity : ComponentActivity() {
                 mobileHost = mobileHost,
                 coreInitJson = coreInitJson,
                 incomingMailtoDraft = incomingMailtoDraft,
+                onMailtoDraftConsumed = ::consumeMailtoIntent,
                 incomingOAuthCallbackUrl = incomingOAuthCallbackUrl,
                 incomingNotificationThreadTarget = incomingNotificationThreadTarget,
                 // Storing and pushing to the OS both happen in MeronApp; the
@@ -350,6 +351,23 @@ class ComposeMainActivity : ComponentActivity() {
         incomingMailtoDraft = intent.toSharedComposeDraft(this)
         incomingOAuthCallbackUrl = intent.toOAuthCallbackUrl()
         incomingNotificationThreadTarget = intent.toNotificationThreadTarget()
+    }
+
+    private fun consumeMailtoIntent() {
+        incomingMailtoDraft = null
+        setIntent(
+            Intent(intent).apply {
+                action = Intent.ACTION_MAIN
+                data = null
+                clipData = null
+                removeExtra(Intent.EXTRA_EMAIL)
+                removeExtra(Intent.EXTRA_CC)
+                removeExtra(Intent.EXTRA_BCC)
+                removeExtra(Intent.EXTRA_SUBJECT)
+                removeExtra(Intent.EXTRA_TEXT)
+                removeExtra(Intent.EXTRA_STREAM)
+            },
+        )
     }
 
     @Deprecated("Deprecated in ComponentActivity; fine for a single fire-and-forget permission request")

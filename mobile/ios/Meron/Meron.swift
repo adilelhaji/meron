@@ -5,7 +5,7 @@ import UIKit
 @main
 struct Meron: App {
     @UIApplicationDelegateAdaptor(IosNotificationDelegate.self) private var notificationDelegate
-    @State private var incomingMailtoDraft: ComposeDraft?
+    private let incomingMailtoEvents = IncomingMailtoEvents()
     @State private var incomingOAuthCallbackUrl: String?
     @State private var incomingNotificationThreadTarget: NotificationThreadTarget?
 
@@ -38,7 +38,7 @@ struct Meron: App {
                 core: core,
                 coreLoaded: coreLoaded,
                 coreInitJson: coreInitJson,
-                incomingMailtoDraft: incomingMailtoDraft,
+                incomingMailtoEvents: incomingMailtoEvents,
                 incomingOAuthCallbackUrl: incomingOAuthCallbackUrl,
                 incomingNotificationThreadTarget: incomingNotificationThreadTarget,
                 coreProtocolVersion: coreProtocolVersion
@@ -76,7 +76,7 @@ struct Meron: App {
             return
         }
         if let draft = MailtoKt.parseMailtoUrl(rawUrl: rawUrl) {
-            incomingMailtoDraft = draft
+            incomingMailtoEvents.offer(draft: draft)
         }
     }
 }

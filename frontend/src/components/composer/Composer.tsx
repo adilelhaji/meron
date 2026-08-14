@@ -7,6 +7,7 @@ import { ComposerHeaderFields } from './ComposerHeaderFields'
 import { ComposerToolbar } from './ComposerToolbar'
 import { ComposerAttachments } from './ComposerAttachments'
 import { ComposerFooter } from './ComposerFooter'
+import { closeMessageTab } from '../../states/compose'
 
 export function Composer({ tabId }: { tabId: string }) {
   const { t } = useTranslation()
@@ -29,7 +30,6 @@ export function Composer({ tabId }: { tabId: string }) {
     handleKeyDown,
     setLink,
     submit,
-    discardAndClose,
   } = useComposer(tabId)
 
   if (!draft) return null
@@ -85,7 +85,7 @@ export function Composer({ tabId }: { tabId: string }) {
         onPickFiles={() => void pickAttachmentFiles()}
         onPickInlineImages={() => void pickInlineImages()}
         onToggleRich={toggleRich}
-        onDiscard={() => void discardAndClose()}
+        onDiscard={() => void closeMessageTab(tabId)}
         onSubmit={submit}
       />
     </div>

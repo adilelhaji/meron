@@ -319,7 +319,7 @@ export function AppHotkeys() {
           const tab = compose$.activeTab.peek()
           if (!tab) return
           event.preventDefault()
-          closeMessageTab(tab)
+          void closeMessageTab(tab)
           break
         }
         case 'shortcuts.help':

@@ -6,6 +6,7 @@ import jp.nonbili.meron.shared.MobileMailCommandClient
 import jp.nonbili.meron.shared.coercePollIntervalMinutes
 import jp.nonbili.meron.shared.parseBackupExportResponse
 import jp.nonbili.meron.shared.parseBackupImportResponse
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -104,6 +105,7 @@ internal fun MeronMobileState.importBackup(
         status = trs("settings.backup.restoreFailed")
         return
     }
+    val generation = ++backupRestoreGeneration
     backupBusy = true
     scope.launch {
         // Wait out an in-flight write that would otherwise land on top of the
@@ -119,6 +121,7 @@ internal fun MeronMobileState.importBackup(
                 )
             }
         }.onSuccess { response ->
+            if (generation != backupRestoreGeneration) return@onSuccess
             val result = parseBackupImportResponse(response)
             if (result.needsPassphrase) {
                 // Keep the document so the retry doesn't re-open the picker.
@@ -126,6 +129,10 @@ internal fun MeronMobileState.importBackup(
                 backupPassphraseError = ""
                 backupPassphraseMode = BackupPassphraseMode.Restore
             } else {
+                // Reject any reads launched before this restore. Hydration below
+                // suspends, so invalidating first prevents an old response from
+                // briefly repainting pre-restore accounts/proxy/signature.
+                invalidateBackupReloads()
                 closeBackupPassphrase()
                 // Preferences the core carried but cannot write: appearance,
                 // language and the rest are ours to put back.
@@ -175,11 +182,10 @@ internal fun MeronMobileState.importBackup(
                 // Restored rows are in the store but not in this state: reload
                 // accounts (which re-seeds selection, folders and boards) and
                 // the app-wide proxy, which the socket layer reads separately.
-                listAccounts()
-                loadAppProxy()
-                loadAppSignature()
+                awaitBackupReloads(generation)
             }
         }.onFailure {
+            if (generation != backupRestoreGeneration) return@onFailure
             val message = it.message.orEmpty()
             // A wrong passphrase keeps the sheet open for a retype; anything
             // else is a real failure and closes it.
@@ -190,7 +196,24 @@ internal fun MeronMobileState.importBackup(
                 status = "${trs("settings.backup.restoreFailed")}: $message"
             }
         }
-        backupBusy = false
+        if (generation == backupRestoreGeneration) backupBusy = false
+    }
+}
+
+private suspend fun MeronMobileState.awaitBackupReloads(restoreGeneration: Int) {
+    repeat(2) {
+        val accountJob = listAccounts()
+        val accountGeneration = accountLoadGeneration
+        val proxyJob = loadAppProxy()
+        val proxyGeneration = proxyLoadGeneration
+        val signatureJob = loadAppSignature()
+        val signatureGeneration = appSignatureLoadGeneration
+        listOfNotNull(accountJob, proxyJob, signatureJob).joinAll()
+        val reloadSuperseded =
+            accountGeneration != accountLoadGeneration ||
+                proxyGeneration != proxyLoadGeneration ||
+                signatureGeneration != appSignatureLoadGeneration
+        if (restoreGeneration != backupRestoreGeneration || !reloadSuperseded) return
     }
 }
 

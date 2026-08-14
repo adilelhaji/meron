@@ -46,7 +46,7 @@ struct IosComposeHost: UIViewControllerRepresentable {
     let core: IosMeronCore
     let coreLoaded: Bool
     let coreInitJson: String
-    let incomingMailtoDraft: ComposeDraft?
+    let incomingMailtoEvents: IncomingMailtoEvents
     let incomingOAuthCallbackUrl: String?
     let incomingNotificationThreadTarget: NotificationThreadTarget?
     let coreProtocolVersion: Int32
@@ -56,7 +56,8 @@ struct IosComposeHost: UIViewControllerRepresentable {
             core: core,
             coreLoaded: coreLoaded,
             coreInitJson: coreInitJson,
-            incomingMailtoDraft: incomingMailtoDraft,
+            incomingMailtoDraft: nil,
+            incomingMailtoEvents: incomingMailtoEvents,
             incomingOAuthCallbackUrl: incomingOAuthCallbackUrl,
             incomingNotificationThreadTarget: incomingNotificationThreadTarget,
             outlookClientId: Bundle.main.object(forInfoDictionaryKey: "MERON_OUTLOOK_CLIENT_ID") as? String ?? "",

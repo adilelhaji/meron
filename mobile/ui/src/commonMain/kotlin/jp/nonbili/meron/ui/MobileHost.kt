@@ -1,5 +1,25 @@
 package jp.nonbili.meron.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import jp.nonbili.meron.shared.ComposeDraft
+
+/** Native hosts use this when a URL can arrive after their Compose controller
+ * has been created. Taking the value clears it so recreation cannot replay it. */
+class IncomingMailtoEvents {
+    var draft by mutableStateOf<ComposeDraft?>(null)
+        private set
+
+    fun offer(draft: ComposeDraft) {
+        this.draft = draft
+    }
+
+    fun consume() {
+        draft = null
+    }
+}
+
 /** Final data for a Google account connected through the platform's system
  *  sign-in (Android AccountManager). */
 data class GoogleDeviceAccount(

@@ -241,7 +241,9 @@ import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
 import jp.nonbili.meron.shared.toSendMailParams
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -297,36 +299,44 @@ private fun findOAuthResultAccount(
         ?: providerMatches.firstOrNull()
 }
 
-internal fun MeronMobileState.listAccounts() {
+internal fun MeronMobileState.listAccounts(): Job? {
     if (!coreLoaded) {
         status = coreUnavailableMessage
         initialAccountsLoaded = true
-        return
+        return null
     }
-    scope.launch {
-        accountsLoading = true
+    val generation = ++accountLoadGeneration
+    accountsLoading = true
+    return scope.launch {
         runCatching {
             withContext(ioDispatcher) { MobileMailCommandClient(core).listAccounts() }
         }.onSuccess {
+            if (generation != accountLoadGeneration) return@onSuccess
             applyAccounts(it)
             mobileHost.syncLiveMailPush(liveMailPushEnabled)
         }.onFailure {
+            if (generation != accountLoadGeneration) return@onFailure
             status = "Account list failed: ${it.message}"
         }
-        accountsLoading = false
-        initialAccountsLoaded = true
+        if (generation == accountLoadGeneration) {
+            accountsLoading = false
+            initialAccountsLoaded = true
+        }
     }
 }
 
 /** Read the app-wide proxy from the core store into [MeronMobileState.appProxy]. */
-internal fun MeronMobileState.loadAppProxy() {
-    if (!coreLoaded) return
-    scope.launch {
+internal fun MeronMobileState.loadAppProxy(): Job? {
+    if (!coreLoaded) return null
+    val generation = ++proxyLoadGeneration
+    return scope.launch {
         runCatching {
             withContext(ioDispatcher) {
                 MobileMailCommandClient(core).getProxy()
             }
-        }.onSuccess { appProxy = parseProxyResponse(it) }
+        }.onSuccess {
+            if (generation == proxyLoadGeneration) appProxy = parseProxyResponse(it)
+        }
     }
 }
 
@@ -365,46 +375,70 @@ private const val APP_SIGNATURE_RETRY_DELAY_MS = 250L
  * `signature` row rather than a `mobile.*` one, so the two platforms agree after
  * a backup restore.
  */
-internal fun MeronMobileState.loadAppSignature(attempt: Int = 0) {
+internal fun MeronMobileState.loadAppSignature(): Job? {
     if (!coreLoaded) {
         // Nothing to read and nothing coming: callers waiting on this (the
         // `mailto:` handler) must not hang, the same as initialAccountsLoaded.
         appSignatureLoaded = true
-        return
+        appSignatureLoadCompletion.complete(Unit)
+        return null
     }
     // A reload (after a backup restore, say) makes the value on hand stale, so
     // compose waits again — and only the newest read may answer, or a slow
     // startup response could land on top of the restored signature.
-    val generation = if (attempt == 0) ++appSignatureLoadGeneration else appSignatureLoadGeneration
-    if (attempt == 0) appSignatureLoaded = false
-    scope.launch {
-        runCatching {
-            withContext(ioDispatcher) {
-                // The core reports failure in the response body rather than by
-                // throwing, so an unchecked read would "succeed" with nothing in
-                // it and never retry.
-                requireCoreOk(
-                    MobileMailCommandClient(core).getPrefs(AppPrefsGetParams(listOf(APP_SIGNATURE_SETTING_KEY))),
-                )
+    val generation = ++appSignatureLoadGeneration
+    appSignatureLoaded = false
+    appSignatureLoadCompletion.complete(Unit)
+    appSignatureLoadCompletion = CompletableDeferred()
+    return scope.launch {
+        repeat(APP_SIGNATURE_LOAD_ATTEMPTS) { attempt ->
+            val response =
+                try {
+                    withContext(ioDispatcher) {
+                        // The core reports failure in the response body rather
+                        // than by throwing, so validate before accepting it.
+                        requireCoreOk(
+                            MobileMailCommandClient(core).getPrefs(AppPrefsGetParams(listOf(APP_SIGNATURE_SETTING_KEY))),
+                        )
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    null
+                }
+            if (generation != appSignatureLoadGeneration) return@launch
+            if (response != null) {
+                appSignatureHtml = parseAppPrefsResponse(response)[APP_SIGNATURE_SETTING_KEY] as? String ?: ""
+                appSignatureLoaded = true
+                appSignatureLoadCompletion.complete(Unit)
+                return@launch
             }
-        }.onSuccess {
-            if (generation != appSignatureLoadGeneration) return@onSuccess
-            appSignatureHtml = parseAppPrefsResponse(it)[APP_SIGNATURE_SETTING_KEY] as? String ?: ""
-            appSignatureLoaded = true
-        }.onFailure {
-            if (generation != appSignatureLoadGeneration) return@onFailure
-            // A read can fail transiently on a cold start (the keyed store may
-            // still be opening), and a compose that proceeded on that would be
-            // sent unsigned. Retry a few times before giving up — and give up
-            // eventually, so a store that never opens cannot strand a
-            // `mailto:` link forever.
+            // A read can fail transiently on a cold start. Give up eventually so
+            // a store that never opens cannot strand a `mailto:` link forever.
             if (attempt + 1 < APP_SIGNATURE_LOAD_ATTEMPTS) {
                 delay(APP_SIGNATURE_RETRY_DELAY_MS * (attempt + 1))
-                loadAppSignature(attempt + 1)
-            } else {
-                appSignatureLoaded = true
             }
         }
+        if (generation == appSignatureLoadGeneration) {
+            appSignatureLoaded = true
+            appSignatureLoadCompletion.complete(Unit)
+        }
+    }
+}
+
+internal fun MeronMobileState.invalidateBackupReloads() {
+    ++accountLoadGeneration
+    ++proxyLoadGeneration
+    ++appSignatureLoadGeneration
+    accountsLoading = false
+    appSignatureLoaded = false
+    appSignatureLoadCompletion.complete(Unit)
+    appSignatureLoadCompletion = CompletableDeferred()
+}
+
+internal suspend fun MeronMobileState.awaitAppSignatureLoaded() {
+    while (!appSignatureLoaded) {
+        appSignatureLoadCompletion.await()
     }
 }
 

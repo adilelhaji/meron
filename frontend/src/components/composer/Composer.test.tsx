@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { act, cleanup, render } from '@testing-library/react'
 import { accounts$ } from '../../states/accounts'
 import { settings$ } from '../../states/settings'
-import { compose$, openComposeTab, updateComposeDraft } from '../../states/compose'
+import { closeMessageTab, compose$, openComposeTab, updateComposeDraft } from '../../states/compose'
 import { ui$ } from '../../states/ui'
 import type { Account } from '../../types'
 import { Composer } from './Composer'
+import { ConversationTabs } from '../chat/ConversationTabs'
+import { AppConfirm } from '../dialog/AppConfirm'
 
 const account = (id: string, signatureHtml: string): Account => ({
   id,
@@ -29,11 +31,13 @@ describe('Composer', () => {
   // Set to hold the next allocation open, so a second save can be started while
   // the first is still in flight.
   let holdAllocation: (() => void) | null = null
+  let discardFailure = false
 
   beforeEach(() => {
     calls = []
     allocations = 0
     holdAllocation = null
+    discardFailure = false
     compose$.tabs.set([])
     compose$.activeTab.set('')
     settings$.signature.set('')
@@ -54,6 +58,7 @@ describe('Composer', () => {
               }
               return { message_id: id }
             }
+            if (command === 'mail.discardDraft' && discardFailure) throw new Error('server refused discard')
             return {}
           },
         },
@@ -90,6 +95,30 @@ describe('Composer', () => {
     const ids = savedDraftIds()
     expect(ids.length).toBeGreaterThan(1)
     // Every save wrote to the same server draft, so none was orphaned.
+    expect(new Set(ids).size).toBe(1)
+    expect(draftOf(tabId)?.draftMessageId).toBe(ids[0])
+  })
+
+  it('keeps one autosave queue when the composer unmounts and remounts during allocation', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    const first = render(<Composer tabId={tabId} />)
+
+    holdAllocation = () => {}
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+    })
+    first.unmount()
+    render(<Composer tabId={tabId} />)
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'alias@example.com' })
+      holdAllocation?.()
+      holdAllocation = null
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    const ids = savedDraftIds()
+    expect(allocations).toBe(1)
+    expect(ids.length).toBeGreaterThan(1)
     expect(new Set(ids).size).toBe(1)
     expect(draftOf(tabId)?.draftMessageId).toBe(ids[0])
   })
@@ -160,6 +189,36 @@ describe('Composer', () => {
     expect(last.body).toContain('moved to b')
   })
 
+  it('does not attach an in-flight allocation to a newly selected account', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    render(<Composer tabId={tabId} />)
+
+    holdAllocation = () => {}
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+    })
+    await act(async () => {
+      updateComposeDraft(tabId, { accountId: 'b', fromEmail: 'b@example.com' })
+      holdAllocation?.()
+      holdAllocation = null
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    const saves = calls.filter((call) => call.command === 'mail.saveDraft').map((call) => call.payload)
+    const allocatedForA = saves.find((save) => save.account_id === 'a')!.draft_id
+    const savedForB = saves.filter((save) => save.account_id === 'b').pop()!
+    expect(savedForB.draft_id).not.toBe(allocatedForA)
+    expect(draftOf(tabId)?.draftMessageId).toBe(savedForB.draft_id)
+    expect(
+      calls.some(
+        (call) =>
+          call.command === 'mail.discardDraft' &&
+          call.payload.account_id === 'a' &&
+          call.payload.draft_id === allocatedForA,
+      ),
+    ).toBe(true)
+  })
+
   it('deletes the server draft when the composer is discarded mid-save', async () => {
     const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
     const view = render(<Composer tabId={tabId} />)
@@ -183,6 +242,78 @@ describe('Composer', () => {
     // The draft deleted is the one the save created, and nothing re-saves it.
     expect(calls[discarded].payload.draft_id).toBe(savedDraftIds()[0])
     expect(order.slice(discarded).includes('mail.saveDraft')).toBe(false)
+  })
+
+  it('drains and discards when the tab strip closes the composer', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    const view = render(
+      <>
+        <ConversationTabs />
+        <Composer tabId={tabId} />
+      </>,
+    )
+
+    holdAllocation = () => {}
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+    })
+    await act(async () => {
+      view.getByTitle('Close tab').click()
+      expect(draftOf(tabId)).toBeDefined()
+      holdAllocation?.()
+      holdAllocation = null
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    const order = calls.map((call) => call.command)
+    expect(order.lastIndexOf('mail.discardDraft')).toBeGreaterThan(order.lastIndexOf('mail.saveDraft'))
+    expect(draftOf(tabId)).toBeUndefined()
+  })
+
+  it('deduplicates simultaneous footer and external close requests', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    const view = render(
+      <>
+        <ConversationTabs />
+        <Composer tabId={tabId} />
+      </>,
+    )
+
+    holdAllocation = () => {}
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+    })
+    await act(async () => {
+      const discard = [...view.container.querySelectorAll('button')].find((button) => button.textContent === 'Discard')!
+      discard.click()
+      const externalClose = closeMessageTab(tabId)
+      holdAllocation?.()
+      holdAllocation = null
+      await externalClose
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    expect(calls.filter((call) => call.command === 'mail.discardDraft')).toHaveLength(1)
+    expect(draftOf(tabId)).toBeUndefined()
+  })
+
+  it('closes an explicitly discarded composer after reporting a discard failure', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    const view = render(<Composer tabId={tabId} />)
+
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+    discardFailure = true
+    await act(async () => {
+      const discard = [...view.container.querySelectorAll('button')].find((button) => button.textContent === 'Discard')!
+      discard.click()
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    })
+
+    expect(draftOf(tabId)).toBeUndefined()
+    expect(ui$.toast.peek()).toBe('Could not discard draft: server refused discard')
   })
 
   it('cleans up the old account’s draft when the draft moves accounts', async () => {
@@ -232,6 +363,80 @@ describe('Composer', () => {
     const sent = calls.find((call) => call.command === 'mail.send')!.payload
     expect(sent.body).toContain('second thoughts')
     expect(sent.to).toBe('y@example.com')
+  })
+
+  it('revalidates recipient and account after autosaves drain', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    const view = render(<Composer tabId={tabId} />)
+
+    holdAllocation = () => {}
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+    })
+    await act(async () => {
+      const send = [...view.container.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('Send'),
+      )!
+      send.click()
+      updateComposeDraft(tabId, { to: '' })
+      holdAllocation?.()
+      holdAllocation = null
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(calls.some((call) => call.command === 'mail.send')).toBe(false)
+    expect(view.container.textContent).toContain('Add a recipient before sending')
+  })
+
+  it('revalidates the selected account after autosaves drain', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    const view = render(<Composer tabId={tabId} />)
+
+    holdAllocation = () => {}
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+    })
+    await act(async () => {
+      const send = [...view.container.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('Send'),
+      )!
+      send.click()
+      updateComposeDraft(tabId, { accountId: 'missing', fromEmail: 'missing@example.com' })
+      holdAllocation?.()
+      holdAllocation = null
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(calls.some((call) => call.command === 'mail.send')).toBe(false)
+    expect(view.container.textContent).toContain('Choose an available mail account')
+  })
+
+  it('asks for no-subject confirmation using the post-drain draft', async () => {
+    const tabId = openComposeTab({ to: 'x@example.com', subject: 'Hello', text: 'hi' })!
+    const view = render(
+      <>
+        <Composer tabId={tabId} />
+        <AppConfirm />
+      </>,
+    )
+
+    holdAllocation = () => {}
+    await act(async () => {
+      updateComposeDraft(tabId, { fromEmail: 'a@example.com' })
+    })
+    await act(async () => {
+      const send = [...view.container.querySelectorAll('button')].find((button) =>
+        button.textContent?.includes('Send'),
+      )!
+      send.click()
+      updateComposeDraft(tabId, { subject: '' })
+      holdAllocation?.()
+      holdAllocation = null
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    })
+
+    expect(view.getByRole('alertdialog').textContent).toContain('Send this message without a subject?')
+    expect(calls.some((call) => call.command === 'mail.send')).toBe(false)
   })
 
   it('shows the new account’s signature in the editor when From changes', async () => {

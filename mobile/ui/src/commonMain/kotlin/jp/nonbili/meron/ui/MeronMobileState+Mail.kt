@@ -799,6 +799,7 @@ internal fun MeronMobileState.openDraftCompose(
         status = coreUnavailableMessage
         return
     }
+    val generation = ++composeSessionGeneration
     scope.launch {
         runCatching {
             withContext(ioDispatcher) {
@@ -838,6 +839,7 @@ internal fun MeronMobileState.openDraftCompose(
                 )
             }
         }.onSuccess { (copiedAttachments, forwardHtml, inlineAttachments) ->
+            if (generation != composeSessionGeneration) return@onSuccess
             // Start from a clean composer: a draft opened after a reply would
             // otherwise inherit that reply's threading headers and be sent into
             // the wrong conversation. The draft's own headers are restored just
@@ -870,6 +872,7 @@ internal fun MeronMobileState.openDraftCompose(
             screen = Screen.Compose
             status = "Draft ready"
         }.onFailure {
+            if (generation != composeSessionGeneration) return@onFailure
             status = "Draft open failed: ${it.message}"
         }
     }

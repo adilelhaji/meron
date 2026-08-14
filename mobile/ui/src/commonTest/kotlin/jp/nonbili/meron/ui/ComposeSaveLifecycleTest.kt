@@ -1,0 +1,497 @@
+package jp.nonbili.meron.ui
+
+import jp.nonbili.meron.shared.AccountSummary
+import jp.nonbili.meron.shared.CloseableHandle
+import jp.nonbili.meron.shared.CoreEvent
+import jp.nonbili.meron.shared.CoreEventStream
+import jp.nonbili.meron.shared.MeronCore
+import jp.nonbili.meron.shared.MobileCommand
+import jp.nonbili.meron.shared.ProxySpec
+import jp.nonbili.meron.shared.SignatureSpec
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class ComposeSaveLifecycleTest {
+    @Test
+    fun fullComposeSavesAreSerialized() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "First"
+            state.body = "First body${state.body}"
+
+            state.autoSaveComposeDraft()
+            core.firstSaveStarted.await()
+            state.subject = "Second"
+            state.autoSaveComposeDraft()
+            yield()
+
+            assertEquals(1, core.saveCalls)
+            core.releaseFirstSave.complete(Unit)
+            core.secondSaveFinished.await()
+
+            assertEquals(2, core.saveCalls)
+            assertTrue(core.savedPayloads[0].contains("\"subject\":\"First\""))
+            assertTrue(core.savedPayloads[1].contains("\"subject\":\"Second\""))
+            assertEquals("draft-1@example.com", state.composeDraftId)
+        }
+
+    @Test
+    fun obsoleteSaveDiscardsItsAllocatedRemoteDraft() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "old@example.com"
+            state.subject = "Old"
+            state.body = "Old body${state.body}"
+
+            state.autoSaveComposeDraft()
+            core.firstSaveStarted.await()
+            state.openCompose()
+            core.releaseFirstSave.complete(Unit)
+            core.discardFinished.await()
+
+            assertTrue(core.discardPayloads.single().contains("draft-1@example.com"))
+            assertEquals("", state.composeDraftId)
+            assertEquals("", state.to)
+        }
+
+    @Test
+    fun closingSaveSurvivesOpeningAnotherComposer() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "saved@example.com"
+            state.subject = "Keep me"
+            state.body = "Closing body${state.body}"
+
+            state.closeCompose()
+            core.firstSaveStarted.await()
+            state.openCompose()
+            core.releaseFirstSave.complete(Unit)
+            core.firstSaveFinished.await()
+            yield()
+
+            assertEquals(1, core.saveCalls)
+            assertTrue(core.savedPayloads.single().contains("\"subject\":\"Keep me\""))
+            assertTrue(core.discardPayloads.isEmpty())
+            assertEquals("", state.to)
+        }
+
+    @Test
+    fun saveResultCannotCrossAnAccountSwitch() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "old@example.com"
+            state.subject = "Old account"
+            state.body = "Old body${state.body}"
+
+            state.autoSaveComposeDraft()
+            core.firstSaveStarted.await()
+            state.changeComposeIdentity("b", "b@example.com")
+            core.releaseFirstSave.complete(Unit)
+            core.discardFinished.await()
+
+            assertEquals("b", state.composeFromAccountId)
+            assertEquals("", state.composeDraftId)
+            assertEquals("", state.composeDraftAccountId)
+            assertTrue(core.discardPayloads.single().contains("draft-1@example.com"))
+        }
+
+    @Test
+    fun existingIdAutosaveCannotResurrectAfterSend() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "Send"
+            state.body = "Send body${state.body}"
+            state.composeDraftId = "existing-a@example.com"
+            state.composeDraftSaved = true
+            state.composeDraftAccountId = "a"
+
+            state.autoSaveComposeDraft()
+            core.firstSaveStarted.await()
+            state.sendMail()
+            yield()
+            assertEquals(0, core.sendCalls)
+            core.releaseFirstSave.complete(Unit)
+            core.sendFinished.await()
+            core.discardFinished.await()
+            yield()
+
+            assertEquals("", state.composeDraftId)
+            assertEquals(false, state.composeDraftSaved)
+            assertEquals(1, core.discardPayloads.size)
+            assertTrue(core.discardPayloads.single().contains("existing-a@example.com"))
+        }
+
+    @Test
+    fun existingIdAutosaveCannotResurrectAfterDiscard() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "Discard"
+            state.body = "Discard body${state.body}"
+            state.composeDraftId = "existing-a@example.com"
+            state.composeDraftSaved = true
+            state.composeDraftAccountId = "a"
+
+            state.autoSaveComposeDraft()
+            core.firstSaveStarted.await()
+            state.discardComposeDraft()
+            yield()
+            assertEquals(0, core.discardPayloads.size)
+            core.releaseFirstSave.complete(Unit)
+            core.discardFinished.await()
+
+            assertEquals("", state.composeDraftId)
+            assertEquals(false, state.composeDraftSaved)
+            assertEquals(1, core.discardPayloads.size)
+            assertTrue(core.discardPayloads.single().contains("existing-a@example.com"))
+        }
+
+    @Test
+    fun savedDraftSwitchingAccountsAllocatesBIdAndDiscardsExactAId() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "Move"
+            state.body = "Move body${state.body}"
+
+            state.autoSaveComposeDraft()
+            core.firstSaveStarted.await()
+            core.releaseFirstSave.complete(Unit)
+            core.firstSaveFinished.await()
+            withTimeout(1_000) {
+                while (state.composeDraftId.isBlank()) yield()
+            }
+            assertEquals("draft-1@example.com", state.composeDraftId)
+
+            state.changeComposeIdentity("b", "b@example.com")
+            assertTrue(state.composeDraftId.startsWith("local-draft-"))
+            assertEquals(false, state.composeDraftSaved)
+            assertEquals("", state.composeDraftAccountId)
+            state.autoSaveComposeDraft()
+            core.secondSaveFinished.await()
+            core.discardFinished.await()
+            yield()
+
+            assertEquals("draft-2@example.com", state.composeDraftId)
+            assertEquals("b", state.composeDraftAccountId)
+            assertTrue(core.savedPayloads[1].contains("\"account_id\":\"b\""))
+            assertTrue(core.savedPayloads[1].contains("\"draft_id\":\"draft-2@example.com\""))
+            assertEquals(1, core.discardPayloads.size)
+            assertTrue(core.discardPayloads.single().contains("\"account_id\":\"a\""))
+            assertTrue(core.discardPayloads.single().contains("draft-1@example.com"))
+        }
+
+    @Test
+    fun signaturePendingBlocksSave() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "Pending"
+            state.body = "Body${state.body}"
+            state.composeSignaturePending = true
+
+            state.saveComposeDraft()
+            yield()
+
+            assertEquals(0, core.saveCalls)
+            assertEquals("Waiting for signature before saving.", state.status)
+        }
+
+    @Test
+    fun olderAccountAndProxyLoadsCannotApplyAfterNewerLoads() =
+        runBlocking {
+            val core = ReloadCore()
+            val state = state(core, this)
+
+            val oldAccounts = state.listAccounts()
+            val oldProxy = state.loadAppProxy()
+            core.oldAccountsStarted.await()
+            core.oldProxyStarted.await()
+            val newAccounts = state.listAccounts()
+            val newProxy = state.loadAppProxy()
+            core.newAccountsStarted.await()
+            core.newProxyStarted.await()
+
+            core.newAccounts.complete("""{"accounts":[{"id":"new","email":"new@example.com"}]}""")
+            core.newProxy.complete("""{"proxy":{"mode":"http","host":"new.proxy","port":8080}}""")
+            newAccounts?.join()
+            newProxy?.join()
+            core.oldAccounts.complete("""{"accounts":[{"id":"old","email":"old@example.com"}]}""")
+            core.oldProxy.complete("""{"proxy":{"mode":"http","host":"old.proxy","port":8080}}""")
+            oldAccounts?.join()
+            oldProxy?.join()
+
+            assertEquals("new", state.coreAccounts.single().id)
+            assertEquals(ProxySpec("http", "new.proxy", 8080), state.appProxy)
+        }
+
+    private fun state(
+        core: MeronCore,
+        scope: CoroutineScope,
+    ): MeronMobileState =
+        MeronMobileState(
+            scope = scope,
+            core = core,
+            coreLoaded = true,
+            prefs = TestPreferences(),
+            kanbanPrefs = TestPreferences(),
+            services = TestPlatformServices(),
+            locale = TestLocaleController(),
+            mobileHost = DefaultMobileHost(),
+            settingsMirror = SettingsMirror(core, TestPreferences()) { true },
+        ).apply {
+            coreAccounts =
+                listOf(
+                    AccountSummary(
+                        id = "a",
+                        email = "a@example.com",
+                        signature = SignatureSpec("custom", "<p>From A</p>"),
+                    ),
+                    AccountSummary(
+                        id = "b",
+                        email = "b@example.com",
+                        signature = SignatureSpec("custom", "<p>From B</p>"),
+                    ),
+                )
+            selectedCoreAccountId = "a"
+            appSignatureLoaded = true
+        }
+
+    private class SaveCore : MeronCore {
+        val firstSaveStarted = CompletableDeferred<Unit>()
+        val firstSaveFinished = CompletableDeferred<Unit>()
+        val releaseFirstSave = CompletableDeferred<Unit>()
+        val secondSaveFinished = CompletableDeferred<Unit>()
+        val sendFinished = CompletableDeferred<Unit>()
+        val discardFinished = CompletableDeferred<Unit>()
+        val savedPayloads = mutableListOf<String>()
+        val discardPayloads = mutableListOf<String>()
+        var saveCalls = 0
+        var sendCalls = 0
+        private var allocationCalls = 0
+
+        override suspend fun invoke(
+            command: String,
+            payloadJson: String,
+        ): String =
+            when (command) {
+                MobileCommand.AllocateIdentity -> {
+                    allocationCalls++
+                    """{"message_id":"draft-$allocationCalls@example.com"}"""
+                }
+
+                MobileCommand.SaveDraft -> {
+                    savedPayloads += payloadJson
+                    saveCalls++
+                    if (saveCalls == 1) {
+                        firstSaveStarted.complete(Unit)
+                        releaseFirstSave.await()
+                        firstSaveFinished.complete(Unit)
+                    } else {
+                        secondSaveFinished.complete(Unit)
+                    }
+                    "{}"
+                }
+
+                MobileCommand.DiscardDraft -> {
+                    discardPayloads += payloadJson
+                    discardFinished.complete(Unit)
+                    "{}"
+                }
+
+                MobileCommand.Send -> {
+                    sendCalls++
+                    sendFinished.complete(Unit)
+                    "{}"
+                }
+
+                else -> {
+                    "{}"
+                }
+            }
+
+        override fun events(): CoreEventStream =
+            object : CoreEventStream {
+                override fun subscribe(listener: (CoreEvent) -> Unit): CloseableHandle = CloseableHandle {}
+            }
+
+        override suspend fun protocolVersion(): Int = 0
+    }
+
+    private class ReloadCore : MeronCore {
+        val oldAccountsStarted = CompletableDeferred<Unit>()
+        val newAccountsStarted = CompletableDeferred<Unit>()
+        val oldProxyStarted = CompletableDeferred<Unit>()
+        val newProxyStarted = CompletableDeferred<Unit>()
+        val oldAccounts = CompletableDeferred<String>()
+        val newAccounts = CompletableDeferred<String>()
+        val oldProxy = CompletableDeferred<String>()
+        val newProxy = CompletableDeferred<String>()
+        private var accountCalls = 0
+        private var proxyCalls = 0
+
+        override suspend fun invoke(
+            command: String,
+            payloadJson: String,
+        ): String =
+            when (command) {
+                MobileCommand.AccountList -> {
+                    accountCalls++
+                    if (accountCalls == 1) {
+                        oldAccountsStarted.complete(Unit)
+                        oldAccounts.await()
+                    } else {
+                        newAccountsStarted.complete(Unit)
+                        newAccounts.await()
+                    }
+                }
+
+                MobileCommand.AppProxyGet -> {
+                    proxyCalls++
+                    if (proxyCalls == 1) {
+                        oldProxyStarted.complete(Unit)
+                        oldProxy.await()
+                    } else {
+                        newProxyStarted.complete(Unit)
+                        newProxy.await()
+                    }
+                }
+
+                else -> {
+                    "{}"
+                }
+            }
+
+        override fun events(): CoreEventStream =
+            object : CoreEventStream {
+                override fun subscribe(listener: (CoreEvent) -> Unit): CloseableHandle = CloseableHandle {}
+            }
+
+        override suspend fun protocolVersion(): Int = 0
+    }
+
+    private class TestPreferences : AppPreferences {
+        private val strings = mutableMapOf<String, String>()
+
+        override fun getString(
+            key: String,
+            default: String,
+        ): String = strings[key] ?: default
+
+        override fun putString(
+            key: String,
+            value: String,
+        ) {
+            strings[key] = value
+        }
+
+        override fun getBoolean(
+            key: String,
+            default: Boolean,
+        ): Boolean = default
+
+        override fun putBoolean(
+            key: String,
+            value: Boolean,
+        ) {}
+
+        override fun getInt(
+            key: String,
+            default: Int,
+        ): Int = default
+
+        override fun putInt(
+            key: String,
+            value: Int,
+        ) {}
+
+        override fun getStringSet(
+            key: String,
+            default: Set<String>,
+        ): Set<String> = default
+
+        override fun putStringSet(
+            key: String,
+            value: Set<String>,
+        ) {}
+
+        override fun remove(key: String) {
+            strings.remove(key)
+        }
+    }
+
+    private class TestPlatformServices : PlatformServices {
+        override fun openUrl(url: String) {}
+
+        override fun openOAuthUrl(
+            url: String,
+            callbackScheme: String,
+            onCallback: (String) -> Unit,
+            onFailure: (String) -> Unit,
+        ) {}
+
+        override fun copyText(
+            label: String,
+            value: String,
+        ) {}
+
+        override fun copyImage(
+            bytes: ByteArray,
+            mimeType: String,
+            label: String,
+        ) {}
+
+        override fun shareFile(
+            bytes: ByteArray,
+            fileName: String,
+            mimeType: String,
+        ) {}
+
+        override fun saveFile(
+            bytes: ByteArray,
+            fileName: String,
+            mimeType: String,
+        ) {}
+
+        override fun pickFile(
+            mimeTypes: List<String>,
+            onPicked: (PickedFile?) -> Unit,
+        ) {}
+
+        override fun pickImage(onPicked: (PickedFile?) -> Unit) {}
+    }
+
+    private class TestLocaleController : LocaleController {
+        override fun systemLanguageTag(): String = ""
+
+        override fun applySystem(tag: String) {}
+
+        override fun deviceLanguageTag(): String = "en-US"
+
+        override fun displayName(tag: String): String = tag
+    }
+}

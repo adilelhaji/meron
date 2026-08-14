@@ -215,11 +215,27 @@ function richBlockMatches(html: string, needle: string): number[] {
   if (blocks.join('') !== html) return []
   const out: number[] = []
   let offset = 0
+  const needleBlocks = topLevelBlocks(needle)
+  if (needleBlocks.join('') !== needle || needleBlocks.some(isContainerBlock)) return []
   for (const block of blocks) {
-    if (html.startsWith(needle, offset) && endsOnBlockBoundary(blocks, offset, needle.length)) out.push(offset)
+    if (
+      !isContainerBlock(block) &&
+      html.startsWith(needle, offset) &&
+      endsOnBlockBoundary(blocks, offset, needle.length)
+    ) {
+      out.push(offset)
+    }
     offset += block.length
   }
   return out
+}
+
+function isContainerBlock(html: string): boolean {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const element = doc.body.firstElementChild
+  return !!element?.querySelector(
+    ':scope > p, :scope > div, :scope > blockquote, :scope > ul, :scope > ol, :scope > table',
+  )
 }
 
 /** Whether a match starting at a block boundary also ends on one. */

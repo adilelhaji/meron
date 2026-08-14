@@ -56,7 +56,7 @@ export function ReaderTabView({ tab }: { tab: MessageTab }) {
           </button>
         </div>
         <button
-          onClick={() => closeMessageTab(tab.id)}
+          onClick={() => void closeMessageTab(tab.id)}
           className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-hover text-secondary cursor-pointer"
           title={t('chat.closeTab')}
         >

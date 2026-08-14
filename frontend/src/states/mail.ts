@@ -1628,14 +1628,17 @@ export function isDraftFolder(folderId: string, accountId?: string): boolean {
   )
 }
 
-export async function discardSavedDraftCopy(draft: {
-  threadId: string
-  messageId: string
-  folderId: string
-  accountId?: string
-  draftMessageId?: string
-}) {
-  if (!draft.accountId && !draft.threadId) return
+export async function discardSavedDraftCopy(
+  draft: {
+    threadId: string
+    messageId: string
+    folderId: string
+    accountId?: string
+    draftMessageId?: string
+  },
+  options: { throwOnError?: boolean; failureMessage?: string } = {},
+): Promise<boolean> {
+  if (!draft.accountId && !draft.threadId) return true
 
   const previousThreads = mail$.threads.get()
   const previousMessages = mail$.messages.get()
@@ -1686,15 +1689,14 @@ export async function discardSavedDraftCopy(draft: {
     const selectedAcc = ui$.selectedAccount.get()
     if (selectedAcc) void loadFolders(selectedAcc, false)
     if (draft.accountId && draft.accountId !== selectedAcc) void loadFolders(draft.accountId, false)
+    return true
   } catch (error) {
     mail$.threads.set(previousThreads)
     mail$.messages.set(previousMessages)
-    showToast(
-      error instanceof Error
-        ? `Sent, but couldn't discard draft: ${error.message}`
-        : "Sent, but couldn't discard draft",
-      'error',
-    )
+    if (options.throwOnError) throw error
+    const message = options.failureMessage ?? "Sent, but couldn't discard draft"
+    showToast(error instanceof Error ? `${message}: ${error.message}` : message, 'error')
+    return false
   }
 }
 

@@ -13,13 +13,15 @@ import {
   appendSentMessage,
   saveComposedDraft,
   updateComposeDraft,
-  closeMessageTab,
+  finishClosingMessageTab,
 } from '../../states/compose'
 import { htmlToText } from '../../lib/html'
 import { invoke } from '../../lib/bridge'
 import { contextualErrorMessage } from '../../lib/errors'
 import { discardSavedDraftCopy } from '../../states/mail'
 import { pickFiles, pickImageFiles } from '../../lib/nativeFilePicker'
+import { getComposeSession, registerComposeSession } from '../../states/composeSessions'
+import { accounts$, isSendableAccount } from '../../states/accounts'
 import { ResizableImage } from './composerImage'
 import {
   clipboardHasImageMarkup,
@@ -43,20 +45,13 @@ export function useComposer(tabId: string) {
   const spellCheck = useValue(settings$.spellCheck)
   const tab = tabs.find((t) => t.id === tabId)
   const draft = tab?.compose
+  const sessionRef = useRef<ReturnType<typeof getComposeSession> | null>(null)
+  if (!sessionRef.current) sessionRef.current = getComposeSession(tabId)
+  const session = sessionRef.current
 
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  // Bumped by each autosave, so a slower earlier one knows it has been overtaken.
-  const saveGenerationRef = useRef(0)
-  // Autosaves run one at a time, in order. Overlapping them duplicated the
-  // server-side draft: each save that started while the tab still held a local
-  // draft id allocated its own real one, and the loser was orphaned in Drafts.
-  const saveChainRef = useRef<Promise<void>>(Promise.resolve())
-  // Set once the draft is being sent or thrown away: queued saves must not run
-  // afterwards, or one would write the message back into Drafts after it has
-  // been sent or discarded.
-  const savesStoppedRef = useRef(false)
 
   /**
    * Stop autosaving and wait for whatever is already running. Every exit from
@@ -65,8 +60,8 @@ export function useComposer(tabId: string) {
    * it would recreate the draft moments later.
    */
   const stopSaving = async () => {
-    savesStoppedRef.current = true
-    await saveChainRef.current
+    session.savesStopped = true
+    await session.saveChain
   }
 
   /** The draft as the tab holds it now, rather than as this render saw it. */
@@ -77,15 +72,19 @@ export function useComposer(tabId: string) {
    * wrote, which by then is the allocated id rather than the local placeholder
    * the composer opened with.
    */
-  const discardRemoteDraft = async (target: ComposeDraft) => {
-    if (!target.draftMessageId && !target.sourceDraft) return
-    await discardSavedDraftCopy({
-      threadId: target.sourceDraft?.threadId ?? '',
-      messageId: target.sourceDraft?.messageId ?? '',
-      folderId: target.sourceDraft?.folderId ?? '',
-      accountId: target.accountId,
-      draftMessageId: target.draftMessageId,
-    })
+  const discardRemoteDraft = async (target: ComposeDraft, throwOnError = false) => {
+    const remoteId = target.draftMessageId?.startsWith('local-draft-') ? undefined : target.draftMessageId
+    if (!remoteId && !target.sourceDraft) return
+    await discardSavedDraftCopy(
+      {
+        threadId: target.sourceDraft?.threadId ?? '',
+        messageId: target.sourceDraft?.messageId ?? '',
+        folderId: target.sourceDraft?.folderId ?? '',
+        accountId: target.accountId,
+        draftMessageId: remoteId,
+      },
+      { throwOnError },
+    )
   }
 
   /**
@@ -95,10 +94,17 @@ export function useComposer(tabId: string) {
    * with nothing left on screen to explain where it came from.
    */
   const discardAndClose = async () => {
-    await stopSaving()
-    const current = latestDraft()
-    if (current) await discardRemoteDraft(current)
-    closeMessageTab(tabId)
+    setError('')
+    try {
+      await stopSaving()
+      const current = latestDraft()
+      if (current) await discardRemoteDraft(current, true)
+      finishClosingMessageTab(tabId)
+    } catch (err) {
+      const message = contextualErrorMessage(err, t('composer.status.couldNotDiscardDraft'))
+      showToast(message, 'error')
+      finishClosingMessageTab(tabId)
+    }
   }
   const [saveError, setSaveError] = useState('')
   const lastImagePasteAtRef = useRef(0)
@@ -160,6 +166,10 @@ export function useComposer(tabId: string) {
   })
 
   useEffect(() => {
+    if (draft) registerComposeSession(tabId, discardAndClose)
+  }, [draft, session, tabId])
+
+  useEffect(() => {
     editor?.view.dom.setAttribute('spellcheck', String(spellCheck))
   }, [editor, spellCheck])
 
@@ -200,23 +210,26 @@ export function useComposer(tabId: string) {
   // allocated id belongs to the account whose folder holds it, and saving under
   // the new account creates a second copy while the first lingers. Queue the
   // cleanup on the save chain so it cannot overtake a save still writing it.
-  const savedAccountRef = useRef({ accountId: draft?.accountId, draftMessageId: draft?.draftMessageId })
   useEffect(() => {
-    const previous = savedAccountRef.current
+    const previous = { accountId: session.savedAccountId, draftMessageId: session.savedDraftMessageId }
     const accountId = draft?.accountId
     if (!accountId || previous.accountId === accountId) {
-      if (accountId) savedAccountRef.current = { accountId, draftMessageId: draft?.draftMessageId }
+      if (accountId) {
+        session.savedAccountId = accountId
+        session.savedDraftMessageId = draft?.draftMessageId
+      }
       return
     }
-    savedAccountRef.current = { accountId, draftMessageId: draft?.draftMessageId }
+    session.savedAccountId = accountId
+    session.savedDraftMessageId = draft?.draftMessageId
     const orphan = previous.draftMessageId
     if (!previous.accountId || !orphan || orphan.startsWith('local-draft-')) return
 
     // The next save must not reuse the old account's id, so the tab goes back
     // to a placeholder and the old copy is deleted where it actually lives.
     updateComposeDraft(tabId, { draftMessageId: newDraftMessageId() })
-    savedAccountRef.current = { accountId, draftMessageId: undefined }
-    saveChainRef.current = saveChainRef.current.then(async () => {
+    session.savedDraftMessageId = undefined
+    session.saveChain = session.saveChain.then(async () => {
       try {
         await discardSavedDraftCopy({
           threadId: '',
@@ -229,7 +242,7 @@ export function useComposer(tabId: string) {
         console.error('Discarding the previous account’s draft failed:', err)
       }
     })
-  }, [tabId, draft?.accountId, draft?.draftMessageId])
+  }, [session, tabId, draft?.accountId, draft?.draftMessageId])
 
   useEffect(() => {
     const sendAsChanged = previousFromEmailRef.current !== draft?.fromEmail
@@ -245,7 +258,7 @@ export function useComposer(tabId: string) {
       // render's account and headers with the body as it stands now would file
       // one account's message under another's, and reusing that render's draft
       // id would allocate a second server draft.
-      if (savesStoppedRef.current) return
+      if (session.savesStopped) return
       const current = compose$.tabs.peek().find((t) => t.id === tabId)?.compose
       if (!current?.accountId) return
 
@@ -253,8 +266,8 @@ export function useComposer(tabId: string) {
       // edit (a change of account, say) can start the next before it lands. Only
       // the newest may report back — an older one completing afterwards would
       // pin the tab to the draft id of a message it no longer describes.
-      const generation = ++saveGenerationRef.current
-      const isCurrent = () => generation === saveGenerationRef.current
+      const generation = ++session.saveGeneration
+      const isCurrent = () => generation === session.saveGeneration
       setSaveStatus('saving')
       setSaveError('')
       try {
@@ -281,8 +294,21 @@ export function useComposer(tabId: string) {
           draftMessageId,
           attachments,
         })
-        // The allocated id is recorded even by a superseded save: the server
-        // draft it created is the one the next save must replace.
+        const latest = compose$.tabs.peek().find((t) => t.id === tabId)?.compose
+        if (latest?.accountId !== current.accountId) {
+          if (savedDraftId !== draftMessageId) {
+            await discardSavedDraftCopy(
+              { threadId: '', messageId: '', folderId: '', accountId: current.accountId, draftMessageId: savedDraftId },
+              { failureMessage: "Couldn't clean up the previous account's draft" },
+            )
+          }
+          if (isCurrent()) {
+            setSaveStatus('idle')
+            setSaveError('')
+          }
+          return
+        }
+        // Only the account that allocated an id may attach it to the tab.
         if (savedDraftId !== draftMessageId) updateComposeDraft(tabId, { draftMessageId: savedDraftId })
         if (!isCurrent()) return
         setSaveStatus('saved')
@@ -291,14 +317,14 @@ export function useComposer(tabId: string) {
         console.error('Autosave draft failed:', err)
         if (!isCurrent()) return
         setSaveStatus('error')
-        setSaveError(contextualErrorMessage(err, 'Draft autosave failed'))
+        setSaveError(contextualErrorMessage(err, t('composer.status.draftAutosaveFailed')))
       }
     }
 
     // Queue behind whatever save is already running, so two never allocate or
     // write the same draft at once.
     const queueSave = () => {
-      saveChainRef.current = saveChainRef.current.then(saveDraft, saveDraft)
+      session.saveChain = session.saveChain.then(saveDraft, saveDraft)
     }
 
     // A send-as choice is often the last edit before the composer closes. Start
@@ -324,6 +350,7 @@ export function useComposer(tabId: string) {
     draft?.attachments,
     sending,
     editor,
+    session,
   ])
 
   const update = (partial: Parameters<typeof updateComposeDraft>[1]) => updateComposeDraft(tabId, partial)
@@ -495,29 +522,57 @@ export function useComposer(tabId: string) {
 
   const submit = async () => {
     if (!canSend || !draft) return
-    if (
-      !draft.subject.trim() &&
-      !(await confirmAction({
-        title: 'No subject',
-        message: 'Send this message without a subject?',
-        confirmLabel: 'Send',
-      }))
-    ) {
-      return
-    }
-
     setSending(true)
     setError('')
     await stopSaving()
     // Re-read after the wait: the fields stay editable while a save drains, and
     // sending this render's copy would silently drop whatever was typed (or the
     // account picked) in the meantime.
-    const current = latestDraft()
+    let current = latestDraft()
     if (!current) {
       setSending(false)
       return
     }
-    const subject = current.subject.trim()
+    const accountId = current.accountId
+    const account = accounts$.peek().find((candidate) => candidate.id === accountId)
+    if (!current.to.trim() || !isSendableAccount(account)) {
+      session.savesStopped = false
+      setError(
+        !current.to.trim()
+          ? t('composer.status.addRecipientBeforeSending')
+          : t('composer.status.chooseAvailableAccount'),
+      )
+      setSending(false)
+      return
+    }
+    let subject = current.subject.trim()
+    if (
+      !subject &&
+      !(await confirmAction({
+        title: 'No subject',
+        message: 'Send this message without a subject?',
+        confirmLabel: 'Send',
+      }))
+    ) {
+      session.savesStopped = false
+      setSending(false)
+      return
+    }
+    // The confirmation itself is another await while fields remain editable.
+    // Re-read once more so confirming never sends stale recipients or content.
+    current = latestDraft()
+    const confirmedAccount = accounts$.peek().find((candidate) => candidate.id === current?.accountId)
+    if (!current?.to.trim() || !isSendableAccount(confirmedAccount)) {
+      session.savesStopped = false
+      setError(
+        !current?.to.trim()
+          ? t('composer.status.addRecipientBeforeSending')
+          : t('composer.status.chooseAvailableAccount'),
+      )
+      setSending(false)
+      return
+    }
+    subject = current.subject.trim()
     try {
       let content = current.rich ? current.html : current.text
       let attachments = current.attachments
@@ -559,10 +614,10 @@ export function useComposer(tabId: string) {
       }
       await discardRemoteDraft(current)
       showToast(t('chat.messageSent'))
-      closeMessageTab(tabId)
+      finishClosingMessageTab(tabId)
     } catch (err) {
       // The composer stays open on failure, so autosaving resumes with it.
-      savesStoppedRef.current = false
+      session.savesStopped = false
       setError(contextualErrorMessage(err, t('compose.toast.sendFailed')))
     } finally {
       setSending(false)
@@ -572,7 +627,6 @@ export function useComposer(tabId: string) {
   return {
     tab,
     draft,
-    discardAndClose,
     editor,
     focusBody,
     textRef,

@@ -19,10 +19,17 @@ import jp.nonbili.meron.shared.StorageUsage
 import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.coercePollIntervalMinutes
 import jp.nonbili.meron.shared.defaultOAuthRedirectUri
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
+
+internal data class ComposeDraftOwner(
+    val accountId: String,
+    val draftId: String,
+)
 
 @OptIn(ExperimentalUuidApi::class)
 internal class MeronMobileState(
@@ -165,11 +172,20 @@ internal class MeronMobileState(
     // an autosave, and discarding under the new account would orphan the copy
     // on the old one.
     var composeDraftAccountId by mutableStateOf("")
+    var composeDraftCleanupOwners = emptyList<ComposeDraftOwner>()
 
     // True while a send round-trip is running; gates re-entry (a second Send
     // tap must not submit the message twice) and pauses draft autosaves so a
     // save landing mid-send can't resurrect the just-discarded draft.
     var composeSendInFlight by mutableStateOf(false)
+
+    // Owns all asynchronous work started for one full-composer session. Opening
+    // another compose invalidates completions from the previous one.
+    var composeSessionGeneration = 0
+    var composeIdentityGeneration = 0
+    var composeSignaturePending by mutableStateOf(false)
+    val composeSaveMutex = Mutex()
+
     var composeInReplyTo by mutableStateOf("")
     var composeReferences by mutableStateOf("")
 
@@ -276,6 +292,9 @@ internal class MeronMobileState(
     var backupPassphraseMode by mutableStateOf<BackupPassphraseMode?>(null)
     var backupPassphraseError by mutableStateOf("")
     var backupBusy by mutableStateOf(false)
+    var backupRestoreGeneration = 0
+    var accountLoadGeneration = 0
+    var proxyLoadGeneration = 0
     var accountMediaUploadTarget by mutableStateOf<AccountMediaUploadTarget?>(null)
     var kanbanBoardMediaTarget by mutableStateOf<KanbanBoardMediaTarget?>(null)
 
@@ -302,6 +321,7 @@ internal class MeronMobileState(
     // Bumped by each app-signature read, so a slow earlier one cannot answer
     // after a reload (a backup restore) has asked for a fresher value.
     var appSignatureLoadGeneration = 0
+    var appSignatureLoadCompletion = CompletableDeferred<Unit>()
     var storageUsage by mutableStateOf<StorageUsage?>(null)
     var storageBusy by mutableStateOf(false)
 

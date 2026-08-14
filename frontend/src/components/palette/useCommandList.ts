@@ -264,7 +264,7 @@ export function useCommandList(): Command[] {
         icon: icon(X),
         keywords: 'dismiss editor reader',
         shortcut: 'tab.close',
-        run: run(() => closeMessageTab(activeTab)),
+        run: run(() => void closeMessageTab(activeTab)),
       })
     }
 

@@ -44,7 +44,7 @@ export function ConversationTabs() {
           <button
             onClick={(event) => {
               event.stopPropagation()
-              closeMessageTab(tab.id)
+              void closeMessageTab(tab.id)
             }}
             className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-secondary hover:bg-active hover:text-primary"
             title={t('chat.closeTab')}

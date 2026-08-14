@@ -50,6 +50,7 @@ fun MainViewController(
     coreLoaded: Boolean,
     coreInitJson: String,
     incomingMailtoDraft: jp.nonbili.meron.shared.ComposeDraft? = null,
+    incomingMailtoEvents: IncomingMailtoEvents? = null,
     incomingOAuthCallbackUrl: String? = null,
     incomingNotificationThreadTarget: NotificationThreadTarget? = null,
     outlookClientId: String = "",
@@ -89,7 +90,8 @@ fun MainViewController(
                     coreProtocolVersion = coreProtocolVersion,
                 ),
             coreInitJson = coreInitJson,
-            incomingMailtoDraft = incomingMailtoDraft,
+            incomingMailtoDraft = incomingMailtoEvents?.draft ?: incomingMailtoDraft,
+            onMailtoDraftConsumed = { incomingMailtoEvents?.consume() },
             incomingOAuthCallbackUrl = incomingOAuthCallbackUrl,
             incomingNotificationThreadTarget = incomingNotificationThreadTarget,
         )

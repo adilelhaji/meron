@@ -237,8 +237,10 @@ import jp.nonbili.meron.shared.threadIdIsRss
 import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
 import jp.nonbili.meron.shared.toSendMailParams
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
@@ -300,8 +302,33 @@ internal fun MeronMobileState.changeComposeIdentity(
     accountId: String,
     email: String,
 ) {
+    if (accountId != composeDraftAccountId && composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
+        val owner = ComposeDraftOwner(composeDraftAccountId, composeDraftId)
+        if (owner !in composeDraftCleanupOwners) composeDraftCleanupOwners = composeDraftCleanupOwners + owner
+        composeDraftId = newDraftMessageId(accountId)
+        composeDraftSaved = false
+        composeDraftAccountId = ""
+    }
     composeFromAccountId = accountId
     composeFromEmail = email
+    val sessionGeneration = composeSessionGeneration
+    val identityGeneration = ++composeIdentityGeneration
+    if (!appSignatureLoaded) {
+        composeSignaturePending = true
+        scope.launch {
+            awaitAppSignatureLoaded()
+            if (sessionGeneration == composeSessionGeneration && identityGeneration == composeIdentityGeneration) {
+                applyComposeIdentitySignature(accountId)
+                composeSignaturePending = false
+            }
+        }
+        return
+    }
+    applyComposeIdentitySignature(accountId)
+    composeSignaturePending = false
+}
+
+private fun MeronMobileState.applyComposeIdentitySignature(accountId: String) {
     val swapped = bodyWithSwappedSignature(body, composeSignature, signatureTextFor(accountId))
     body = swapped.body
     composeSignature = swapped.tracking
@@ -317,6 +344,8 @@ internal fun MeronMobileState.clearComposeDraftState() {
     body = ""
     composeFromAccountId = ""
     composeFromEmail = ""
+    composeSignaturePending = false
+    ++composeIdentityGeneration
     composeDraftId = ""
     composeDraftSaved = false
     composeDraftAccountId = ""
@@ -396,6 +425,10 @@ internal fun MeronMobileState.acceptRecipientSuggestion(
 
 internal fun MeronMobileState.sendMail() {
     if (composeSendInFlight) return
+    if (composeSignaturePending || !appSignatureLoaded) {
+        status = "Waiting for signature before sending."
+        return
+    }
     val identity = selectedComposeIdentity()
     val accountId = identity?.accountId ?: defaultSendAccountId()
     if (accountId.isBlank()) {
@@ -410,125 +443,184 @@ internal fun MeronMobileState.sendMail() {
     composeSendInFlight = true
     status = "Sending..."
     scope.launch {
-        runCatching {
-            withContext(ioDispatcher) {
-                val client = MobileMailCommandClient(core)
-                val params =
-                    draft.toSendMailParams(accountId = accountId, from = identity?.email.orEmpty()).copy(
-                        inReplyTo = composeInReplyTo,
-                        references = composeReferences,
-                        messageId = allocateCoreMessageId(client = client, accountId = accountId, draft = false),
-                    )
-                withManagedGoogleAuth(client, accountId) { client.send(params) }
-            }
-        }.onSuccess {
-            // Read the draft id after the send completes so an autosave that
-            // landed mid-send is discarded too, and target the account the
-            // draft was actually saved under.
-            val draftId = composeDraftId
-            val draftAccountId = composeDraftAccountId.ifBlank { accountId }
-            if (draftId.isNotBlank()) {
-                runCatching {
-                    withContext(ioDispatcher) {
-                        MobileMailCommandClient(core).discardDraft(
-                            DiscardDraftParams(accountId = draftAccountId, draftId = draftId),
+        composeSaveMutex.withLock {
+            runCatching {
+                withContext(ioDispatcher) {
+                    val client = MobileMailCommandClient(core)
+                    val params =
+                        draft.toSendMailParams(accountId = accountId, from = identity?.email.orEmpty()).copy(
+                            inReplyTo = composeInReplyTo,
+                            references = composeReferences,
+                            messageId = allocateCoreMessageId(client = client, accountId = accountId, draft = false),
                         )
-                    }
+                    withManagedGoogleAuth(client, accountId) { client.send(params) }
                 }
+            }.onSuccess {
+                val owners =
+                    buildList {
+                        if (composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
+                            add(ComposeDraftOwner(composeDraftAccountId, composeDraftId))
+                        }
+                        addAll(composeDraftCleanupOwners)
+                    }.distinct()
+                composeDraftCleanupOwners = owners
+                discardComposeDraftOwners(owners)
+                clearComposeDraftState()
+                composeSendInFlight = false
+                closeCompose()
+                errorBanner = null
+                status = "Message sent"
+                syncCoreThreads()
+            }.onFailure {
+                composeSendInFlight = false
+                errorBanner = it.message ?: "Send failed"
+                status = "Send failed: ${it.message}"
             }
-            clearComposeDraftState()
-            composeSendInFlight = false
-            closeCompose()
-            errorBanner = null
-            status = "Message sent"
-            syncCoreThreads()
-        }.onFailure {
-            composeSendInFlight = false
-            errorBanner = it.message ?: "Send failed"
-            status = "Send failed: ${it.message}"
         }
     }
 }
 
+private suspend fun MeronMobileState.discardComposeDraftOwners(owners: List<ComposeDraftOwner>): Boolean {
+    var allDiscarded = true
+    owners.forEach { owner ->
+        val discarded =
+            runCatching {
+                withContext(ioDispatcher) {
+                    MobileMailCommandClient(core).discardDraft(
+                        DiscardDraftParams(accountId = owner.accountId, draftId = owner.draftId),
+                    )
+                }
+            }.isSuccess
+        if (discarded) {
+            composeDraftCleanupOwners = composeDraftCleanupOwners - owner
+        } else {
+            allDiscarded = false
+        }
+    }
+    return allDiscarded
+}
+
 internal fun MeronMobileState.saveComposeDraft() {
-    scope.launch {
-        saveComposeDraft(showStatus = true)
+    val generation = composeSessionGeneration
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        saveComposeDraft(showStatus = true, generation = generation)
     }
 }
 
 internal fun MeronMobileState.autoSaveComposeDraft() {
-    scope.launch {
-        saveComposeDraft(showStatus = false)
+    val generation = composeSessionGeneration
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        saveComposeDraft(showStatus = false, generation = generation)
     }
 }
 
-private suspend fun MeronMobileState.saveComposeDraft(showStatus: Boolean): Boolean {
-    // A send is about to discard the draft; saving now could resurrect it.
-    if (composeSendInFlight) return false
-    val identity = selectedComposeIdentity()
-    val accountId = identity?.accountId ?: defaultSendAccountId()
-    if (accountId.isBlank()) {
-        if (showStatus) status = "Select or add an account before saving."
-        return false
-    }
-    val draft = currentComposeDraft()
-    if (listOf(draft.to, draft.cc, draft.bcc, draft.subject, draft.body).all { it.isBlank() } && draft.attachments.isEmpty()) {
-        if (showStatus) status = "Nothing to save."
-        return false
-    }
-    val draftId = composeDraftId.ifBlank { newDraftMessageId(accountId) }
-    val previousDraftAccountId = composeDraftAccountId
-    if (showStatus) status = "Saving draft..."
-    return runCatching {
-        withContext(ioDispatcher) {
-            val client = MobileMailCommandClient(core)
-            val resolvedDraftId =
-                if (draftId.startsWith("local-draft-")) allocateCoreMessageId(client, accountId, draft = true) else draftId
-            val params =
-                draft
-                    .toSaveDraftParams(
-                        accountId = accountId,
-                        draftId = resolvedDraftId,
-                        from = identity?.email.orEmpty(),
-                    ).copy(
-                        inReplyTo = composeInReplyTo,
-                        references = composeReferences,
-                    )
-            withManagedGoogleAuth(client, accountId) { client.saveDraft(params) }
-            resolvedDraftId
+private suspend fun MeronMobileState.saveComposeDraft(
+    showStatus: Boolean,
+    generation: Int,
+    keepObsoleteDraft: Boolean = false,
+): Boolean {
+    return composeSaveMutex.withLock {
+        if (generation != composeSessionGeneration) return@withLock false
+        // A send is about to discard the draft; saving now could resurrect it.
+        if (composeSendInFlight) return@withLock false
+        if (composeSignaturePending || !appSignatureLoaded) {
+            if (showStatus) status = "Waiting for signature before saving."
+            return@withLock false
         }
-    }.fold(
-        onSuccess = { savedDraftId ->
-            composeDraftId = savedDraftId
-            composeDraftSaved = true
-            composeDraftAccountId = accountId
-            // The From identity moved to another account since the last save:
-            // clean up the copy left in the previous account's Drafts.
-            if (previousDraftAccountId.isNotBlank() && previousDraftAccountId != accountId) {
-                runCatching {
-                    withContext(ioDispatcher) {
-                        MobileMailCommandClient(core).discardDraft(
-                            DiscardDraftParams(accountId = previousDraftAccountId, draftId = savedDraftId),
-                        )
-                    }
+        val identityGeneration = composeIdentityGeneration
+        val identity = selectedComposeIdentity()
+        val accountId = identity?.accountId ?: defaultSendAccountId()
+        if (accountId.isBlank()) {
+            if (showStatus) status = "Select or add an account before saving."
+            return@withLock false
+        }
+        val draft = currentComposeDraft()
+        if (listOf(draft.to, draft.cc, draft.bcc, draft.subject, draft.body).all { it.isBlank() } && draft.attachments.isEmpty()) {
+            if (showStatus) status = "Nothing to save."
+            return@withLock false
+        }
+        val draftId = composeDraftId.ifBlank { newDraftMessageId(accountId) }
+        val cleanupOwners = composeDraftCleanupOwners
+        val draftThreadId = selectedCoreThread?.takeIf { composeReturnScreen == Screen.Thread }?.id
+        val inReplyTo = composeInReplyTo
+        val references = composeReferences
+        if (showStatus) status = "Saving draft..."
+        var resolvedDraftId = draftId
+        var allocatedRemoteDraft = false
+        val result =
+            runCatching {
+                withContext(ioDispatcher) {
+                    val client = MobileMailCommandClient(core)
+                    resolvedDraftId =
+                        if (draftId.startsWith("local-draft-")) {
+                            allocateCoreMessageId(client, accountId, draft = true).also { allocatedRemoteDraft = true }
+                        } else {
+                            draftId
+                        }
+                    val params =
+                        draft
+                            .toSaveDraftParams(
+                                accountId = accountId,
+                                draftId = resolvedDraftId,
+                                from = identity?.email.orEmpty(),
+                            ).copy(
+                                inReplyTo = inReplyTo,
+                                references = references,
+                            )
+                    withManagedGoogleAuth(client, accountId) { client.saveDraft(params) }
+                    resolvedDraftId
                 }
             }
-            selectedCoreThread?.let { markThreadDraftEverywhere(it.id) }
-            if (showStatus) status = "Draft saved"
-            syncCoreThreads(syncFirst = false)
-            runCatching { reloadCurrentThreadMessages() }
-            true
-        },
-        onFailure = {
-            status =
-                if (showStatus) {
-                    "Draft save failed: ${it.message}"
-                } else {
-                    "Draft autosave failed: ${it.message}"
-                }
-            false
-        },
-    )
+        val sessionObsolete = generation != composeSessionGeneration
+        val identityObsolete = identityGeneration != composeIdentityGeneration
+        val obsolete = sessionObsolete || identityObsolete || composeSendInFlight
+        if (obsolete) {
+            val keepClosingDraft = keepObsoleteDraft && sessionObsolete && result.isSuccess
+            if (keepClosingDraft) {
+                discardComposeDraftOwners(cleanupOwners)
+                draftThreadId?.let { markThreadDraftEverywhere(it) }
+                syncCoreThreads(syncFirst = false)
+                return@withLock true
+            }
+            if (allocatedRemoteDraft && resolvedDraftId.isNotBlank()) {
+                discardObsoleteComposeDraft(accountId, resolvedDraftId)
+            }
+            return@withLock false
+        }
+        result.fold(
+            onSuccess = { savedDraftId ->
+                composeDraftId = savedDraftId
+                composeDraftSaved = true
+                composeDraftAccountId = accountId
+                discardComposeDraftOwners(cleanupOwners)
+                selectedCoreThread?.let { markThreadDraftEverywhere(it.id) }
+                if (showStatus) status = "Draft saved"
+                syncCoreThreads(syncFirst = false)
+                runCatching { reloadCurrentThreadMessages() }
+                true
+            },
+            onFailure = {
+                status =
+                    if (showStatus) {
+                        "Draft save failed: ${it.message}"
+                    } else {
+                        "Draft autosave failed: ${it.message}"
+                    }
+                false
+            },
+        )
+    }
+}
+
+private suspend fun MeronMobileState.discardObsoleteComposeDraft(
+    accountId: String,
+    draftId: String,
+) {
+    runCatching {
+        withContext(ioDispatcher) {
+            MobileMailCommandClient(core).discardDraft(DiscardDraftParams(accountId = accountId, draftId = draftId))
+        }
+    }
 }
 
 // The message a quick reply answers: the newest one that isn't a draft (the
@@ -732,43 +824,64 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
             ownAddresses = ownAddressList(coreAccounts),
             attachments = quickReplyAttachments,
         )
-    to = params.to
-    cc = params.cc
-    bcc = params.bcc
-    subject = params.subject
-    body = seedBodyWithSignature(params.body, accountId)
-    attachments = quickReplyAttachments
-    // A quick reply is plain text; nothing carries over from an earlier forward.
-    composeForwardHtml = ""
-    composeForwardInlineAttachments = emptyList()
-    composeFromAccountId = accountId
-    composeFromEmail = replyFrom
-    // Hand off any draft already saved for this quick reply so continuing in the
-    // full editor keeps editing the same server-side draft instead of creating a
-    // duplicate one.
-    composeDraftId = quickReplyDraftId
-    composeDraftSaved = quickReplyDraftSaved
-    composeDraftAccountId = if (quickReplyDraftSaved) accountId else ""
-    composeInReplyTo = params.inReplyTo
-    composeReferences = params.references
-    quickReplyAutosaveJob?.cancel()
-    quickReplyBody = ""
-    quickReplyAttachments = emptyList()
-    quickReplyFailure = ""
-    quickReplyDraftId = ""
-    quickReplyDraftSaved = false
-    quickReplyInReplyTo = ""
-    quickReplyReferences = ""
-    quickReplyFrom = ""
-    composeReturnScreen = Screen.Thread
-    screen = Screen.Compose
-    status = ""
+    val generation = ++composeSessionGeneration
+    val open: MeronMobileState.() -> Unit = open@{
+        if (generation != composeSessionGeneration) return@open
+        composeSignaturePending = false
+        ++composeIdentityGeneration
+        to = params.to
+        cc = params.cc
+        bcc = params.bcc
+        subject = params.subject
+        body = seedBodyWithSignature(params.body, accountId)
+        attachments = quickReplyAttachments
+        // A quick reply is plain text; nothing carries over from an earlier forward.
+        composeForwardHtml = ""
+        composeForwardInlineAttachments = emptyList()
+        composeFromAccountId = accountId
+        composeFromEmail = replyFrom
+        // Hand off any draft already saved for this quick reply so continuing in the
+        // full editor keeps editing the same server-side draft instead of creating a
+        // duplicate one.
+        composeDraftId = quickReplyDraftId
+        composeDraftSaved = quickReplyDraftSaved
+        composeDraftAccountId = if (quickReplyDraftSaved) accountId else ""
+        composeInReplyTo = params.inReplyTo
+        composeReferences = params.references
+        quickReplyAutosaveJob?.cancel()
+        quickReplyBody = ""
+        quickReplyAttachments = emptyList()
+        quickReplyFailure = ""
+        quickReplyDraftId = ""
+        quickReplyDraftSaved = false
+        quickReplyInReplyTo = ""
+        quickReplyReferences = ""
+        quickReplyFrom = ""
+        composeReturnScreen = Screen.Thread
+        screen = Screen.Compose
+        status = ""
+    }
+    if (appSignatureLoaded) {
+        open()
+    } else {
+        scope.launch {
+            awaitAppSignatureLoaded()
+            open()
+        }
+    }
 }
 
 internal fun MeronMobileState.discardComposeDraft() {
+    ++composeSessionGeneration
     val identity = selectedComposeIdentity()
     val accountId = composeDraftAccountId.ifBlank { identity?.accountId ?: defaultSendAccountId() }
     val draftId = composeDraftId.takeIf { composeDraftSaved }
+    val draftOwners =
+        buildList {
+            if (!draftId.isNullOrBlank() && accountId.isNotBlank()) add(ComposeDraftOwner(accountId, draftId))
+            addAll(composeDraftCleanupOwners)
+        }.distinct()
+    composeDraftCleanupOwners = draftOwners
     val returnScreen = composeReturnScreen
     val thread = selectedCoreThread
     val draftThread = thread?.takeIf { folderIsDrafts(it.folder) }
@@ -788,36 +901,29 @@ internal fun MeronMobileState.discardComposeDraft() {
     clearComposeDraftState()
     screen = returnScreen
     status = "Discarding draft..."
-    scope.launch {
-        runCatching {
-            if (!draftId.isNullOrBlank()) {
-                withContext(ioDispatcher) {
-                    val client = MobileMailCommandClient(core)
-                    withManagedGoogleAuth(client, accountId) {
-                        client.discardDraft(
-                            DiscardDraftParams(accountId = accountId, draftId = draftId),
-                        )
-                    }
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        composeSaveMutex.withLock {
+            runCatching {
+                check(discardComposeDraftOwners(draftOwners)) { "One or more drafts could not be discarded" }
+            }.onSuccess {
+                status = "Draft discarded"
+                syncCoreThreads(syncFirst = true)
+                if (thread != null) {
+                    refreshKanbanColumnsForMailEvent(accountId, thread.folder, refresh = true)
                 }
+                if (draftThread == null) {
+                    runCatching { reloadCurrentThreadMessages() }
+                }
+            }.onFailure {
+                messages = previousMessages
+                selectedCoreThread = previousThread
+                coreThreads = previousThreads
+                kanbanColumns = previousKanbanColumns
+                if (draftThread != null) {
+                    locallyDiscardedThreadIds = locallyDiscardedThreadIds - draftThread.id
+                }
+                status = "Draft discard failed: ${it.message}"
             }
-        }.onSuccess {
-            status = "Draft discarded"
-            syncCoreThreads(syncFirst = true)
-            if (thread != null) {
-                refreshKanbanColumnsForMailEvent(accountId, thread.folder, refresh = true)
-            }
-            if (draftThread == null) {
-                runCatching { reloadCurrentThreadMessages() }
-            }
-        }.onFailure {
-            messages = previousMessages
-            selectedCoreThread = previousThread
-            coreThreads = previousThreads
-            kanbanColumns = previousKanbanColumns
-            if (draftThread != null) {
-                locallyDiscardedThreadIds = locallyDiscardedThreadIds - draftThread.id
-            }
-            status = "Draft discard failed: ${it.message}"
         }
     }
 }
@@ -981,7 +1087,10 @@ internal fun MeronMobileState.openMessageCompose(
         status = coreUnavailableMessage
         return
     }
+    val generation = ++composeSessionGeneration
     scope.launch {
+        awaitAppSignatureLoaded()
+        if (generation != composeSessionGeneration) return@launch
         runCatching {
             withContext(ioDispatcher) {
                 val client = MobileMailCommandClient(core)
@@ -1022,6 +1131,7 @@ internal fun MeronMobileState.openMessageCompose(
                 draft to inlineImages.map { (image, data) -> inlineImageToDraftAttachment(image, data) }
             }
         }.onSuccess { (draft, inlineAttachments) ->
+            if (generation != composeSessionGeneration) return@onSuccess
             // A forward and a copy are both new conversations: everything the
             // previous draft left behind goes, threading headers included, or
             // they would thread themselves under the last reply's parent.
@@ -1056,6 +1166,7 @@ internal fun MeronMobileState.openMessageCompose(
             screen = Screen.Compose
             status = if (forward) "Forward draft ready" else "Copied message into compose"
         }.onFailure {
+            if (generation != composeSessionGeneration) return@onFailure
             status = if (forward) "Forward failed: ${it.message}" else "Edit as new failed: ${it.message}"
         }
     }
@@ -1192,12 +1303,15 @@ internal fun MeronMobileState.openComposeTo(
     email: String,
     accountId: String,
 ) {
-    openCompose()
-    composeFromAccountId = accountId
-    composeFromEmail = ""
-    to = email
-    body = seedBodyWithSignature("", accountId.ifBlank { defaultSendAccountId() })
-    composeReturnScreen = Screen.Thread
+    openSignatureCompose {
+        clearComposeDraftState()
+        composeFromAccountId = accountId
+        composeFromEmail = ""
+        to = email
+        body = seedBodyWithSignature("", accountId.ifBlank { defaultSendAccountId() })
+        composeReturnScreen = Screen.Thread
+        screen = Screen.Compose
+    }
 }
 
 /**
@@ -1205,13 +1319,25 @@ internal fun MeronMobileState.openComposeTo(
  * text the user asked for, so the signature goes below it.
  */
 internal fun MeronMobileState.openMailtoCompose(draft: ComposeDraft) {
-    openCompose()
-    to = draft.to
-    cc = draft.cc
-    bcc = draft.bcc
-    subject = draft.subject
-    attachments = draft.attachments
-    body = seedBodyWithSignature(draft.body, defaultSendAccountId())
+    openMailtoCompose(draft, onOpened = {})
+}
+
+internal fun MeronMobileState.openMailtoCompose(
+    draft: ComposeDraft,
+    onOpened: () -> Unit,
+) {
+    openSignatureCompose {
+        clearComposeDraftState()
+        to = draft.to
+        cc = draft.cc
+        bcc = draft.bcc
+        subject = draft.subject
+        attachments = draft.attachments
+        body = seedBodyWithSignature(draft.body, defaultSendAccountId())
+        composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
+        screen = Screen.Compose
+        onOpened()
+    }
 }
 
 internal fun MeronMobileState.openCompose() {
@@ -1220,18 +1346,36 @@ internal fun MeronMobileState.openCompose() {
     // thread itself into the conversation the last reply belonged to, and one
     // that kept `composeFromAccountId` would send from an account other than
     // the one whose signature it is about to be seeded with.
-    clearComposeDraftState()
-    body = seedBodyWithSignature("", defaultSendAccountId())
-    composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
-    screen = Screen.Compose
+    openSignatureCompose {
+        clearComposeDraftState()
+        body = seedBodyWithSignature("", defaultSendAccountId())
+        composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
+        screen = Screen.Compose
+    }
+}
+
+private fun MeronMobileState.openSignatureCompose(open: MeronMobileState.() -> Unit) {
+    val generation = ++composeSessionGeneration
+    if (appSignatureLoaded) {
+        if (generation == composeSessionGeneration) open()
+        return
+    }
+    scope.launch {
+        awaitAppSignatureLoaded()
+        if (generation == composeSessionGeneration) open()
+    }
 }
 
 internal fun MeronMobileState.closeCompose() {
+    val generation = composeSessionGeneration
     val returnScreen = composeReturnScreen
     showLocalDraftInOpenThread()
     screen = returnScreen
-    scope.launch {
-        saveComposeDraft(showStatus = false)
+    // Start immediately so the closing session is snapshotted before another
+    // compose can open. A later session suppresses state updates but keeps the
+    // remote copy written for the composer that was just closed.
+    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        saveComposeDraft(showStatus = false, generation = generation, keepObsoleteDraft = true)
     }
 }
 

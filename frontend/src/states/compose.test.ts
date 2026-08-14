@@ -366,7 +366,7 @@ describe('tab navigation', () => {
     expect(compose$.activeTab.get()).toBe('msg-x')
 
     // Closing it returns to the thread tab it was opened from, not a neighbor.
-    closeMessageTab('msg-x')
+    void closeMessageTab('msg-x')
     expect(compose$.activeTab.get()).toBe('thread-t-2')
     expect(ui$.selectedThread.get()).toBe('t-2')
     expect(compose$.tabs.get().map((tab) => tab.id)).toEqual(['thread-t-2'])
@@ -403,7 +403,7 @@ describe('tab navigation', () => {
     ui$.selectedThread.set('t-current')
     openThreadTab(message({ thread_id: 't-2', id: 'm2' }))
 
-    closeMessageTab('thread-t-2')
+    void closeMessageTab('thread-t-2')
     expect(compose$.activeTab.get()).toBe('')
     expect(ui$.selectedThread.get()).toBe('t-current')
     expect(compose$.tabs.get()).toHaveLength(0)

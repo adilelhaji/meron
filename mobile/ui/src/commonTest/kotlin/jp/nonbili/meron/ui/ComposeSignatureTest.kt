@@ -8,6 +8,8 @@ import jp.nonbili.meron.shared.CoreEventStream
 import jp.nonbili.meron.shared.MeronCore
 import jp.nonbili.meron.shared.SignatureSpec
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -144,19 +146,62 @@ class ComposeSignatureTest {
     }
 
     @Test
-    fun aReloadMakesComposeWaitForTheFresherSignature() {
+    fun aRestoreInvalidatesTheSignatureBeforeReloading() {
         val state = composeState()
         state.appSignatureLoaded = true
 
-        // What a backup restore does: ask for the value again. Until it lands,
-        // a `mailto:` link must not compose against the pre-restore signature.
-        state.loadAppSignature()
+        // Restore invalidates existing reads before its exact reload jobs start,
+        // so a compose cannot seed against the pre-restore signature.
+        state.invalidateBackupReloads()
 
         assertFalse(state.appSignatureLoaded)
     }
 
-    private fun composeState(): MeronMobileState {
-        val state = testState()
+    @Test
+    fun staleSignatureWaiterCannotOverwriteTheNewestCompose() =
+        runBlocking {
+            val state = composeState(this)
+            state.appSignatureLoaded = false
+
+            state.openMailtoCompose(ComposeDraft(to = "old@example.com"))
+            state.openMailtoCompose(ComposeDraft(to = "new@example.com"))
+            state.appSignatureLoaded = true
+            state.appSignatureLoadCompletion.complete(Unit)
+            yield()
+
+            assertEquals("new@example.com", state.to)
+        }
+
+    @Test
+    fun incomingMailtoIsConsumableAndAcceptsAnEqualEventAgain() {
+        val events = IncomingMailtoEvents()
+        val draft = ComposeDraft(to = "same@example.com")
+
+        events.offer(draft)
+        assertEquals(draft, events.draft)
+        events.consume()
+        assertNull(events.draft)
+        events.offer(draft)
+
+        assertEquals(draft, events.draft)
+    }
+
+    @Test
+    fun accountSwitchIsImmediateWhileSignatureReconciliationIsPending() {
+        val state = composeState()
+        state.openCompose()
+        state.appSignatureLoaded = false
+
+        state.changeComposeIdentity("b", "b@example.com")
+
+        assertEquals("b", state.composeFromAccountId)
+        assertEquals("b@example.com", state.composeFromEmail)
+        assertEquals("\n\nFrom A", state.body)
+        assertEquals(true, state.composeSignaturePending)
+    }
+
+    private fun composeState(scope: CoroutineScope = CoroutineScope(EmptyCoroutineContext)): MeronMobileState {
+        val state = testState(scope)
         state.coreAccounts =
             listOf(
                 account("a", SignatureSpec("custom", "<p>From A</p>")),
@@ -164,6 +209,7 @@ class ComposeSignatureTest {
                 account("c", SignatureSpec("none", "<p>Unused</p>")),
             )
         state.selectedCoreAccountId = "a"
+        state.appSignatureLoaded = true
         return state
     }
 
@@ -172,9 +218,9 @@ class ComposeSignatureTest {
         signature: SignatureSpec,
     ) = AccountSummary(id = id, email = "$id@example.com", signature = signature)
 
-    private fun testState(): MeronMobileState =
+    private fun testState(scope: CoroutineScope): MeronMobileState =
         MeronMobileState(
-            scope = CoroutineScope(EmptyCoroutineContext),
+            scope = scope,
             core = FakeCore(),
             coreLoaded = true,
             prefs = FakePreferences(),

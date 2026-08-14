@@ -21,6 +21,7 @@ import {
 } from '../lib/signature'
 import { settings$ } from './settings'
 import { formatFullTimestamp } from '../components/chat/messageHelpers'
+import { closeComposeSession, forgetComposeSession, pruneComposeSessions } from './composeSessions'
 
 // Compose/reader-tab + draft state. Reader tabs open using the account's
 // conversation view preference; compose tabs hold a full-editor draft. The
@@ -261,6 +262,7 @@ export function pruneComposerMedia() {
 // base64 payloads can blow past localStorage's quota. On boot the tabs come
 // back; the user reattaches files if needed.
 compose$.tabs.onChange(({ value: tabs }) => {
+  pruneComposeSessions(new Set(tabs.map((tab) => tab.id)))
   const persisted: PersistedComposeTab[] = tabs
     .filter((t) => t.kind === 'compose' && t.compose)
     .map((t) => ({
@@ -987,18 +989,18 @@ export function updateComposeDraft(id: string, partial: Partial<ComposeDraft>) {
   )
 }
 
-// Close a reader tab, activating the previous tab (or the conversation view).
-export function closeMessageTab(id: string) {
+// Remove a tab after any compose lifecycle work has completed.
+export function finishClosingMessageTab(id: string) {
   const tabs = compose$.tabs.get()
   const index = tabs.findIndex((tab) => tab.id === id)
   if (index === -1) return
+  forgetComposeSession(id)
   const next = tabs.filter((tab) => tab.id !== id)
   compose$.tabs.set(next)
   if (compose$.activeTab.get() === id) {
     const target = popToPreviousTab(id, next)
     const nextTab = target ? next.find((tab) => tab.id === target) : null
     if (!nextTab) {
-      // Falling back to the Current tab: restore the conversation it was showing.
       activateConversationTab()
     } else if (nextTab.kind === 'thread') {
       compose$.activeTab.set(nextTab.id)
@@ -1007,6 +1009,44 @@ export function closeMessageTab(id: string) {
       compose$.activeTab.set(nextTab.id)
     }
   }
+}
+
+// The single close entry point used by tab buttons, hotkeys and the palette.
+// Mounted composers register their save queue here so no caller can bypass it.
+export async function closeMessageTab(id: string) {
+  const tabs = compose$.tabs.get()
+  const index = tabs.findIndex((tab) => tab.id === id)
+  if (index === -1) return
+  if (tabs[index].kind !== 'compose') return finishClosingMessageTab(id)
+  const draft = tabs[index].compose
+  if (!draft) return finishClosingMessageTab(id)
+  return closeComposeSession(id, async () => {
+    const remoteId = draft.draftMessageId?.startsWith('local-draft-') ? undefined : draft.draftMessageId
+    try {
+      if (remoteId || draft.sourceDraft) {
+        await discardSavedDraftCopy(
+          {
+            threadId: draft.sourceDraft?.threadId ?? '',
+            messageId: draft.sourceDraft?.messageId ?? '',
+            folderId: draft.sourceDraft?.folderId ?? '',
+            accountId: draft.accountId,
+            draftMessageId: remoteId,
+          },
+          { throwOnError: true },
+        )
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : ''
+      showToast(
+        message
+          ? `${t('composer.status.couldNotDiscardDraft')}: ${message}`
+          : t('composer.status.couldNotDiscardDraft'),
+        'error',
+      )
+    } finally {
+      finishClosingMessageTab(id)
+    }
+  })
 }
 
 export function setTabViewMode(id: string, mode: 'html' | 'plain') {

@@ -225,6 +225,15 @@ describe('bodyWithSwappedSignature', () => {
     expect(out.tracking).toBeUndefined()
   })
 
+  it('does not rewrite a container-wrapped rich fragment', () => {
+    const wrapped = { html: '<div><p>Mine</p></div>', text: 'Mine' }
+    const body = { rich: true, html: '<div><p>Mine</p></div>', text: '' }
+    const out = bodyWithSwappedSignature(body, below(wrapped), theirs)
+
+    expect(out.body).toEqual(body)
+    expect(out.tracking).toBeUndefined()
+  })
+
   it('swaps a multi-block signature as a unit', () => {
     const twoBlocks = { html: '<p>Mine</p><p>Team</p>', text: 'Mine\nTeam' }
     const body = { rich: true, html: '<p>typed</p><p></p><p>Mine</p><p>Team</p>', text: '' }
