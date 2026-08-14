@@ -248,15 +248,58 @@ export async function setAccountProxy(accountId: string, proxy: AccountProxy) {
 
 // Set this account's signature choice. `null` clears the override, so the
 // account follows the app-wide signature again.
-export async function setAccountSignature(accountId: string, signature: AccountSignature | null) {
-  const previous = accounts$.get()
-  accounts$.set(previous.map((acc) => (acc.id === accountId ? { ...acc, signature } : acc)))
-  try {
-    await invoke('account.setSignature', { id: accountId, signature })
-  } catch (error) {
-    accounts$.set(previous)
-    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateSignature'), 'error')
+/**
+ * The signature writes still outstanding for one account.
+ *
+ * They are chained rather than fired in parallel: the settings editor can start
+ * two in quick succession (the mode the user picked, then its editor's pending
+ * text), and unordered bridge calls would let the older content land last.
+ *
+ * `persisted` is what the store is known to hold — which is what a failed write
+ * rolls back to. The optimistic value is not that: two failures in a row would
+ * otherwise leave the screen showing a value that never reached the database.
+ * The entry is dropped once the chain drains, so the next edit reads a fresh
+ * baseline.
+ */
+type SignatureWrites = { chain: Promise<void>; persisted: Account['signature'] }
+const signatureWrites = new Map<string, SignatureWrites>()
+
+function applyAccountSignature(accountId: string, signature: Account['signature']) {
+  accounts$.set(accounts$.peek().map((acc) => (acc.id === accountId ? { ...acc, signature } : acc)))
+}
+
+/** Persist an account's signature choice. Resolves false when it did not land. */
+export async function setAccountSignature(accountId: string, signature: AccountSignature | null): Promise<boolean> {
+  const outstanding = signatureWrites.get(accountId)
+  const entry: SignatureWrites = outstanding ?? {
+    chain: Promise.resolve(),
+    persisted: accounts$.peek().find((acc) => acc.id === accountId)?.signature,
   }
+  applyAccountSignature(accountId, signature)
+
+  let stored = false
+  const write = async () => {
+    try {
+      await invoke('account.setSignature', { id: accountId, signature })
+      entry.persisted = signature
+      stored = true
+    } catch (error) {
+      // Roll back to what the store actually holds, and only while the screen
+      // still shows the value this call set: a later write that already landed
+      // must not be undone by an earlier one failing.
+      if (accounts$.peek().find((acc) => acc.id === accountId)?.signature === signature) {
+        applyAccountSignature(accountId, entry.persisted)
+      }
+      showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateSignature'), 'error')
+    }
+  }
+
+  const chained = entry.chain.then(write, write)
+  entry.chain = chained
+  signatureWrites.set(accountId, entry)
+  await chained
+  if (signatureWrites.get(accountId)?.chain === chained) signatureWrites.delete(accountId)
+  return stored
 }
 
 // Replace an account's send-as aliases (the whole list). The sidecar normalizes

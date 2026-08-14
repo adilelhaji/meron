@@ -1,6 +1,8 @@
 // Shared data-model types, mirroring the sidecar's bridge shapes. Imported by
 // both the state modules and the UI; no runtime code lives here.
 
+import type { SignatureMark } from './lib/signature'
+
 export type AuthType = 'password' | 'gmail_oauth' | 'outlook_oauth' | 'rss'
 
 /** A send-as identity for an account: an owned address and an optional From
@@ -190,6 +192,13 @@ export type ComposeDraft = {
   /** Stable Message-ID reused across draft autosaves so the server-side Drafts
    * copy is replaced in place instead of duplicated. Generated on tab creation. */
   draftMessageId: string
+  /**
+   * What this draft knows about the signature in its body: the one the app
+   * inserted (so a change of From account can swap it), `null` for "the app
+   * inserted none", or absent for a body it did not compose. See
+   * `SignatureTracking` in lib/signature.ts — the three states differ.
+   */
+  signature?: SignatureMark | null
   /** Server-side draft row this compose tab was restored from, if any. */
   sourceDraft?: {
     threadId: string

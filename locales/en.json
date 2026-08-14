@@ -680,7 +680,7 @@
   "settings.shareSyncLogHint": "Export recent background sync activity for troubleshooting",
   "settings.sideNav.showUnifiedInbox": "Show unified inbox",
   "settings.signature.accountHint": "Use the app signature, send none, or write one just for this account.",
-  "settings.signature.hint": "Added to new messages, replies and forwards. Accounts can override it in their own settings.",
+  "settings.signature.hint": "Added to new messages, forwards and replies opened in the full composer. Accounts can override it in their own settings.",
   "settings.signature.label": "Signature",
   "settings.signature.modeCustom": "Custom",
   "settings.signature.modeGlobal": "App signature",

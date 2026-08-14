@@ -1,7 +1,6 @@
 import { EditorContent } from '@tiptap/react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
-import { closeMessageTab } from '../../states/compose'
 import { settings$ } from '../../states/settings'
 import { useComposer } from './useComposer'
 import { ComposerHeaderFields } from './ComposerHeaderFields'
@@ -16,6 +15,7 @@ export function Composer({ tabId }: { tabId: string }) {
     draft,
     editor,
     focusBody,
+    textRef,
     sending,
     error,
     saveStatus,
@@ -29,6 +29,7 @@ export function Composer({ tabId }: { tabId: string }) {
     handleKeyDown,
     setLink,
     submit,
+    discardAndClose,
   } = useComposer(tabId)
 
   if (!draft) return null
@@ -56,6 +57,7 @@ export function Composer({ tabId }: { tabId: string }) {
           <EditorContent editor={editor} />
         ) : (
           <textarea
+            ref={textRef}
             autoFocus={focusBody}
             value={draft.text}
             onChange={(e) => update({ text: e.target.value })}
@@ -83,7 +85,7 @@ export function Composer({ tabId }: { tabId: string }) {
         onPickFiles={() => void pickAttachmentFiles()}
         onPickInlineImages={() => void pickInlineImages()}
         onToggleRich={toggleRich}
-        onDiscard={() => closeMessageTab(tabId)}
+        onDiscard={() => void discardAndClose()}
         onSubmit={submit}
       />
     </div>

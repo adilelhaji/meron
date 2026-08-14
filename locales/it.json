@@ -680,7 +680,7 @@
   "settings.shareSyncLogHint": "Esporta l'attività recente di sincronizzazione in background per la risoluzione dei problemi",
   "settings.sideNav.showUnifiedInbox": "Mostra posta in arrivo unificata",
   "settings.signature.accountHint": "Usa la firma dell'app, non inviarne nessuna o scrivine una solo per questo account.",
-  "settings.signature.hint": "Aggiunta a nuovi messaggi, risposte e inoltri. Gli account possono sostituirla nelle proprie impostazioni.",
+  "settings.signature.hint": "Aggiunta a nuovi messaggi, inoltri e risposte aperte nell'editor completo. Gli account possono sostituirla nelle proprie impostazioni.",
   "settings.signature.label": "Firma",
   "settings.signature.modeCustom": "Personalizzata",
   "settings.signature.modeGlobal": "Firma dell'app",

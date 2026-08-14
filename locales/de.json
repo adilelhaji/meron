@@ -680,7 +680,7 @@
   "settings.shareSyncLogHint": "Aktuelle Hintergrundsynchronisierungsaktivität zur Fehlerbehebung exportieren",
   "settings.sideNav.showUnifiedInbox": "Gemeinsamen Posteingang anzeigen",
   "settings.signature.accountHint": "App-Signatur verwenden, keine senden oder eine eigene für dieses Konto schreiben.",
-  "settings.signature.hint": "Wird in neue Nachrichten, Antworten und Weiterleitungen eingefügt. Konten können sie in ihren eigenen Einstellungen überschreiben.",
+  "settings.signature.hint": "Wird in neue Nachrichten, Weiterleitungen und im vollen Editor geöffnete Antworten eingefügt. Konten können sie in ihren eigenen Einstellungen überschreiben.",
   "settings.signature.label": "Signatur",
   "settings.signature.modeCustom": "Benutzerdefiniert",
   "settings.signature.modeGlobal": "App-Signatur",

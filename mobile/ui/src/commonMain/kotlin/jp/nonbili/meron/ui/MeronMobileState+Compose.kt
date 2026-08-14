@@ -180,6 +180,7 @@ import jp.nonbili.meron.shared.RssThreadParams
 import jp.nonbili.meron.shared.SendIdentity
 import jp.nonbili.meron.shared.SendStatus
 import jp.nonbili.meron.shared.SharedMobileContract
+import jp.nonbili.meron.shared.SignatureMark
 import jp.nonbili.meron.shared.SignaturePlacement
 import jp.nonbili.meron.shared.StarredItemSummary
 import jp.nonbili.meron.shared.StorageUsage
@@ -193,6 +194,7 @@ import jp.nonbili.meron.shared.accountSendIdentities
 import jp.nonbili.meron.shared.accountSummaryIsRss
 import jp.nonbili.meron.shared.attachmentToDraftAttachment
 import jp.nonbili.meron.shared.bodyWithSignature
+import jp.nonbili.meron.shared.bodyWithSwappedSignature
 import jp.nonbili.meron.shared.buildOAuthAuthorizationUrl
 import jp.nonbili.meron.shared.defaultOAuthRedirectUri
 import jp.nonbili.meron.shared.detectReplyFromIdentity
@@ -209,6 +211,7 @@ import jp.nonbili.meron.shared.isPotentialOAuthCallbackUrl
 import jp.nonbili.meron.shared.messageEditAsNewDraft
 import jp.nonbili.meron.shared.messageForwardDraft
 import jp.nonbili.meron.shared.newDraftMessageId
+import jp.nonbili.meron.shared.noSignatureMark
 import jp.nonbili.meron.shared.ownAddressList
 import jp.nonbili.meron.shared.parseAccountListResponse
 import jp.nonbili.meron.shared.parseAllocatedMessageId
@@ -266,13 +269,47 @@ internal fun MeronMobileState.selectedComposeIdentity(): SendIdentity? {
  * The signature for a draft sent from [accountId], already converted to the
  * plain text the composer edits. Blank when nothing is configured.
  */
-private fun MeronMobileState.composeSignatureText(accountId: String): String {
+private fun MeronMobileState.signatureTextFor(accountId: String): String {
     val account = coreAccounts.firstOrNull { it.id == accountId }
     return signaturePlainText(resolveSignatureHtml(account, appSignatureHtml))
 }
 
+/**
+ * Seed a fresh draft body with the sending account's signature, remembering what
+ * was inserted so a later change of identity can swap it out.
+ */
+private fun MeronMobileState.seedBodyWithSignature(
+    body: String,
+    accountId: String,
+    placement: SignaturePlacement = SignaturePlacement.BelowText,
+): String {
+    val signature = signatureTextFor(accountId)
+    // The placement is recorded even when the account sends no signature, so a
+    // forward that later moves to an account with one still puts it above the
+    // quote rather than after it.
+    composeSignature = if (signature.isBlank()) noSignatureMark(placement) else SignatureMark(signature, placement)
+    return bodyWithSignature(body, signature, placement)
+}
+
+/**
+ * Move the draft to another send identity, swapping the signature it carries for
+ * the new account's. Sending account B's mail under account A's signature is
+ * worse than no signature at all; an edited signature is left alone.
+ */
+internal fun MeronMobileState.changeComposeIdentity(
+    accountId: String,
+    email: String,
+) {
+    composeFromAccountId = accountId
+    composeFromEmail = email
+    val swapped = bodyWithSwappedSignature(body, composeSignature, signatureTextFor(accountId))
+    body = swapped.body
+    composeSignature = swapped.tracking
+}
+
 internal fun MeronMobileState.clearComposeDraftState() {
     attachments = emptyList()
+    composeSignature = null
     to = ""
     cc = ""
     bcc = ""
@@ -699,7 +736,7 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
     cc = params.cc
     bcc = params.bcc
     subject = params.subject
-    body = bodyWithSignature(params.body, composeSignatureText(accountId))
+    body = seedBodyWithSignature(params.body, accountId)
     attachments = quickReplyAttachments
     // A quick reply is plain text; nothing carries over from an earlier forward.
     composeForwardHtml = ""
@@ -985,6 +1022,10 @@ internal fun MeronMobileState.openMessageCompose(
                 draft to inlineImages.map { (image, data) -> inlineImageToDraftAttachment(image, data) }
             }
         }.onSuccess { (draft, inlineAttachments) ->
+            // A forward and a copy are both new conversations: everything the
+            // previous draft left behind goes, threading headers included, or
+            // they would thread themselves under the last reply's parent.
+            clearComposeDraftState()
             to = draft.to
             cc = draft.cc
             bcc = draft.bcc
@@ -994,12 +1035,13 @@ internal fun MeronMobileState.openMessageCompose(
             // was written with, and must not collect a second one.
             body =
                 if (forward) {
-                    bodyWithSignature(
+                    seedBodyWithSignature(
                         draft.body,
-                        composeSignatureText(selectedCoreThread?.accountId.orEmpty().ifBlank { defaultSendAccountId() }),
+                        selectedCoreThread?.accountId.orEmpty().ifBlank { defaultSendAccountId() },
                         SignaturePlacement.AboveQuote,
                     )
                 } else {
+                    composeSignature = null
                     draft.body
                 }
             attachments = draft.attachments
@@ -1142,18 +1184,44 @@ internal fun MeronMobileState.copyImageAttachment(attachment: MessageAttachment)
     }
 }
 
+/**
+ * Open a compose screen addressed to one person (the "message this participant"
+ * action in a thread), signature included like any other new message.
+ */
+internal fun MeronMobileState.openComposeTo(
+    email: String,
+    accountId: String,
+) {
+    openCompose()
+    composeFromAccountId = accountId
+    composeFromEmail = ""
+    to = email
+    body = seedBodyWithSignature("", accountId.ifBlank { defaultSendAccountId() })
+    composeReturnScreen = Screen.Thread
+}
+
+/**
+ * Open a compose screen from a `mailto:` link. The link's own body counts as
+ * text the user asked for, so the signature goes below it.
+ */
+internal fun MeronMobileState.openMailtoCompose(draft: ComposeDraft) {
+    openCompose()
+    to = draft.to
+    cc = draft.cc
+    bcc = draft.bcc
+    subject = draft.subject
+    attachments = draft.attachments
+    body = seedBodyWithSignature(draft.body, defaultSendAccountId())
+}
+
 internal fun MeronMobileState.openCompose() {
-    to = ""
-    cc = ""
-    bcc = ""
-    subject = ""
-    body = bodyWithSignature("", composeSignatureText(defaultSendAccountId()))
-    attachments = emptyList()
-    composeForwardHtml = ""
-    composeForwardInlineAttachments = emptyList()
-    composeDraftId = ""
-    composeDraftSaved = false
-    composeDraftAccountId = ""
+    // Everything the previous draft left behind goes, the sender and threading
+    // headers included: a fresh message that kept `composeInReplyTo` would
+    // thread itself into the conversation the last reply belonged to, and one
+    // that kept `composeFromAccountId` would send from an account other than
+    // the one whose signature it is about to be seeded with.
+    clearComposeDraftState()
+    body = seedBodyWithSignature("", defaultSendAccountId())
     composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
     screen = Screen.Compose
 }

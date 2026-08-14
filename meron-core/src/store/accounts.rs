@@ -98,30 +98,56 @@ pub struct Alias {
     pub name: String,
 }
 
+/// Deserialize one pref leniently: a value serde cannot read into `T` — hand
+/// edited, restored from a newer build, corrupted — becomes `None` (so that
+/// pref falls back to its default) instead of failing the whole object and
+/// silently resetting every *other* pref alongside it.
+fn lenient_pref<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let value = Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).ok())
+}
+
 /// User-editable per-account preferences, stored as the `prefs` JSON column.
 /// Every field is optional so unset means "use the default" (resolved in code,
 /// e.g. by engine); add a new pref by adding a field — no schema migration.
+/// Every field also decodes leniently (see [`lenient_pref`]), so one unreadable
+/// pref cannot take the rest of the account's settings down with it.
 #[derive(Default, Deserialize)]
+#[serde(default)]
 struct AccountPrefs {
     /// Whether remote inline images load; `None` = engine default (RSS on, mail off).
+    #[serde(deserialize_with = "lenient_pref")]
     load_remote_images: Option<bool>,
     /// Whether this account's inbox folds into the unified inbox; default on.
+    #[serde(deserialize_with = "lenient_pref")]
     included_in_unified: Option<bool>,
     /// Whether new-mail desktop notifications are suppressed; default off.
+    #[serde(deserialize_with = "lenient_pref")]
     muted: Option<bool>,
     /// Whether automatic mail/feed checking is paused; default off.
+    #[serde(deserialize_with = "lenient_pref")]
     paused: Option<bool>,
     /// Whether conversation bubbles render original HTML when available; default on.
+    #[serde(deserialize_with = "lenient_pref")]
     conversation_html: Option<bool>,
     /// Whether Meron uploads its own Sent copy after SMTP send. None = provider default.
+    #[serde(deserialize_with = "lenient_pref")]
     save_sent_copy: Option<bool>,
     /// RSS automatic sync interval in minutes; default 60.
+    #[serde(deserialize_with = "lenient_pref")]
     rss_sync_interval_minutes: Option<u64>,
     /// Send-as identities (besides the primary address); default none.
+    #[serde(deserialize_with = "lenient_pref")]
     aliases: Option<Vec<Alias>>,
     /// Per-account chat background; unset uses the app's default wallpaper.
+    #[serde(deserialize_with = "lenient_pref")]
     chat_wallpaper: Option<ChatWallpaper>,
     /// Signature override; unset follows the app-wide signature setting.
+    #[serde(deserialize_with = "lenient_pref")]
     signature: Option<AccountSignature>,
 }
 

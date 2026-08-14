@@ -235,6 +235,7 @@ import jp.nonbili.meron.shared.parseThreadListResponse
 import jp.nonbili.meron.shared.parseThreadReadPage
 import jp.nonbili.meron.shared.recipientTail
 import jp.nonbili.meron.shared.replaceRecipientTail
+import jp.nonbili.meron.shared.requireCoreOk
 import jp.nonbili.meron.shared.threadIdIsRss
 import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
@@ -355,19 +356,55 @@ internal fun MeronMobileState.saveAppProxy(spec: ProxySpec) {
     }
 }
 
+// How many times a failed app-signature read is retried, and how long between.
+private const val APP_SIGNATURE_LOAD_ATTEMPTS = 3
+private const val APP_SIGNATURE_RETRY_DELAY_MS = 250L
+
 /**
  * Read the app-wide signature from the core store. It shares the desktop
  * `signature` row rather than a `mobile.*` one, so the two platforms agree after
  * a backup restore.
  */
-internal fun MeronMobileState.loadAppSignature() {
-    if (!coreLoaded) return
+internal fun MeronMobileState.loadAppSignature(attempt: Int = 0) {
+    if (!coreLoaded) {
+        // Nothing to read and nothing coming: callers waiting on this (the
+        // `mailto:` handler) must not hang, the same as initialAccountsLoaded.
+        appSignatureLoaded = true
+        return
+    }
+    // A reload (after a backup restore, say) makes the value on hand stale, so
+    // compose waits again — and only the newest read may answer, or a slow
+    // startup response could land on top of the restored signature.
+    val generation = if (attempt == 0) ++appSignatureLoadGeneration else appSignatureLoadGeneration
+    if (attempt == 0) appSignatureLoaded = false
     scope.launch {
         runCatching {
             withContext(ioDispatcher) {
-                MobileMailCommandClient(core).getPrefs(AppPrefsGetParams(listOf(APP_SIGNATURE_SETTING_KEY)))
+                // The core reports failure in the response body rather than by
+                // throwing, so an unchecked read would "succeed" with nothing in
+                // it and never retry.
+                requireCoreOk(
+                    MobileMailCommandClient(core).getPrefs(AppPrefsGetParams(listOf(APP_SIGNATURE_SETTING_KEY))),
+                )
             }
-        }.onSuccess { appSignatureHtml = parseAppPrefsResponse(it)[APP_SIGNATURE_SETTING_KEY] as? String ?: "" }
+        }.onSuccess {
+            if (generation != appSignatureLoadGeneration) return@onSuccess
+            appSignatureHtml = parseAppPrefsResponse(it)[APP_SIGNATURE_SETTING_KEY] as? String ?: ""
+            appSignatureLoaded = true
+        }.onFailure {
+            if (generation != appSignatureLoadGeneration) return@onFailure
+            // A read can fail transiently on a cold start (the keyed store may
+            // still be opening), and a compose that proceeded on that would be
+            // sent unsigned. Retry a few times before giving up — and give up
+            // eventually, so a store that never opens cannot strand a
+            // `mailto:` link forever.
+            if (attempt + 1 < APP_SIGNATURE_LOAD_ATTEMPTS) {
+                delay(APP_SIGNATURE_RETRY_DELAY_MS * (attempt + 1))
+                loadAppSignature(attempt + 1)
+            } else {
+                appSignatureLoaded = true
+            }
+        }
     }
 }
 

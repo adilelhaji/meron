@@ -13,6 +13,7 @@ import jp.nonbili.meron.shared.MeronCore
 import jp.nonbili.meron.shared.MessageAttachment
 import jp.nonbili.meron.shared.MessageBody
 import jp.nonbili.meron.shared.ProxySpec
+import jp.nonbili.meron.shared.SignatureTracking
 import jp.nonbili.meron.shared.StarredItemSummary
 import jp.nonbili.meron.shared.StorageUsage
 import jp.nonbili.meron.shared.ThreadSummary
@@ -287,6 +288,20 @@ internal class MeronMobileState(
     // so a restored backup carries it across platforms. Accounts can override it
     // (see AccountSummary.signature).
     var appSignatureHtml by mutableStateOf("")
+
+    // What the compose body knows about the signature in it, so changing the From
+    // identity can swap it for the new account's. Null means unmanaged — a body
+    // this app did not compose (see SignatureTracking).
+    var composeSignature by mutableStateOf<SignatureTracking>(null)
+
+    // Whether the app-wide signature row has been read back from the core.
+    // A compose opened before it lands (a cold-start `mailto:` link) would
+    // otherwise record "this account has no signature" and never revisit it.
+    var appSignatureLoaded by mutableStateOf(false)
+
+    // Bumped by each app-signature read, so a slow earlier one cannot answer
+    // after a reload (a backup restore) has asked for a fresher value.
+    var appSignatureLoadGeneration = 0
     var storageUsage by mutableStateOf<StorageUsage?>(null)
     var storageBusy by mutableStateOf(false)
 

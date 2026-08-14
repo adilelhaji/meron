@@ -5,8 +5,8 @@ import { StarterKit } from '@tiptap/starter-kit'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { settings$ } from '../../states/settings'
-import { setAccountSignature } from '../../states/accounts'
-import { isBlankSignature } from '../../lib/signature'
+import { accounts$, setAccountSignature } from '../../states/accounts'
+import { accountSignaturePayload, isBlankSignature } from '../../lib/signature'
 import type { Account, AccountSignature } from '../../types'
 import { ComposerToolbar } from '../composer/ComposerToolbar'
 import { SelectRow, SettingsGroup } from './AccountSettingsRows'
@@ -15,25 +15,40 @@ import { SelectRow, SettingsGroup } from './AccountSettingsRows'
 // (per account), so edits settle before they persist.
 const SAVE_DEBOUNCE_MS = 600
 
+type SignatureState = { mode: AccountSignature['mode']; html: string }
+
+function signatureState(account: Account): SignatureState {
+  return { mode: account.signature?.mode ?? 'global', html: account.signature?.html ?? '' }
+}
+
 /**
- * The rich-text editor behind both signature cards. Seeds from `value` when the
- * subject changes (a different account, or General) but never mid-edit, so a
- * save echoing back through state can't yank the caret.
+ * The rich-text editor behind both signature cards.
+ *
+ * Seeded once, from the `value` it mounts with: a save echoing back through
+ * state must not yank the caret. Switching to another account remounts it (the
+ * caller keys it by account id), and every save it reports carries the `owner`
+ * it mounted with — the parent has already re-rendered for the new account by
+ * the time this one's pending edit is flushed on unmount, so the text can only
+ * be filed correctly if the editor says whose it is.
  */
 function SignatureEditor({
-  seedKey,
+  owner,
   value,
   onChange,
 }: {
-  seedKey: string
+  owner: string
   value: string
-  onChange: (html: string) => void
+  onChange: (html: string, owner: string) => void
 }) {
   const { t } = useTranslation()
   const spellCheck = useValue(settings$.spellCheck)
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onChangeRef = useRef(onChange)
   onChangeRef.current = onChange
+
+  // Captured at mount: this editor edits this subject's signature for its whole
+  // life, whatever the parent has moved on to.
+  const ownerRef = useRef(owner).current
 
   const editor = useEditor({
     extensions: [StarterKit.configure({ link: { openOnClick: false } })],
@@ -47,27 +62,24 @@ function SignatureEditor({
     onUpdate: ({ editor }) => {
       clearTimeout(saveTimer.current)
       const html = editor.getHTML()
-      saveTimer.current = setTimeout(() => onChangeRef.current(isBlankSignature(html) ? '' : html), SAVE_DEBOUNCE_MS)
+      saveTimer.current = setTimeout(
+        () => onChangeRef.current(isBlankSignature(html) ? '' : html, ownerRef),
+        SAVE_DEBOUNCE_MS,
+      )
     },
   })
 
-  // Flush a pending edit rather than dropping it when the card unmounts (the
-  // settings dialog closing, or switching to another account).
+  // Flush a pending edit rather than dropping it when the editor unmounts (the
+  // settings dialog closing, another account selected, the mode switched away
+  // from Custom).
   useEffect(() => {
     return () => {
       if (!saveTimer.current) return
       clearTimeout(saveTimer.current)
       const html = editor?.getHTML() ?? ''
-      onChangeRef.current(isBlankSignature(html) ? '' : html)
+      onChangeRef.current(isBlankSignature(html) ? '' : html, ownerRef)
     }
-  }, [editor])
-
-  useEffect(() => {
-    if (!editor) return
-    clearTimeout(saveTimer.current)
-    saveTimer.current = undefined
-    editor.commands.setContent(value || '<p></p>')
-  }, [editor, seedKey])
+  }, [editor, ownerRef])
 
   useEffect(() => {
     editor?.view.dom.setAttribute('spellcheck', String(spellCheck))
@@ -96,8 +108,8 @@ function SignatureEditor({
 }
 
 /**
- * The app-wide signature. Inserted into new messages, replies and forwards for
- * every account that doesn't override it.
+ * The app-wide signature. Inserted into new messages, forwards and replies
+ * opened in the full composer, for every account that doesn't override it.
  */
 export function SignatureSettingsSection() {
   const { t } = useTranslation()
@@ -105,7 +117,7 @@ export function SignatureSettingsSection() {
 
   return (
     <SettingsGroup title={t('settings.sections.signature')}>
-      <SignatureEditor seedKey="general" value={signature} onChange={(html) => settings$.signature.set(html)} />
+      <SignatureEditor owner="app" value={signature} onChange={(html) => settings$.signature.set(html)} />
       <p className="px-3.5 py-2 text-[0.6875rem] text-secondary">{t('settings.signature.hint')}</p>
     </SettingsGroup>
   )
@@ -118,20 +130,48 @@ export function SignatureSettingsSection() {
  */
 export function AccountSignatureCard({ account }: { account: Account }) {
   const { t } = useTranslation()
-  const [mode, setMode] = useState<AccountSignature['mode']>('global')
-  const [html, setHtml] = useState('')
+  const [state, setState] = useState(() => signatureState(account))
+  // Re-seed during the render that brings a new account in, not in an effect:
+  // an effect leaves one render where this card still holds the previous
+  // account's text, which a save landing in that window would write to the
+  // account now selected.
+  const [seededFor, setSeededFor] = useState(account.id)
+  if (seededFor !== account.id) {
+    setSeededFor(account.id)
+    setState(signatureState(account))
+  }
+  const { mode, html } = state
 
-  // Seed when switching accounts only, so a debounced edit isn't overwritten by
-  // the account list refreshing after its own save.
-  useEffect(() => {
-    setMode(account.signature?.mode ?? 'global')
-    setHtml(account.signature?.html ?? '')
-  }, [account.id])
+  const save = async (nextMode: AccountSignature['mode'], nextHtml: string) => {
+    setState({ mode: nextMode, html: nextHtml })
+    const stored = await setAccountSignature(account.id, accountSignaturePayload(nextMode, nextHtml))
+    // A rejected write is rolled back in accounts state; this card holds its own
+    // copy, so without this it would keep showing a choice that never persisted.
+    if (stored) return
+    const current = accounts$.peek().find((acc) => acc.id === accountRef.current)
+    if (current && current.id === accountRef.current) setState(signatureState(current))
+  }
 
-  const save = (nextMode: AccountSignature['mode'], nextHtml: string) => {
-    setMode(nextMode)
-    setHtml(nextHtml)
-    void setAccountSignature(account.id, nextMode === 'global' && !nextHtml ? null : { mode: nextMode, html: nextHtml })
+  // Text flushed by an editor is filed against the account that editor was
+  // opened for. Two cases, and they need different modes:
+  //
+  //   still this account  the mode as it stands now, so a flush arriving after
+  //                       the user picked None or App signature does not put
+  //                       Custom back (while a plain edit stays Custom).
+  //   a past account      Custom — the mode it necessarily had, since an editor
+  //                       only exists in Custom mode — because `mode` now
+  //                       describes the account that replaced it.
+  const currentRef = useRef({ id: account.id, mode })
+  currentRef.current = { id: account.id, mode }
+  const accountRef = useRef(account.id)
+  accountRef.current = account.id
+  const saveEditorHtml = (nextHtml: string, owner: string) => {
+    const current = currentRef.current
+    if (owner !== current.id) {
+      void setAccountSignature(owner, accountSignaturePayload('custom', nextHtml))
+      return
+    }
+    void save(current.mode, nextHtml)
   }
 
   return (
@@ -146,10 +186,10 @@ export function AccountSignatureCard({ account }: { account: Account }) {
           { value: 'none', label: t('settings.signature.modeNone') },
           { value: 'custom', label: t('settings.signature.modeCustom') },
         ]}
-        onChange={(next) => save(next as AccountSignature['mode'], html)}
+        onChange={(next) => void save(next as AccountSignature['mode'], html)}
       />
       {mode === 'custom' && (
-        <SignatureEditor seedKey={account.id} value={html} onChange={(next) => save('custom', next)} />
+        <SignatureEditor key={account.id} owner={account.id} value={html} onChange={saveEditorHtml} />
       )}
     </SettingsGroup>
   )

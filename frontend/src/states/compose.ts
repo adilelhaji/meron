@@ -10,7 +10,15 @@ import { LOCAL_SEND_PREFIX, type PendingSend, setPendingSend, getPendingSend, di
 import { htmlToText, resolveInlineCids } from '../lib/html'
 import { parseMailto } from '../lib/mailto'
 import { splitAddressList, bareAddr } from '../lib/address'
-import { bodyWithSignature, resolveSignature, type SignaturePlacement } from '../lib/signature'
+import {
+  bodyWithSignature,
+  bodyWithSwappedSignature,
+  resolveSignature,
+  signatureForms,
+  type Signature,
+  type SignaturePlacement,
+  type SignatureTracking,
+} from '../lib/signature'
 import { settings$ } from './settings'
 import { formatFullTimestamp } from '../components/chat/messageHelpers'
 
@@ -27,7 +35,12 @@ const COMPOSE_TABS_KEY = 'meron-compose-tabs'
 
 // Local placeholder used until the first save asks meron-core for the stable
 // RFC Message-ID. It is never sent to IMAP/SMTP.
-const newDraftMessageId = () => `local-draft-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
+/**
+ * A placeholder draft id, replaced by a server-allocated one on the first save.
+ * Exported because a draft that moves to another account needs a new one: the
+ * allocated id belongs to the account whose Drafts folder holds that copy.
+ */
+export const newDraftMessageId = () => `local-draft-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
 
 async function allocateMessageIdentity(accountId: string, draft: boolean): Promise<string> {
   const result = await invoke<{ message_id: string }>('mail.allocateIdentity', { account_id: accountId, draft })
@@ -562,6 +575,31 @@ export async function openThreadTabById(threadId: string) {
   }
 }
 
+/**
+ * The signature an account sends, in both body forms. Both are resolved even for
+ * a rich draft: the composer can be toggled to plaintext at any time, and a
+ * half-tracked signature could then be neither found nor replaced.
+ */
+function resolveSignatureFor(account: Account | undefined): Signature {
+  return signatureForms(account ? resolveSignature(account, settings$.signature.peek()) : '')
+}
+
+/**
+ * Move a draft to another From account, swapping the signature it carries for
+ * the new account's. Sending account B's mail under account A's signature is
+ * worse than no signature at all, so this runs on every account change; an
+ * edited signature is left alone (see `bodyWithSwappedSignature`).
+ */
+function withSignatureForAccount(draft: ComposeDraft, partial: Partial<ComposeDraft>): Partial<ComposeDraft> {
+  if (!partial.accountId || partial.accountId === draft.accountId) return partial
+  const account = accounts$.peek().find((acc) => acc.id === partial.accountId)
+  // Swap over the draft as this update leaves it, so a body supplied in the
+  // same call is what gets the new signature — not the body it replaced.
+  const updated = { ...draft, ...partial }
+  const swapped = bodyWithSwappedSignature(updated, draft.signature, resolveSignatureFor(account))
+  return { ...partial, html: swapped.body.html, text: swapped.body.text, signature: swapped.tracking }
+}
+
 let composeSeq = 0
 
 // Open a full-pane compose/reply editor as a new tab. Returns silently if no
@@ -597,13 +635,15 @@ export function openComposeTab(seed?: ComposeSeed): string | undefined {
     html: seed?.html ?? '',
     text: seed?.text ?? '',
   }
-  const signatureHtml = seed?.noSignature ? '' : resolveSignature(account, settings$.signature.peek())
-  const body = bodyWithSignature(
-    seeded,
-    // Only a plaintext draft needs the text form, and deriving it costs a DOM parse.
-    { html: signatureHtml, text: signatureHtml && !seeded.rich ? htmlToText(signatureHtml).trim() : '' },
-    seed?.signaturePlacement,
-  )
+  // A body this app did not compose (a saved draft, "Edit as New Message") may
+  // already carry a signature, so it stays unmanaged: `undefined`, not `null`.
+  const placement = seed?.signaturePlacement ?? 'belowText'
+  const signature = seed?.noSignature ? undefined : resolveSignatureFor(account)
+  // The placement is recorded even when the account sends no signature, so a
+  // forward that later moves to an account with one still puts it above the
+  // quote rather than after it.
+  const tracking: SignatureTracking = signature ? { ...signature, placement } : undefined
+  const body = signature ? bodyWithSignature(seeded, signature, placement) : seeded
 
   const draft: ComposeDraft = {
     accountId,
@@ -623,6 +663,7 @@ export function openComposeTab(seed?: ComposeSeed): string | undefined {
     inReplyTo: seed?.inReplyTo ?? '',
     references: seed?.references ?? '',
     draftMessageId: seed?.draftMessageId ?? newDraftMessageId(),
+    signature: tracking,
     sourceDraft: seed?.sourceDraft,
     attachments: seed?.attachments ?? [],
   }
@@ -939,7 +980,7 @@ export function updateComposeDraft(id: string, partial: Partial<ComposeDraft>) {
   compose$.tabs.set(
     compose$.tabs.get().map((tab) => {
       if (tab.id !== id || !tab.compose) return tab
-      const compose = { ...tab.compose, ...partial }
+      const compose = { ...tab.compose, ...withSignatureForAccount(tab.compose, partial) }
       const subject = partial.subject !== undefined ? partial.subject.trim() || 'New message' : tab.subject
       return { ...tab, compose, subject }
     }),

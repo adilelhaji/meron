@@ -838,11 +838,20 @@ internal fun MeronMobileState.openDraftCompose(
                 )
             }
         }.onSuccess { (copiedAttachments, forwardHtml, inlineAttachments) ->
+            // Start from a clean composer: a draft opened after a reply would
+            // otherwise inherit that reply's threading headers and be sent into
+            // the wrong conversation. The draft's own headers are restored just
+            // below — a reply draft has to keep threading where it belongs.
+            clearComposeDraftState()
             to = message.to
             cc = message.cc
             bcc = message.bcc
             subject = message.subject
             body = message.body
+            // A draft written earlier already carries whatever signature it was
+            // written with, so the body stays unmanaged: a later change of From
+            // must not rewrite part of it, nor append a second signature.
+            composeSignature = null
             attachments = copiedAttachments
             composeForwardHtml = forwardHtml
             composeForwardInlineAttachments = inlineAttachments
@@ -855,6 +864,8 @@ internal fun MeronMobileState.openDraftCompose(
                     .ifBlank { newDraftMessageId(thread.accountId) }
             composeDraftSaved = true
             composeDraftAccountId = thread.accountId
+            composeInReplyTo = message.inReplyTo
+            composeReferences = message.references
             composeReturnScreen = returnScreen
             screen = Screen.Compose
             status = "Draft ready"

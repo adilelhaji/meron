@@ -738,19 +738,14 @@ private fun MeronMobileScreenContent(
             }
         }
 
-        LaunchedEffect(incomingMailtoDraft) {
+        // A `mailto:` link can arrive before the core has answered with the
+        // accounts and the app-wide signature — on a cold start it usually
+        // does. Composing then would seed a draft from an empty account list
+        // and record that it has no signature, so this waits for both.
+        LaunchedEffect(incomingMailtoDraft, initialAccountsLoaded, appSignatureLoaded) {
+            if (!initialAccountsLoaded || !appSignatureLoaded) return@LaunchedEffect
             incomingMailtoDraft?.let { draft ->
-                composeDraftId = ""
-                composeDraftSaved = false
-                composeDraftAccountId = ""
-                to = draft.to
-                cc = draft.cc
-                bcc = draft.bcc
-                subject = draft.subject
-                body = draft.body
-                attachments = draft.attachments
-                composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
-                screen = Screen.Compose
+                openMailtoCompose(draft)
                 status = "Loaded compose draft"
             }
         }
@@ -968,19 +963,7 @@ private fun MeronMobileScreenContent(
                         }
                     },
                     onComposeTo = { email ->
-                        composeFromAccountId = selectedCoreThread?.accountId ?: selectedCoreAccountId
-                        composeFromEmail = ""
-                        to = email
-                        cc = ""
-                        bcc = ""
-                        subject = ""
-                        body = ""
-                        attachments = emptyList()
-                        composeDraftId = ""
-                        composeDraftSaved = false
-                        composeDraftAccountId = ""
-                        composeReturnScreen = Screen.Thread
-                        screen = Screen.Compose
+                        openComposeTo(email, selectedCoreThread?.accountId ?: selectedCoreAccountId)
                     },
                     onCopyMessageText = { label, value ->
                         services.copyText(label, value)
@@ -1003,8 +986,7 @@ private fun MeronMobileScreenContent(
                     onFromChange = { key ->
                         val split = key.indexOf('|')
                         if (split > 0) {
-                            composeFromAccountId = key.substring(0, split)
-                            composeFromEmail = key.substring(split + 1)
+                            changeComposeIdentity(key.substring(0, split), key.substring(split + 1))
                         }
                     },
                     to = to,

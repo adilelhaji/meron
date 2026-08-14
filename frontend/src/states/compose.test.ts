@@ -12,6 +12,7 @@ import {
   openReplyInFullEditor,
   openComposeTab,
   openThreadTab,
+  updateComposeDraft,
   openThreadTabById,
   quickReplyFromState,
   resolveQuickReplyFrom,
@@ -834,5 +835,97 @@ describe('signatures in a new compose tab', () => {
     settings$.signature.set('<p>Ping</p>')
 
     expect(draftOf(openComposeTab({ noSignature: true }))?.html).toBe('')
+  })
+})
+
+describe('signature on a change of From account', () => {
+  const account = (id: string, signature?: { mode: 'global' | 'none' | 'custom'; html: string }) => ({
+    id,
+    email: `${id}@example.com`,
+    display_name: id,
+    provider: 'custom',
+    auth_type: 'password' as const,
+    imap_host: 'imap.example.com',
+    imap_port: 993,
+    smtp_host: 'smtp.example.com',
+    smtp_port: 465,
+    tls: true,
+    signature,
+  })
+
+  beforeEach(() => {
+    compose$.tabs.set([])
+    compose$.activeTab.set('')
+    ui$.selectedAccount.set('a')
+    settings$.signature.set('')
+    accounts$.set([
+      account('a', { mode: 'custom', html: '<p>A</p>' }),
+      account('b', { mode: 'custom', html: '<p>B</p>' }),
+      account('c', { mode: 'none', html: '' }),
+    ])
+  })
+
+  const draftOf = (id: string | undefined) => compose$.tabs.get().find((tab) => tab.id === id)?.compose
+
+  it("replaces the old account's signature with the new one's", () => {
+    const id = openComposeTab()!
+    expect(draftOf(id)?.html).toBe('<p></p><p>A</p>')
+
+    updateComposeDraft(id, { accountId: 'b', fromEmail: 'b@example.com' })
+
+    expect(draftOf(id)?.html).toBe('<p></p><p>B</p>')
+    expect(draftOf(id)?.signature?.html).toBe('<p>B</p>')
+  })
+
+  it('drops it when the new account sends none', () => {
+    const id = openComposeTab()!
+    updateComposeDraft(id, { accountId: 'c' })
+
+    // The blank line the signature came with goes too, so switching accounts
+    // repeatedly cannot pile up empty paragraphs.
+    expect(draftOf(id)?.html).toBe('')
+    // Not "unmanaged": the app knows this body has no signature and where one
+    // would go, so moving to an account that has one puts it back there.
+    expect(draftOf(id)?.signature).toEqual({ html: '', text: '', placement: 'belowText' })
+
+    updateComposeDraft(id, { accountId: 'b' })
+    expect(draftOf(id)?.html).toBe('<p></p><p>B</p>')
+  })
+
+  it('follows the draft through a switch to plaintext', () => {
+    const id = openComposeTab()!
+    // What the composer's rich/plain toggle does: the body becomes text, and
+    // the tracked signature has to be findable in that form too.
+    updateComposeDraft(id, { rich: false, html: '', text: '\n\nA' })
+    updateComposeDraft(id, { accountId: 'b' })
+
+    expect(draftOf(id)?.text).toBe('\n\nB')
+  })
+
+  it('leaves a reopened draft body alone, rather than giving it two signatures', () => {
+    // "Edit as New Message" and saved drafts come with a body this app did not
+    // compose; it may already end in a signature.
+    const id = openComposeTab({ rich: true, html: '<p>hello</p><p>A</p>', noSignature: true })!
+    expect(draftOf(id)?.signature).toBeUndefined()
+
+    updateComposeDraft(id, { accountId: 'b' })
+
+    expect(draftOf(id)?.html).toBe('<p>hello</p><p>A</p>')
+    expect(draftOf(id)?.signature).toBeUndefined()
+  })
+
+  it('leaves the body alone once the signature has been edited', () => {
+    const id = openComposeTab()!
+    updateComposeDraft(id, { html: '<p></p><p>A, but mine now</p>' })
+    updateComposeDraft(id, { accountId: 'b' })
+
+    expect(draftOf(id)?.html).toBe('<p></p><p>A, but mine now</p>')
+  })
+
+  it('does not touch the body when the account is unchanged', () => {
+    const id = openComposeTab()!
+    updateComposeDraft(id, { accountId: 'a', fromEmail: 'alias@example.com' })
+
+    expect(draftOf(id)?.html).toBe('<p></p><p>A</p>')
   })
 })

@@ -1742,6 +1742,29 @@ fn signature_pref_round_trips_and_can_be_cleared() {
 }
 
 #[test]
+fn an_unreadable_pref_does_not_reset_the_others() {
+    let conn = Connection::open_in_memory().unwrap();
+    db::run_migrations(&conn).unwrap();
+    // `signature` carries a mode this build cannot read, next to prefs that are
+    // perfectly valid: only the signature falls back to its default.
+    conn.execute(
+        r#"INSERT INTO accounts(id, engine, provider, prefs)
+           VALUES('acct', 'mail', 'custom',
+                  '{"muted":true,"paused":true,"included_in_unified":false,
+                    "conversation_html":false,"signature":"<p>Ping</p>"}')"#,
+        [],
+    )
+    .unwrap();
+
+    let account = list_accounts(&conn).unwrap().remove(0);
+    assert_eq!(account["muted"], true);
+    assert_eq!(account["paused"], true);
+    assert_eq!(account["included_in_unified"], false);
+    assert_eq!(account["conversation_html"], false);
+    assert_eq!(account["signature"], Value::Null);
+}
+
+#[test]
 fn signature_param_validates_its_mode_and_size() {
     assert!(AccountSignature::from_param(None).unwrap().is_none());
     assert!(

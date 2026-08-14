@@ -680,7 +680,7 @@
   "settings.shareSyncLogHint": "Exportera senaste bakgrundssynkroniseringsaktivitet för felsökning",
   "settings.sideNav.showUnifiedInbox": "Visa samlad inkorg",
   "settings.signature.accountHint": "Använd appens signatur, skicka ingen alls eller skriv en bara för det här kontot.",
-  "settings.signature.hint": "Läggs till i nya meddelanden, svar och vidarebefordringar. Konton kan ersätta den i sina egna inställningar.",
+  "settings.signature.hint": "Läggs till i nya meddelanden, vidarebefordringar och svar som öppnas i den fullständiga redigeraren. Konton kan ersätta den i sina egna inställningar.",
   "settings.signature.label": "Signatur",
   "settings.signature.modeCustom": "Anpassad",
   "settings.signature.modeGlobal": "Appens signatur",
