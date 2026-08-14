@@ -1715,6 +1715,59 @@ fn chat_wallpaper_round_trips_and_can_be_cleared() {
 }
 
 #[test]
+fn signature_pref_round_trips_and_can_be_cleared() {
+    let conn = Connection::open_in_memory().unwrap();
+    db::run_migrations(&conn).unwrap();
+    conn.execute(
+        "INSERT INTO accounts(id, engine, provider, prefs) VALUES('acct', 'mail', 'custom', '{}')",
+        [],
+    )
+    .unwrap();
+
+    // Absent means "follow the app-wide signature".
+    assert_eq!(list_accounts(&conn).unwrap()[0]["signature"], Value::Null);
+
+    let signature =
+        AccountSignature::from_param(Some(&json!({"mode":"custom","html":"<p>Ping</p>"})))
+            .unwrap()
+            .unwrap();
+    set_account_pref_json(&conn, "acct", "signature", Some(json!(signature))).unwrap();
+    assert_eq!(
+        list_accounts(&conn).unwrap()[0]["signature"],
+        json!({"mode":"custom","html":"<p>Ping</p>"})
+    );
+
+    set_account_pref_json(&conn, "acct", "signature", None).unwrap();
+    assert_eq!(list_accounts(&conn).unwrap()[0]["signature"], Value::Null);
+}
+
+#[test]
+fn signature_param_validates_its_mode_and_size() {
+    assert!(AccountSignature::from_param(None).unwrap().is_none());
+    assert!(
+        AccountSignature::from_param(Some(&Value::Null))
+            .unwrap()
+            .is_none()
+    );
+    assert!(AccountSignature::from_param(Some(&json!({"mode":"sometimes"}))).is_err());
+    assert!(AccountSignature::from_param(Some(&json!("<p>Ping</p>"))).is_err());
+    assert!(
+        AccountSignature::from_param(Some(&json!({
+            "mode": "custom",
+            "html": "x".repeat(MAX_SIGNATURE_HTML + 1),
+        })))
+        .is_err()
+    );
+
+    // The html is kept in every mode, so toggling back restores what was written.
+    let kept = AccountSignature::from_param(Some(&json!({"mode":"none","html":" <p>Ping</p> "})))
+        .unwrap()
+        .unwrap();
+    assert_eq!(kept.mode, SignatureMode::None);
+    assert_eq!(kept.html, "<p>Ping</p>");
+}
+
+#[test]
 fn save_sent_copy_pref_round_trips_and_can_be_cleared() {
     let conn = Connection::open_in_memory().unwrap();
     db::run_migrations(&conn).unwrap();

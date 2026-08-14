@@ -58,6 +58,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import jp.nonbili.meron.shared.AccountSummary
 import jp.nonbili.meron.shared.ProxySpec
+import jp.nonbili.meron.shared.SignatureSpec
 import jp.nonbili.meron.shared.accountSummaryIsRss
 import kotlinx.coroutines.withContext
 
@@ -82,6 +83,7 @@ internal fun SettingsAccountDetailPage(
         aliasesText: String,
     ) -> Unit,
     onSaveProxy: (ProxySpec) -> Unit,
+    onSaveSignature: (SignatureSpec) -> Unit,
     onPickAvatar: () -> Unit,
     onOpenWallpaper: () -> Unit,
     onMoveUp: () -> Unit,
@@ -263,6 +265,14 @@ internal fun SettingsAccountDetailPage(
         }
 
         if (!isRss) {
+            item { SettingsSectionLabel(tr("settings.sections.signature")) }
+            item {
+                SettingsAccountSignatureRow(
+                    spec = account.signature,
+                    onSave = onSaveSignature,
+                )
+            }
+
             item { SettingsSectionLabel(tr("settings.sections.network")) }
             item {
                 SettingsProxyRow(

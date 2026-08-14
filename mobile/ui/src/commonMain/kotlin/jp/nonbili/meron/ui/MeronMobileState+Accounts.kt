@@ -145,11 +145,14 @@ import jp.nonbili.meron.shared.AccountNameParams
 import jp.nonbili.meron.shared.AccountProxyParams
 import jp.nonbili.meron.shared.AccountReorderParams
 import jp.nonbili.meron.shared.AccountRssSyncIntervalParams
+import jp.nonbili.meron.shared.AccountSignatureParams
 import jp.nonbili.meron.shared.AccountSummary
 import jp.nonbili.meron.shared.AddOAuthAccountParams
 import jp.nonbili.meron.shared.AddPasswordAccountParams
 import jp.nonbili.meron.shared.AddRssAccountParams
 import jp.nonbili.meron.shared.AddRssFeedParams
+import jp.nonbili.meron.shared.AppPrefsGetParams
+import jp.nonbili.meron.shared.AppPrefsSetParams
 import jp.nonbili.meron.shared.AttachmentReadParams
 import jp.nonbili.meron.shared.AutodiscoverAccountParams
 import jp.nonbili.meron.shared.ComposeDraft
@@ -181,6 +184,7 @@ import jp.nonbili.meron.shared.RssMarkStarredParams
 import jp.nonbili.meron.shared.RssThreadParams
 import jp.nonbili.meron.shared.SendIdentity
 import jp.nonbili.meron.shared.SharedMobileContract
+import jp.nonbili.meron.shared.SignatureSpec
 import jp.nonbili.meron.shared.StarredItemSummary
 import jp.nonbili.meron.shared.StarredItemsParams
 import jp.nonbili.meron.shared.StorageUsage
@@ -198,6 +202,7 @@ import jp.nonbili.meron.shared.buildOAuthAuthorizationUrl
 import jp.nonbili.meron.shared.coreErrorMessage
 import jp.nonbili.meron.shared.defaultOAuthRedirectUri
 import jp.nonbili.meron.shared.detectReplyFromIdentity
+import jp.nonbili.meron.shared.encodeAppPrefValue
 import jp.nonbili.meron.shared.folderIsDrafts
 import jp.nonbili.meron.shared.folderIsTrash
 import jp.nonbili.meron.shared.formatContactSuggestion
@@ -211,6 +216,7 @@ import jp.nonbili.meron.shared.messageForwardDraft
 import jp.nonbili.meron.shared.newDraftMessageId
 import jp.nonbili.meron.shared.ownAddressList
 import jp.nonbili.meron.shared.parseAccountListResponse
+import jp.nonbili.meron.shared.parseAppPrefsResponse
 import jp.nonbili.meron.shared.parseAttachmentDataResponse
 import jp.nonbili.meron.shared.parseAutodiscoverResponse
 import jp.nonbili.meron.shared.parseContactSuggestResponse
@@ -345,6 +351,64 @@ internal fun MeronMobileState.saveAppProxy(spec: ProxySpec) {
         }.onFailure {
             appProxy = previous
             status = "Proxy update failed: ${it.message}"
+        }
+    }
+}
+
+/**
+ * Read the app-wide signature from the core store. It shares the desktop
+ * `signature` row rather than a `mobile.*` one, so the two platforms agree after
+ * a backup restore.
+ */
+internal fun MeronMobileState.loadAppSignature() {
+    if (!coreLoaded) return
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                MobileMailCommandClient(core).getPrefs(AppPrefsGetParams(listOf(APP_SIGNATURE_SETTING_KEY)))
+            }
+        }.onSuccess { appSignatureHtml = parseAppPrefsResponse(it)[APP_SIGNATURE_SETTING_KEY] as? String ?: "" }
+    }
+}
+
+/** Persist the app-wide signature. Drafts already open keep what they carry. */
+internal fun MeronMobileState.saveAppSignature(html: String) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    val previous = appSignatureHtml
+    appSignatureHtml = html
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                MobileMailCommandClient(core).setPref(AppPrefsSetParams(APP_SIGNATURE_SETTING_KEY, encodeAppPrefValue(html)))
+            }
+        }.onFailure {
+            appSignatureHtml = previous
+            status = "Signature update failed: ${it.message}"
+        }
+    }
+}
+
+/** Point one account at the app-wide signature, at none, or at its own. */
+internal fun MeronMobileState.saveAccountSignature(
+    account: AccountSummary,
+    spec: SignatureSpec?,
+) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                MobileMailCommandClient(core).setAccountSignature(AccountSignatureParams(account.id, spec))
+            }
+        }.onSuccess {
+            listAccounts()
+        }.onFailure {
+            status = "Signature update failed: ${it.message}"
         }
     }
 }

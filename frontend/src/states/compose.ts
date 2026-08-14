@@ -10,6 +10,8 @@ import { LOCAL_SEND_PREFIX, type PendingSend, setPendingSend, getPendingSend, di
 import { htmlToText, resolveInlineCids } from '../lib/html'
 import { parseMailto } from '../lib/mailto'
 import { splitAddressList, bareAddr } from '../lib/address'
+import { bodyWithSignature, resolveSignature, type SignaturePlacement } from '../lib/signature'
+import { settings$ } from './settings'
 import { formatFullTimestamp } from '../components/chat/messageHelpers'
 
 // Compose/reader-tab + draft state. Reader tabs open using the account's
@@ -564,9 +566,20 @@ let composeSeq = 0
 
 // Open a full-pane compose/reply editor as a new tab. Returns silently if no
 // account can send mail. `seed` pre-fills a reply (recipient, subject, body…).
-export function openComposeTab(
-  seed?: Partial<ComposeDraft> & { title?: string; threadId?: string },
-): string | undefined {
+type ComposeSeed = Partial<ComposeDraft> & {
+  title?: string
+  threadId?: string
+  /** Where the signature lands; 'aboveQuote' for a seeded quote (forwards). */
+  signaturePlacement?: SignaturePlacement
+  /**
+   * Skip the signature. Set when the body is an existing message being re-opened
+   * (a saved draft, "Edit as New Message") — it already carries whatever
+   * signature it was written with, and a second copy is not wanted.
+   */
+  noSignature?: boolean
+}
+
+export function openComposeTab(seed?: ComposeSeed): string | undefined {
   const sendable = accounts$.get().filter(isSendableAccount)
   if (sendable.length === 0) return undefined
   const selected = ui$.selectedAccount.get()
@@ -577,6 +590,21 @@ export function openComposeTab(
   const hasSeededBody = !!(seed?.text || seed?.html)
   const account = sendable.find((acc) => acc.id === accountId)
 
+  // The signature is inserted into the body up front so it is editable (and
+  // visible) like the rest of the draft, rather than appearing at send time.
+  const seeded = {
+    rich: seed?.rich ?? (hasSeededBody ? false : (account?.conversation_html ?? true)),
+    html: seed?.html ?? '',
+    text: seed?.text ?? '',
+  }
+  const signatureHtml = seed?.noSignature ? '' : resolveSignature(account, settings$.signature.peek())
+  const body = bodyWithSignature(
+    seeded,
+    // Only a plaintext draft needs the text form, and deriving it costs a DOM parse.
+    { html: signatureHtml, text: signatureHtml && !seeded.rich ? htmlToText(signatureHtml).trim() : '' },
+    seed?.signaturePlacement,
+  )
+
   const draft: ComposeDraft = {
     accountId,
     fromEmail: seed?.fromEmail ?? '',
@@ -585,9 +613,7 @@ export function openComposeTab(
     bcc: seed?.bcc ?? '',
     replyTo: seed?.replyTo ?? '',
     subject: seed?.subject ?? '',
-    rich: seed?.rich ?? (hasSeededBody ? false : (account?.conversation_html ?? true)),
-    html: seed?.html ?? '',
-    text: seed?.text ?? '',
+    ...body,
     showCcBcc:
       seed?.showCcBcc ??
       hasExtraComposeHeaders({
@@ -706,6 +732,7 @@ export async function editAsNewMessage(message: Message) {
     html: rich ? html : '',
     text: rich ? '' : (message.body ?? ''),
     title: message.subject || 'New message',
+    noSignature: true,
   })
   if (!id) return
 
@@ -719,7 +746,7 @@ export async function editAsNewMessage(message: Message) {
   updateComposeDraft(id, { attachments: [...tab.compose.attachments, ...valid] })
 }
 
-function composeFromDraftMessage(message: Message): Partial<ComposeDraft> & { title?: string; threadId?: string } {
+function composeFromDraftMessage(message: Message): ComposeSeed {
   const rich = !!message.body_html
   return {
     accountId: message.account_id || undefined,
@@ -742,6 +769,7 @@ function composeFromDraftMessage(message: Message): Partial<ComposeDraft> & { ti
       folderId: message.folder_id,
     },
     title: message.subject || 'New message',
+    noSignature: true,
   }
 }
 
@@ -868,6 +896,7 @@ export async function forwardMessage(message: Message) {
     html,
     text: rich ? '' : forwardedPlainBody(message),
     title: forwardedSubject(message.subject),
+    signaturePlacement: 'aboveQuote',
   })
   if (!id) return
 

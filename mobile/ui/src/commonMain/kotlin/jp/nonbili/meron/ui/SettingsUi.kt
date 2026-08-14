@@ -79,6 +79,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import jp.nonbili.meron.shared.AccountSummary
 import jp.nonbili.meron.shared.ProxySpec
+import jp.nonbili.meron.shared.SignatureSpec
 import jp.nonbili.meron.shared.StorageUsage
 import jp.nonbili.meron.shared.accountSummaryIsRss
 
@@ -147,6 +148,9 @@ internal fun SettingsScreen(
     onMessageFontScaleChange: (Int) -> Unit,
     appProxy: ProxySpec,
     onSaveAppProxy: (ProxySpec) -> Unit,
+    appSignatureHtml: String,
+    onSaveAppSignature: (String) -> Unit,
+    onSaveAccountSignature: (AccountSummary, SignatureSpec) -> Unit,
     onSaveAccountProxy: (AccountSummary, ProxySpec) -> Unit,
     kanbanColumnWidth: Int,
     onCycleKanbanColumnWidth: () -> Unit,
@@ -313,6 +317,8 @@ internal fun SettingsScreen(
                     onOpenMessageTextSize = { showMessageTextSize = true },
                     appProxy = appProxy,
                     onSaveAppProxy = onSaveAppProxy,
+                    appSignatureHtml = appSignatureHtml,
+                    onSaveAppSignature = onSaveAppSignature,
                     notificationsNeedPermission = notificationsNeedPermission,
                     onEnableNotifications = onEnableNotifications,
                     supportsBackgroundPush = supportsBackgroundPush,
@@ -383,6 +389,7 @@ internal fun SettingsScreen(
                             )
                         },
                         onSaveProxy = { spec -> onSaveAccountProxy(account, spec) },
+                        onSaveSignature = { spec -> onSaveAccountSignature(account, spec) },
                         onPickAvatar = { onPickAccountAvatar(account) },
                         onOpenWallpaper = { settingsNavController.navigate(SettingsRoutes.AccountWallpaper) },
                         onMoveUp = { onMoveAccountUp(account) },
@@ -651,6 +658,8 @@ internal fun SettingsGeneralPage(
     onOpenMessageTextSize: () -> Unit,
     appProxy: ProxySpec,
     onSaveAppProxy: (ProxySpec) -> Unit,
+    appSignatureHtml: String,
+    onSaveAppSignature: (String) -> Unit,
     notificationsNeedPermission: Boolean,
     onEnableNotifications: () -> Unit,
     supportsBackgroundPush: Boolean,
@@ -789,6 +798,14 @@ internal fun SettingsGeneralPage(
                 subtitle = tr("settings.composer.sendShortcutHint"),
                 onClick = onToggleSendShortcut,
                 trailing = { Text(sendShortcutMode.label(), color = MaterialTheme.colorScheme.primary) },
+            )
+        }
+
+        item { SettingsSectionLabel(tr("settings.sections.signature")) }
+        item {
+            SettingsSignatureRow(
+                html = appSignatureHtml,
+                onSave = onSaveAppSignature,
             )
         }
 

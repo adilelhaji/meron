@@ -104,6 +104,12 @@ export type Settings = {
   conversationLayout: ConversationLayout
   /** Whether native spell checking is requested in composer prose fields. */
   spellCheck: boolean
+  /**
+   * App-wide signature HTML, inserted into new messages and replies. Accounts
+   * follow this unless they carry their own override (see Account.signature).
+   * Empty means "no signature".
+   */
+  signature: string
   /** Ordered user-created kanban boards. */
   kanbanBoards: KanbanBoard[]
   threadListWidth: number
@@ -148,6 +154,7 @@ const DB_KEY = {
   sendShortcut: 'send_shortcut',
   conversationLayout: 'conversation_layout',
   spellCheck: 'spell_check',
+  signature: 'signature',
   kanbanBoards: 'kanban_boards',
   threadListWidth: 'thread_list_width',
   kanbanPaneWidth: 'kanban_pane_width',
@@ -312,6 +319,7 @@ export const settings$ = observable<Settings>({
   sendShortcut: 'mod_enter',
   conversationLayout: 'chat',
   spellCheck: true,
+  signature: '',
   kanbanBoards: [],
   threadListWidth: 350,
   kanbanPaneWidth: 33,
@@ -593,6 +601,10 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
 
     if (typeof prefs[DB_KEY.spellCheck] === 'boolean') {
       settings$.spellCheck.set(prefs[DB_KEY.spellCheck] as boolean)
+    }
+
+    if (typeof prefs[DB_KEY.signature] === 'string') {
+      settings$.signature.set(prefs[DB_KEY.signature] as string)
     }
 
     const boards = sanitizeKanbanBoards(prefs[DB_KEY.kanbanBoards])

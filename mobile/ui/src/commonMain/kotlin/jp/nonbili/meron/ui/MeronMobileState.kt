@@ -282,6 +282,11 @@ internal class MeronMobileState(
     // not platform prefs: the socket layer reads it, including from background
     // syncs that never build this state.
     var appProxy by mutableStateOf(ProxySpec.off)
+
+    // App-wide signature HTML, in the same core `settings` row desktop writes,
+    // so a restored backup carries it across platforms. Accounts can override it
+    // (see AccountSummary.signature).
+    var appSignatureHtml by mutableStateOf("")
     var storageUsage by mutableStateOf<StorageUsage?>(null)
     var storageBusy by mutableStateOf(false)
 

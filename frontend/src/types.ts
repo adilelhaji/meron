@@ -44,8 +44,20 @@ export type Account = {
   sender_name?: string
   /** Additional send-as addresses (besides the primary `email`). */
   aliases?: Alias[]
+  /** Signature override; absent means "follow the app-wide signature". */
+  signature?: AccountSignature | null
   /** How this account proxies its connections; absent means "follow the app proxy". */
   proxy?: AccountProxy
+}
+
+/**
+ * Per-account signature choice: follow the app-wide signature, send none, or
+ * use this account's own `html`. The html is kept across mode changes so
+ * flipping to 'global'/'none' and back doesn't lose the text.
+ */
+export type AccountSignature = {
+  mode: 'global' | 'none' | 'custom'
+  html: string
 }
 
 /**

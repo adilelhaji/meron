@@ -52,6 +52,7 @@ import { supportedI18nLanguages, languageNativeNames, type SupportedI18nLanguage
 import { ThemeSettingsSection } from './ThemeSettingsSection'
 import { FontSettingsSection } from './FontSettingsSection'
 import { AccountProxyCard, ProxySettingsSection } from './ProxySettingsCard'
+import { AccountSignatureCard, SignatureSettingsSection } from './SignatureSettingsCard'
 import { AccountProfileGroup } from './AccountProfileGroup'
 import { useAccountAvatar } from './useAccountAvatar'
 import { AccountAliasesCard } from './AccountAliasesCard'
@@ -450,6 +451,8 @@ function GeneralSection() {
           onChange={(value) => settings$.sendShortcut.set(value)}
         />
       </SettingsGroup>
+
+      <SignatureSettingsSection />
 
       <SettingsGroup title={t('shortcuts.title')}>
         <SettingRow
@@ -916,6 +919,7 @@ function AccountPanel({ account }: { account: Account }) {
       <AccountTogglesSection account={account} isRSS={isRSS} />
       {!isRSS && <AccountProxyCard account={account} />}
       {!isRSS && <AccountAliasesCard account={account} />}
+      {!isRSS && <AccountSignatureCard account={account} />}
       {isRSS && <OpmlGroup account={account.id} />}
 
       <button

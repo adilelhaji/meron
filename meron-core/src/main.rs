@@ -2611,6 +2611,21 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "ok": true }))
         }
 
+        // Set or clear this account's signature override. A null `signature`
+        // drops the pref, so the account follows the app-wide signature again.
+        "account.setSignature" => {
+            let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
+            let signature = store::AccountSignature::from_param(p.get("signature"))
+                .map_err(|err| anyhow::anyhow!(err))?;
+            store::set_account_pref_json(
+                &engine.db.lock().unwrap(),
+                &id,
+                "signature",
+                signature.map(|sig| json!(sig)),
+            )?;
+            Ok(json!({ "ok": true }))
+        }
+
         // Toggle whether the account folds into the unified inbox. Purely a stored
         // pref the UI reads via account.list; no engine side effects.
         "account.setUnified" => {

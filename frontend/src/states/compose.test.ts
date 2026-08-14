@@ -10,6 +10,7 @@ import {
   openDraftConversationOrCompose,
   openMessageTab,
   openReplyInFullEditor,
+  openComposeTab,
   openThreadTab,
   openThreadTabById,
   quickReplyFromState,
@@ -18,6 +19,7 @@ import {
   withoutHydratedQuickReplyDraft,
 } from './compose'
 import { accounts$ } from './accounts'
+import { settings$ } from './settings'
 import { ui$ } from './ui'
 import { mail$ } from './mail'
 
@@ -786,5 +788,51 @@ describe('quick reply send-as identity', () => {
 
     expect(compose$.tabs.get()[0].compose?.fromEmail).toBe('sales@example.com')
     expect(compose$.quickReplyFrom.get()).toBe('')
+  })
+})
+
+describe('signatures in a new compose tab', () => {
+  const sendable = {
+    id: 'acc-1',
+    email: 'me@example.com',
+    display_name: 'Me',
+    provider: 'custom',
+    auth_type: 'password' as const,
+    imap_host: 'imap.example.com',
+    imap_port: 993,
+    smtp_host: 'smtp.example.com',
+    smtp_port: 465,
+    tls: true,
+  }
+
+  beforeEach(() => {
+    compose$.tabs.set([])
+    compose$.activeTab.set('')
+    ui$.selectedAccount.set('acc-1')
+    accounts$.set([sendable])
+    settings$.signature.set('')
+  })
+
+  const draftOf = (id: string | undefined) => compose$.tabs.get().find((tab) => tab.id === id)?.compose
+
+  it('seeds a rich draft with the app-wide signature', () => {
+    settings$.signature.set('<p>Ping</p>')
+
+    expect(draftOf(openComposeTab())?.html).toBe('<p></p><p>Ping</p>')
+  })
+
+  it('lets an account override or opt out', () => {
+    settings$.signature.set('<p>Ping</p>')
+    accounts$.set([{ ...sendable, signature: { mode: 'custom', html: '<p>Mine</p>' } }])
+    expect(draftOf(openComposeTab())?.html).toBe('<p></p><p>Mine</p>')
+
+    accounts$.set([{ ...sendable, signature: { mode: 'none', html: '<p>Mine</p>' } }])
+    expect(draftOf(openComposeTab())?.html).toBe('')
+  })
+
+  it('skips the signature when re-opening an existing message', () => {
+    settings$.signature.set('<p>Ping</p>')
+
+    expect(draftOf(openComposeTab({ noSignature: true }))?.html).toBe('')
   })
 })

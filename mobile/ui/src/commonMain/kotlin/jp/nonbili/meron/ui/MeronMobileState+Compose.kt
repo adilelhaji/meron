@@ -180,6 +180,7 @@ import jp.nonbili.meron.shared.RssThreadParams
 import jp.nonbili.meron.shared.SendIdentity
 import jp.nonbili.meron.shared.SendStatus
 import jp.nonbili.meron.shared.SharedMobileContract
+import jp.nonbili.meron.shared.SignaturePlacement
 import jp.nonbili.meron.shared.StarredItemSummary
 import jp.nonbili.meron.shared.StorageUsage
 import jp.nonbili.meron.shared.SyncMailParams
@@ -191,6 +192,7 @@ import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.accountSendIdentities
 import jp.nonbili.meron.shared.accountSummaryIsRss
 import jp.nonbili.meron.shared.attachmentToDraftAttachment
+import jp.nonbili.meron.shared.bodyWithSignature
 import jp.nonbili.meron.shared.buildOAuthAuthorizationUrl
 import jp.nonbili.meron.shared.defaultOAuthRedirectUri
 import jp.nonbili.meron.shared.detectReplyFromIdentity
@@ -226,6 +228,8 @@ import jp.nonbili.meron.shared.parseThreadListResponse
 import jp.nonbili.meron.shared.parseThreadReadPage
 import jp.nonbili.meron.shared.recipientTail
 import jp.nonbili.meron.shared.replaceRecipientTail
+import jp.nonbili.meron.shared.resolveSignatureHtml
+import jp.nonbili.meron.shared.signaturePlainText
 import jp.nonbili.meron.shared.threadIdIsRss
 import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
@@ -256,6 +260,15 @@ internal fun MeronMobileState.selectedComposeIdentity(): SendIdentity? {
         ?: candidates.firstOrNull { it.accountId == composeFromAccountId }
         ?: candidates.firstOrNull { it.accountId == defaultSendAccountId() }
         ?: candidates.firstOrNull()
+}
+
+/**
+ * The signature for a draft sent from [accountId], already converted to the
+ * plain text the composer edits. Blank when nothing is configured.
+ */
+private fun MeronMobileState.composeSignatureText(accountId: String): String {
+    val account = coreAccounts.firstOrNull { it.id == accountId }
+    return signaturePlainText(resolveSignatureHtml(account, appSignatureHtml))
 }
 
 internal fun MeronMobileState.clearComposeDraftState() {
@@ -686,7 +699,7 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
     cc = params.cc
     bcc = params.bcc
     subject = params.subject
-    body = params.body
+    body = bodyWithSignature(params.body, composeSignatureText(accountId))
     attachments = quickReplyAttachments
     // A quick reply is plain text; nothing carries over from an earlier forward.
     composeForwardHtml = ""
@@ -976,7 +989,19 @@ internal fun MeronMobileState.openMessageCompose(
             cc = draft.cc
             bcc = draft.bcc
             subject = draft.subject
-            body = draft.body
+            // A forward's body is the quote, so the signature goes above it. A
+            // copied message ("edit as new") already carries the signature it
+            // was written with, and must not collect a second one.
+            body =
+                if (forward) {
+                    bodyWithSignature(
+                        draft.body,
+                        composeSignatureText(selectedCoreThread?.accountId.orEmpty().ifBlank { defaultSendAccountId() }),
+                        SignaturePlacement.AboveQuote,
+                    )
+                } else {
+                    draft.body
+                }
             attachments = draft.attachments
             composeForwardHtml = draft.html
             composeForwardInlineAttachments = inlineAttachments
@@ -1122,7 +1147,7 @@ internal fun MeronMobileState.openCompose() {
     cc = ""
     bcc = ""
     subject = ""
-    body = ""
+    body = bodyWithSignature("", composeSignatureText(defaultSendAccountId()))
     attachments = emptyList()
     composeForwardHtml = ""
     composeForwardInlineAttachments = emptyList()

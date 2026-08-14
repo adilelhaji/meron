@@ -80,6 +80,15 @@ internal val mobileSettings =
  */
 internal const val PENDING_SETTINGS_PREF = "pending_settings_v1"
 
+/**
+ * Core `settings` row holding the app-wide signature.
+ *
+ * Deliberately *not* a registry entry and *not* namespaced under `mobile.`: it
+ * is the same row the desktop writes, so the two agree after a backup restore,
+ * and nothing needs it before the core is up (only the composer reads it).
+ */
+internal const val APP_SIGNATURE_SETTING_KEY = "signature"
+
 private val settingsByPrefKey = mobileSettings.associateBy { it.store to it.key }
 private val settingsBySettingKey = mobileSettings.associateBy { it.settingKey }
 

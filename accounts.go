@@ -218,6 +218,29 @@ func (a *App) accountSetAliases(payload map[string]any) (any, error) {
 	return map[string]any{"ok": true}, nil
 }
 
+// accountSetSignature sets or clears one account's signature override. A nil
+// "signature" clears it, so the account follows the app-wide signature; the
+// engine validates the shape.
+func (a *App) accountSetSignature(payload map[string]any) (any, error) {
+	id, _ := payload["id"].(string)
+	if id == "" {
+		id, _ = payload["account_id"].(string)
+	}
+	if id == "" {
+		return nil, errors.New("account id required")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	signature, _ := payload["signature"].(map[string]any)
+	if _, err := a.sidecar.Call("account.setSignature", map[string]any{"account": id, "signature": signature}); err != nil {
+		return nil, err
+	}
+	// The signature text is user content; only the chosen mode is logged.
+	a.logf("account.setSignature: account=%s mode=%v", id, signature["mode"])
+	return map[string]any{"ok": true}, nil
+}
+
 // accountSetPref forwards a boolean per-account toggle (unified-inbox inclusion,
 // mute, pause) to the sidecar, which persists it and applies any side effects
 // (e.g. pausing stops the IDLE watcher). `method` is the sidecar method name.

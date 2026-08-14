@@ -177,6 +177,7 @@ internal fun MeronMobileState.importBackup(
                 // the app-wide proxy, which the socket layer reads separately.
                 listAccounts()
                 loadAppProxy()
+                loadAppSignature()
             }
         }.onFailure {
             val message = it.message.orEmpty()

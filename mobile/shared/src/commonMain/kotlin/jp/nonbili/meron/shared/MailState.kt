@@ -28,7 +28,23 @@ data class AccountSummary(
     val chatWallpaperPresetId: String = "",
     val chatWallpaperUrl: String = "",
     val proxy: ProxySpec = ProxySpec.followApp,
+    val signature: SignatureSpec = SignatureSpec.followApp,
 )
+
+/**
+ * An account's signature choice. [mode] is "global" (follow the app-wide
+ * signature, the default), "none" (send no signature) or "custom" (use [html]).
+ * The html is kept across mode changes so switching away and back does not lose
+ * what the user wrote.
+ */
+data class SignatureSpec(
+    val mode: String = "global",
+    val html: String = "",
+) {
+    companion object {
+        val followApp = SignatureSpec()
+    }
+}
 
 /**
  * A proxy endpoint, used for both the app-wide setting and a per-account

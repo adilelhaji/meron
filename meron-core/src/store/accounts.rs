@@ -19,6 +19,71 @@ pub enum ChatWallpaper {
     #[serde(rename = "custom")]
     Custom { url: String },
 }
+/// How an account picks the signature appended to its outgoing mail: follow the
+/// app-wide signature (the default when the pref is absent), send nothing, or
+/// use this account's own `html`.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct AccountSignature {
+    pub mode: SignatureMode,
+    #[serde(default)]
+    pub html: String,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum SignatureMode {
+    #[default]
+    Global,
+    None,
+    Custom,
+}
+
+impl SignatureMode {
+    /// Parse a bridge-supplied mode string; unknown values are rejected so a
+    /// typo can't silently disable a user's signature.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "global" => Some(Self::Global),
+            "none" => Some(Self::None),
+            "custom" => Some(Self::Custom),
+            _ => None,
+        }
+    }
+}
+
+/// Upper bound on stored signature HTML. Generous enough for a rich signature
+/// with a logo, small enough that a runaway paste can't bloat the prefs column.
+pub const MAX_SIGNATURE_HTML: usize = 256 * 1024;
+
+impl AccountSignature {
+    /// Validate a bridge `signature` param. `None`/null clears the override so
+    /// the account falls back to the app-wide signature; an object is stored
+    /// as-is (the `html` is kept even in `global`/`none` mode, so toggling the
+    /// mode back doesn't lose what the user wrote).
+    pub fn from_param(value: Option<&Value>) -> Result<Option<Self>, String> {
+        let value = match value {
+            None | Some(Value::Null) => return Ok(None),
+            Some(value) => value,
+        };
+        let obj = value
+            .as_object()
+            .ok_or_else(|| "signature must be an object".to_string())?;
+        let mode = obj
+            .get("mode")
+            .and_then(Value::as_str)
+            .and_then(SignatureMode::parse)
+            .ok_or_else(|| "unknown signature mode".to_string())?;
+        let html = obj.get("html").and_then(Value::as_str).unwrap_or_default();
+        if html.len() > MAX_SIGNATURE_HTML {
+            return Err("signature is too large".to_string());
+        }
+        Ok(Some(Self {
+            mode,
+            html: html.trim().to_string(),
+        }))
+    }
+}
+
 // ---- Accounts ---------------------------------------------------------------
 
 /// A send-as identity for an account: an address the user owns and an optional
@@ -56,6 +121,8 @@ struct AccountPrefs {
     aliases: Option<Vec<Alias>>,
     /// Per-account chat background; unset uses the app's default wallpaper.
     chat_wallpaper: Option<ChatWallpaper>,
+    /// Signature override; unset follows the app-wide signature setting.
+    signature: Option<AccountSignature>,
 }
 
 impl AccountPrefs {
@@ -110,6 +177,12 @@ impl AccountPrefs {
 
     fn chat_wallpaper_json(&self) -> serde_json::Value {
         json!(self.chat_wallpaper)
+    }
+
+    /// The signature override as JSON for the bridge; null means "follow the
+    /// app-wide signature".
+    fn signature_json(&self) -> serde_json::Value {
+        json!(self.signature)
     }
 }
 
@@ -691,6 +764,7 @@ pub fn list_accounts(conn: &Connection) -> Result<Vec<serde_json::Value>> {
                 "chat_wallpaper": chat_wallpaper,
                 "sort_order": sort_order,
                 "aliases": p.aliases_json(),
+                "signature": p.signature_json(),
                 "proxy": c.proxy.to_json(),
             }));
         }

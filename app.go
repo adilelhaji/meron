@@ -232,6 +232,8 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.accountSetAvatar(payload)
 	case "account.setAliases":
 		return a.accountSetAliases(payload)
+	case "account.setSignature":
+		return a.accountSetSignature(payload)
 	case "account.setUnified":
 		return a.accountSetPref(payload, "account.setUnified")
 	case "account.setMuted":

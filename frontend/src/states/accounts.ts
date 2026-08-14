@@ -2,7 +2,7 @@ import { observable } from '@legendapp/state'
 import { t } from '../lib/i18n'
 import { invoke } from '../lib/bridge'
 import { boot } from '../boot'
-import type { Account, AccountProxy, Alias, ChatWallpaper } from '../types'
+import type { Account, AccountProxy, AccountSignature, Alias, ChatWallpaper } from '../types'
 import { confirmAction, ui$, showToast } from './ui'
 
 // Accounts state — maps 1:1 to the `accounts` DB table. The list is loaded by
@@ -243,6 +243,19 @@ export async function setAccountProxy(accountId: string, proxy: AccountProxy) {
   } catch (error) {
     accounts$.set(previous)
     showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateProxy'), 'error')
+  }
+}
+
+// Set this account's signature choice. `null` clears the override, so the
+// account follows the app-wide signature again.
+export async function setAccountSignature(accountId: string, signature: AccountSignature | null) {
+  const previous = accounts$.get()
+  accounts$.set(previous.map((acc) => (acc.id === accountId ? { ...acc, signature } : acc)))
+  try {
+    await invoke('account.setSignature', { id: accountId, signature })
+  } catch (error) {
+    accounts$.set(previous)
+    showToast(error instanceof Error ? error.message : t('accounts.toast.failedToUpdateSignature'), 'error')
   }
 }
 

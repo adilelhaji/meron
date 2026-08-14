@@ -774,6 +774,7 @@ private fun MeronMobileScreenContent(
             }
             // The proxy lives in the core store, so it needs a read of its own.
             loadAppProxy()
+            loadAppSignature()
         }
 
         // Once accounts are known, surface whatever the local store already holds so
@@ -1226,6 +1227,9 @@ private fun MeronMobileScreenContent(
                     },
                     appProxy = appProxy,
                     onSaveAppProxy = ::saveAppProxy,
+                    appSignatureHtml = appSignatureHtml,
+                    onSaveAppSignature = ::saveAppSignature,
+                    onSaveAccountSignature = ::saveAccountSignature,
                     onSaveAccountProxy = ::saveAccountProxy,
                     kanbanColumnWidth = kanbanColumnWidth,
                     onCycleKanbanColumnWidth = {

@@ -591,6 +591,21 @@ pub(crate) fn set_mobile_account_chat_wallpaper(
     })
 }
 
+/// Mobile `account.setSignature`. A null `signature` clears the override so the
+/// account follows the app-wide signature again.
+pub(crate) fn set_mobile_account_signature(
+    data_dir: &str,
+    params: &Value,
+) -> Result<Value, String> {
+    let id = req_account_pref_id(params)?;
+    let signature = store::AccountSignature::from_param(params.get("signature"))?;
+    with_mobile_db(data_dir, |conn| {
+        store::set_account_pref_json(&conn, &id, "signature", signature.map(|sig| json!(sig)))
+            .map_err(|err| err.to_string())?;
+        Ok(json!({ "ok": true }))
+    })
+}
+
 pub(crate) fn set_mobile_account_images(data_dir: &str, params: &Value) -> Result<Value, String> {
     let id = req_account_pref_id(params)?;
     let enabled = req_bool(params, "enabled")?;

@@ -112,11 +112,23 @@ fun parseAccountListResponse(responseJson: String): List<AccountSummary> {
                         }
                     }.orEmpty(),
             proxy = parseProxySpec(item.findJsonPropertyValue("proxy"), ProxySpec.followApp),
+            signature = parseSignatureSpec(item.findJsonPropertyValue("signature")),
             chatWallpaperKind = wallpaperJson.findJsonStringProperty("kind").orEmpty(),
             chatWallpaperPresetId = wallpaperJson.findJsonStringProperty("presetId").orEmpty(),
             chatWallpaperUrl = wallpaperJson.findJsonStringProperty("url").orEmpty(),
         )
     }
+}
+
+/**
+ * Read an account's signature override. Absent (or a mode this build does not
+ * know) means the account follows the app-wide signature.
+ */
+private fun parseSignatureSpec(signatureJson: String?): SignatureSpec {
+    val json = signatureJson?.takeIf { it.isNotBlank() && it != "null" } ?: return SignatureSpec.followApp
+    val mode = json.findJsonStringProperty("mode").orEmpty()
+    if (mode != "global" && mode != "none" && mode != "custom") return SignatureSpec.followApp
+    return SignatureSpec(mode = mode, html = json.findJsonStringProperty("html").orEmpty())
 }
 
 /** The app-wide proxy from an `app.proxyGet` response; missing means none. */

@@ -26,6 +26,7 @@ object MobileCommand {
     const val AccountSetRssSyncInterval = "account.setRSSSyncInterval"
     const val AccountSetAliases = "account.setAliases"
     const val AccountSetProxy = "account.setProxy"
+    const val AccountSetSignature = "account.setSignature"
     const val AppPrefsGet = "app.prefsGet"
     const val AppPrefsSet = "app.prefsSet"
     const val AppProxyGet = "app.proxyGet"
@@ -450,6 +451,27 @@ data class AccountProxyParams(
         jsonObject(
             "id" to accountId.jsonString(),
             "proxy" to proxy.toJson(),
+        )
+}
+
+data class AccountSignatureParams(
+    val accountId: String,
+    val signature: SignatureSpec?,
+) {
+    fun toJson(): String =
+        jsonObject(
+            "id" to accountId.jsonString(),
+            // A null signature clears the override, so the account follows the
+            // app-wide signature again.
+            "signature" to
+                (
+                    signature?.let {
+                        jsonObject(
+                            "mode" to it.mode.jsonString(),
+                            "html" to it.html.jsonString(),
+                        )
+                    } ?: "null"
+                ),
         )
 }
 
@@ -967,6 +989,8 @@ class MobileMailCommandClient(
 
     suspend fun setAccountProxy(params: AccountProxyParams): String = core.invoke(MobileCommand.AccountSetProxy, params.toJson())
 
+    suspend fun setAccountSignature(params: AccountSignatureParams): String = core.invoke(MobileCommand.AccountSetSignature, params.toJson())
+
     suspend fun getProxy(): String = core.invoke(MobileCommand.AppProxyGet)
 
     suspend fun getPrefs(params: AppPrefsGetParams): String = core.invoke(MobileCommand.AppPrefsGet, params.toJson())
@@ -1236,6 +1260,11 @@ fun setAccountProxyRequest(
     id: Long = 1,
     params: AccountProxyParams,
 ): CoreRequest = CoreRequest(id, MobileCommand.AccountSetProxy, params.toJson())
+
+fun setAccountSignatureRequest(
+    id: Long = 1,
+    params: AccountSignatureParams,
+): CoreRequest = CoreRequest(id, MobileCommand.AccountSetSignature, params.toJson())
 
 fun proxyGetRequest(id: Long = 1): CoreRequest = CoreRequest(id, MobileCommand.AppProxyGet)
 

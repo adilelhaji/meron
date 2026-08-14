@@ -153,6 +153,7 @@ pub fn dispatch_mobile_protocol_request(req: &Request, data_dir: &str) -> Result
             write_mobile_account_media_file(data_dir, &req.params, "wallpapers")
         }
         "account.setImages" => set_mobile_account_images(data_dir, &req.params),
+        "account.setSignature" => set_mobile_account_signature(data_dir, &req.params),
         "account.setConversationHtml" => {
             set_mobile_account_bool_pref(data_dir, &req.params, "conversation_html")
         }
