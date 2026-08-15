@@ -5,6 +5,7 @@ import {
   closeMessageTab,
   compose$,
   discardQuickReplyDraftIfEmpty,
+  isQuickReplyBlank,
   draftShouldOpenConversation,
   openDraftCompose,
   openDraftConversationOrCompose,
@@ -14,9 +15,11 @@ import {
   openThreadTab,
   updateComposeDraft,
   openThreadTabById,
+  quickReplyCaretOffset,
   quickReplyFromState,
   resolveQuickReplyFrom,
   saveQuickReplyDraft,
+  seedQuickReplySignature,
   withoutHydratedQuickReplyDraft,
 } from './compose'
 import { accounts$ } from './accounts'
@@ -927,5 +930,218 @@ describe('signature on a change of From account', () => {
     updateComposeDraft(id, { accountId: 'a', fromEmail: 'alias@example.com' })
 
     expect(draftOf(id)?.html).toBe('<p></p><p>A</p>')
+  })
+})
+
+describe('signature in the quick reply', () => {
+  const calls: { command: string; payload: unknown }[] = []
+
+  const sendable = {
+    id: 'acc-1',
+    email: 'me@example.com',
+    display_name: 'Me',
+    provider: 'custom',
+    auth_type: 'password' as const,
+    imap_host: 'imap.example.com',
+    imap_port: 993,
+    smtp_host: 'smtp.example.com',
+    smtp_port: 465,
+    tls: true,
+  }
+
+  const setUpThread = () => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      message_id: 'root@example.com',
+    })
+    mail$.threads.set([thread])
+    mail$.messages.set([thread])
+    ui$.selectedThread.set('t-1')
+    return thread
+  }
+
+  beforeEach(() => {
+    calls.length = 0
+    compose$.tabs.set([])
+    compose$.activeTab.set('')
+    compose$.composer.set('')
+    compose$.composerAttachments.set([])
+    compose$.quickReplyDraftId.set('')
+    compose$.quickReplyDraftSaved.set(false)
+    compose$.quickReplyFrom.set('')
+    compose$.quickReplySignature.set(null)
+    mail$.messages.set([])
+    mail$.threads.set([])
+    mail$.folders.set([])
+    mail$.foldersByAccount.set({})
+    ui$.selectedThread.set('')
+    ui$.selectedAccount.set('acc-1')
+    accounts$.set([sendable])
+    settings$.signature.set('<p>from u2</p>')
+    ;(window as any).go = {
+      main: {
+        App: {
+          Invoke: async (command: string, payload: unknown) => {
+            calls.push({ command, payload })
+            if (command === 'mail.allocateIdentity') return { message_id: 'draft-core@example.com' }
+            return {}
+          },
+        },
+      },
+    }
+  })
+
+  it('seeds the box with the signature, under a blank line to type in', () => {
+    setUpThread()
+    seedQuickReplySignature()
+
+    expect(compose$.composer.get()).toBe('\n\nfrom u2')
+    expect(compose$.quickReplySignature.get()?.text).toBe('from u2')
+  })
+
+  it('honours a per-account override', () => {
+    accounts$.set([{ ...sendable, signature: { mode: 'none', html: '' } }])
+    setUpThread()
+    seedQuickReplySignature()
+
+    expect(compose$.composer.get()).toBe('')
+    expect(compose$.quickReplySignature.get()).toBeNull()
+  })
+
+  it('counts a box holding only the signature as blank, and does not save a draft for it', async () => {
+    setUpThread()
+    seedQuickReplySignature()
+
+    expect(isQuickReplyBlank()).toBe(true)
+    await saveQuickReplyDraft()
+    expect(calls.filter((c) => c.command === 'mail.saveDraft')).toHaveLength(0)
+  })
+
+  it('counts typing above the signature as content', async () => {
+    setUpThread()
+    seedQuickReplySignature()
+    compose$.composer.set('t2\n\nfrom u2')
+
+    expect(isQuickReplyBlank()).toBe(false)
+    await saveQuickReplyDraft()
+
+    const saved = calls.find((c) => c.command === 'mail.saveDraft')?.payload as { body?: string }
+    expect(saved.body).toBe('t2\n\nfrom u2')
+  })
+
+  it("sends the user's own whitespace exactly as written", async () => {
+    setUpThread()
+    seedQuickReplySignature()
+    compose$.composer.set('    indented start\n\nand a trailing blank line\n\n\nfrom u2')
+
+    await saveQuickReplyDraft()
+
+    const saved = calls.find((c) => c.command === 'mail.saveDraft')?.payload as { body?: string }
+    expect(saved.body).toBe('    indented start\n\nand a trailing blank line\n\n\nfrom u2')
+  })
+
+  it('drops the seeded blank line when nothing was typed above it', async () => {
+    setUpThread()
+    seedQuickReplySignature()
+    // Attachment-only: the body is the untouched signature, which must not go
+    // out with the leading newlines it was seeded under.
+    compose$.composerAttachments.set([{ id: 'a1', filename: 'x.png', mime: 'image/png', size: 1, data: 'AA==' }])
+
+    await saveQuickReplyDraft()
+
+    const saved = calls.find((c) => c.command === 'mail.saveDraft')?.payload as { body?: string }
+    expect(saved.body).toBe('from u2')
+  })
+
+  it('puts the caret at the end of the user text, above the signature', () => {
+    setUpThread()
+    seedQuickReplySignature()
+    expect(quickReplyCaretOffset()).toBe(0)
+
+    compose$.composer.set('t2\n\nfrom u2')
+    expect(quickReplyCaretOffset()).toBe(2)
+  })
+
+  it('leaves a hydrated draft body alone', () => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      message_id: 'root@example.com',
+    })
+    mail$.folders.set([{ id: 'Drafts', account_id: 'acc-1', name: 'Drafts', kind: 'drafts' } as any])
+    mail$.foldersByAccount.set({ 'acc-1': [{ id: 'Drafts', name: 'Drafts', kind: 'drafts' } as any] })
+    mail$.threads.set([thread])
+    ui$.selectedThread.set('t-1')
+    mail$.messages.set([
+      thread,
+      message({
+        id: 'd1',
+        account_id: 'acc-1',
+        thread_id: 't-1',
+        folder_id: 'Drafts',
+        message_id: 'draft@example.com',
+        body: 'half typed\n\nfrom u2',
+        date: thread.date + 60,
+      }),
+    ])
+
+    // The saved body already carries its own signature: nothing is appended,
+    // and none of it is discounted as "not content".
+    expect(compose$.composer.get()).toBe('half typed\n\nfrom u2')
+    expect(compose$.quickReplySignature.get()).toBeNull()
+    expect(isQuickReplyBlank()).toBe(false)
+  })
+
+  it('hands the full editor a stripped body so it inserts and tracks its own', () => {
+    setUpThread()
+    seedQuickReplySignature()
+    compose$.composer.set('t2\n\nfrom u2')
+
+    openReplyInFullEditor()
+
+    const draft = compose$.tabs.get()[0].compose
+    expect(draft?.text).toBe('t2\n\nfrom u2')
+    expect(draft?.signature).toEqual({ html: '<p>from u2</p>', text: 'from u2', placement: 'belowText' })
+    // And the box behind the new tab is a fresh quick reply, not an empty one.
+    expect(compose$.composer.get()).toBe('\n\nfrom u2')
+  })
+
+  it('does not give the full editor a second copy of an edited signature', () => {
+    setUpThread()
+    seedQuickReplySignature()
+    compose$.composer.set('t2\n\nfrom u2, but edited')
+
+    openReplyInFullEditor()
+
+    const draft = compose$.tabs.get()[0].compose
+    expect(draft?.text).toBe('t2\n\nfrom u2, but edited')
+    expect(draft?.signature).toBeUndefined()
+  })
+
+  it('re-seeds an untouched box when the app signature arrives late', () => {
+    settings$.signature.set('')
+    setUpThread()
+    seedQuickReplySignature()
+    expect(compose$.composer.get()).toBe('')
+
+    settings$.signature.set('<p>from u2</p>')
+    expect(compose$.composer.get()).toBe('\n\nfrom u2')
+  })
+
+  it('does not re-seed over something the user typed', () => {
+    setUpThread()
+    seedQuickReplySignature()
+    compose$.composer.set('t2\n\nfrom u2')
+
+    settings$.signature.set('<p>different</p>')
+
+    expect(compose$.composer.get()).toBe('t2\n\nfrom u2')
   })
 })

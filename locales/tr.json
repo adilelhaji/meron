@@ -683,7 +683,7 @@
   "settings.shareSyncLogHint": "Sorun giderme için son arka plan senkronizasyon etkinliğini dışa aktar",
   "settings.sideNav.showUnifiedInbox": "Birleşik Gelen Kutusu'nu Göster",
   "settings.signature.accountHint": "Uygulama imzasını kullanın, hiç imza göndermeyin ya da yalnızca bu hesap için bir imza yazın.",
-  "settings.signature.hint": "Yeni iletilere, iletmelere ve tam düzenleyicide açılan yanıtlara eklenir. Hesaplar kendi ayarlarında bunu değiştirebilir.",
+  "settings.signature.hint": "Yeni iletilere, iletmelere ve yanıtlara eklenir. Hesaplar kendi ayarlarında bunu değiştirebilir.",
   "settings.signature.label": "İmza",
   "settings.signature.modeCustom": "Özel",
   "settings.signature.modeGlobal": "Uygulama imzası",

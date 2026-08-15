@@ -683,7 +683,7 @@
   "settings.shareSyncLogHint": "Ekspordi hiljutine taustsünkroonimise tegevus tõrkeotsinguks",
   "settings.sideNav.showUnifiedInbox": "Näita ühendatud postkasti",
   "settings.signature.accountHint": "Kasuta rakenduse allkirja, ära saada ühtegi või kirjuta ainult sellele kontole oma allkiri.",
-  "settings.signature.hint": "Lisatakse uutele kirjadele, edastustele ja täisredaktoris avatud vastustele. Kontod saavad selle oma seadetes üle kirjutada.",
+  "settings.signature.hint": "Lisatakse uutele kirjadele, edastustele ja vastustele. Kontod saavad selle oma seadetes üle kirjutada.",
   "settings.signature.label": "Allkiri",
   "settings.signature.modeCustom": "Kohandatud",
   "settings.signature.modeGlobal": "Rakenduse allkiri",

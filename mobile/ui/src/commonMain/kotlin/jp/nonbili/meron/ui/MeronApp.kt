@@ -913,6 +913,7 @@ private fun MeronMobileScreenContent(
                     onQuickReplyChange = ::onQuickReplyBodyChange,
                     quickReplyAttachments = quickReplyAttachments,
                     quickReplyFailure = quickReplyFailure,
+                    quickReplyHasContent = !quickReplyIsBlank(),
                     quickReplySending = quickReplySendInFlight,
                     sendShortcutMode = sendShortcutMode,
                     conversationLayout = conversationLayout,
@@ -926,7 +927,7 @@ private fun MeronMobileScreenContent(
                     onRemoveQuickReplyAttachment = { attachment ->
                         quickReplyAttachments = quickReplyAttachments.filterNot { it.id == attachment.id }
                         quickReplyFailure = ""
-                        if (quickReplyBody.isBlank() && quickReplyAttachments.isEmpty()) {
+                        if (quickReplyIsBlank()) {
                             discardQuickReplyDraftIfEmpty()
                         } else {
                             autoSaveQuickReplyDraft()

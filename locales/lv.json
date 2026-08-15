@@ -683,7 +683,7 @@
   "settings.shareSyncLogHint": "Eksportēt nesenās fona sinhronizācijas darbības problēmu novēršanai",
   "settings.sideNav.showUnifiedInbox": "Rādīt apvienoto iesūtni",
   "settings.signature.accountHint": "Izmantojiet lietotnes parakstu, nesūtiet nevienu vai izveidojiet parakstu tikai šim kontam.",
-  "settings.signature.hint": "Tiek pievienots jaunām vēstulēm, pārsūtījumiem un atbildēm, kas atvērtas pilnajā redaktorā. Konti to var aizstāt savos iestatījumos.",
+  "settings.signature.hint": "Tiek pievienots jaunām vēstulēm, pārsūtījumiem un atbildēm. Konti to var aizstāt savos iestatījumos.",
   "settings.signature.label": "Paraksts",
   "settings.signature.modeCustom": "Pielāgots",
   "settings.signature.modeGlobal": "Lietotnes paraksts",

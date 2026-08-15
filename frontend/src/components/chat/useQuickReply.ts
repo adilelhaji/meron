@@ -5,8 +5,11 @@ import {
   cancelQuickReplyDraftSave,
   compose$,
   discardQuickReplyDraftIfEmpty,
+  isQuickReplyBlank,
+  quickReplyCaretOffset,
   saveQuickReplyDraft,
   scheduleQuickReplyDraftSave,
+  seedQuickReplySignature,
   sendReply,
 } from '../../states/compose'
 import { getActiveThread } from '../../states/mail'
@@ -64,12 +67,15 @@ export function useQuickReply() {
   }, [composer])
 
   // Focus the box when the "r" shortcut fires (ignore the initial 0 value).
+  // The caret goes to the end of the user's own text, not the end of the box —
+  // the seeded signature sits below it, and typing into that is not what "r"
+  // should hand you.
   useEffect(() => {
     if (replyFocus === 0) return
     const textarea = textareaRef.current
     textarea?.focus()
-    const len = textarea?.value.length ?? 0
-    textarea?.setSelectionRange(len, len)
+    const caret = quickReplyCaretOffset()
+    textarea?.setSelectionRange(caret, caret)
   }, [replyFocus])
 
   // Reset quick reply state when the user switches threads. Any pending
@@ -83,10 +89,12 @@ export function useQuickReply() {
     cancelQuickReplyDraftSave()
     lastHydratedThreadRef.current = activeThreadId
     suppressNextDraftSaveRef.current = true
-    compose$.composer.set('')
     compose$.quickReplyDraftId.set('')
     compose$.quickReplyDraftSaved.set(false)
     compose$.quickReplyFrom.set('')
+    // Starts the new thread's box on the replying account's signature rather
+    // than blank — the box is what gets sent, so it shows what will go out.
+    seedQuickReplySignature()
   }, [activeThreadId])
 
   // Save or discard the current quick reply after text changes. Keyed on
@@ -99,7 +107,7 @@ export function useQuickReply() {
       suppressNextDraftSaveRef.current = false
       return
     }
-    if (!composer.trim() && composerAttachments.length === 0) {
+    if (isQuickReplyBlank()) {
       cancelQuickReplyDraftSave()
       void discardQuickReplyDraftIfEmpty()
     } else {
@@ -114,7 +122,7 @@ export function useQuickReply() {
     const owner = lastHydratedThreadRef.current
     if (!owner) return
     cancelQuickReplyDraftSave()
-    if (!composer.trim() && composerAttachments.length === 0) {
+    if (isQuickReplyBlank()) {
       void discardQuickReplyDraftIfEmpty()
     } else {
       void saveQuickReplyDraft()

@@ -8,9 +8,10 @@ package jp.nonbili.meron.shared
 // [signaturePlainText]. Rich markup written on desktop survives untouched as
 // long as the text is not edited here (see the settings screen).
 //
-// The thread's quick reply is deliberately left out, matching desktop: it sends
-// chat bubbles, and stamping a signature onto every one of them reads as noise.
-// Escalating a quick reply into the full composer does get one.
+// The thread's quick reply is seeded the same way, matching desktop. It renders
+// as a chat bubble, but what it sends is an ordinary mail that its recipient
+// reads in an ordinary client, so leaving it unsigned reads as inconsistency
+// rather than brevity. Its tracking is simpler — see quickReplySignature.
 
 /** Where a signature lands relative to whatever the draft was seeded with. */
 enum class SignaturePlacement {

@@ -664,6 +664,76 @@ internal fun MeronMobileState.selectedQuickReplyIdentity(): SendIdentity? {
     return identities.firstOrNull { it.email.equals(email, ignoreCase = true) } ?: identities.first()
 }
 
+/**
+ * The account the open thread's quick reply sends from. Blank when there is no
+ * thread, or none of the accounts can send.
+ */
+private fun MeronMobileState.quickReplyAccountId(): String {
+    val thread = selectedCoreThread ?: return ""
+    if (threadIdIsRss(thread.id)) return ""
+    return thread.accountId.ifBlank { defaultSendAccountId() }
+}
+
+/**
+ * Seed the reply bar with the replying account's signature, as the box the user
+ * starts typing into rather than something stapled on at send time — the rule
+ * the full composer follows, and what every other mail client shows.
+ *
+ * Replaces whatever the box holds, so it is only ever called on a fresh quick
+ * reply: a thread switch, or the clear after a send or an escalation. The app
+ * signature is read back from the core asynchronously, so a box seeded before
+ * it lands is seeded again once it does — unless the user has since typed.
+ */
+internal fun MeronMobileState.seedQuickReplySignature() {
+    val threadId = quickReplyThreadId
+    val signature = quickReplyAccountId().takeIf { it.isNotBlank() }?.let { signatureTextFor(it) }.orEmpty()
+    quickReplyBody = bodyWithSignature("", signature)
+    quickReplySignature = if (signature.isBlank()) null else SignatureMark(signature, SignaturePlacement.BelowText)
+    if (appSignatureLoaded) return
+    scope.launch {
+        awaitAppSignatureLoaded()
+        if (quickReplyThreadId == threadId && quickReplyDraftId.isBlank() && quickReplyIsBlank()) {
+            seedQuickReplySignature()
+        }
+    }
+}
+
+/**
+ * Re-seed a reply bar the user has not written in yet, so it isn't left holding
+ * a signature that is no longer the one it would send. Called whenever the
+ * app-wide or an account's signature is rewritten — the settings screen can be
+ * opened and left with the thread still behind it, and the bar is what gets
+ * sent. A bar with anything of theirs in it — text, an attachment, a hydrated
+ * draft — is never rewritten.
+ */
+internal fun MeronMobileState.reseedUntouchedQuickReply() {
+    if (quickReplyThreadId.isBlank()) return
+    if (quickReplyDraftSaved || quickReplyDraftId.isNotBlank()) return
+    if (!quickReplyIsBlank()) return
+    seedQuickReplySignature()
+}
+
+/**
+ * The reply bar with the signature this app seeded taken back out, and whether
+ * it was still there to take. A signature the user has typed into can no longer
+ * be identified (see [bodyWithSwappedSignature]), which is the same answer as
+ * "this text is theirs now".
+ */
+private fun MeronMobileState.quickReplyWithoutSignature(): Pair<String, Boolean> {
+    val mark = quickReplySignature ?: return quickReplyBody to false
+    if (mark.text.isBlank()) return quickReplyBody to false
+    val swapped = bodyWithSwappedSignature(quickReplyBody, mark, "")
+    return if (swapped.tracking == null) quickReplyBody to false else swapped.body to true
+}
+
+/**
+ * Whether the reply bar holds nothing the user put there. A seeded signature
+ * does not count as content: it is not something they wrote, and treating it as
+ * such would save a draft for every thread they merely open, and let an
+ * untouched box be "sent".
+ */
+internal fun MeronMobileState.quickReplyIsBlank(): Boolean = quickReplyWithoutSignature().first.isBlank() && quickReplyAttachments.isEmpty()
+
 private suspend fun MeronMobileState.saveQuickReplyDraft(showStatus: Boolean): Boolean {
     // A send is about to discard the draft; saving now could resurrect it.
     if (quickReplySendInFlight) return false
@@ -674,7 +744,7 @@ private suspend fun MeronMobileState.saveQuickReplyDraft(showStatus: Boolean): B
         if (showStatus) status = "Open a mail thread before saving a reply draft."
         return false
     }
-    if (quickReplyBody.isBlank() && quickReplyAttachments.isEmpty()) {
+    if (quickReplyIsBlank()) {
         if (showStatus) status = "Nothing to save."
         return false
     }
@@ -750,7 +820,7 @@ internal fun MeronMobileState.autoSaveQuickReplyDraft() {
 internal fun MeronMobileState.flushQuickReplyAutosave() {
     quickReplyAutosaveJob?.cancel()
     quickReplyAutosaveJob = null
-    if (quickReplyBody.isBlank() && quickReplyAttachments.isEmpty()) {
+    if (quickReplyIsBlank()) {
         discardQuickReplyDraftIfEmpty()
     } else {
         autoSaveQuickReplyDraft()
@@ -758,7 +828,7 @@ internal fun MeronMobileState.flushQuickReplyAutosave() {
 }
 
 internal fun MeronMobileState.discardQuickReplyDraftIfEmpty() {
-    if (quickReplyBody.isNotBlank() || quickReplyAttachments.isNotEmpty()) return
+    if (!quickReplyIsBlank()) return
     val draftId = quickReplyDraftId.takeIf { quickReplyDraftSaved } ?: return
     val thread = selectedCoreThread ?: return
     val accountId = thread.accountId.ifBlank { defaultSendAccountId() }
@@ -795,7 +865,7 @@ internal fun MeronMobileState.onQuickReplyBodyChange(value: String) {
     quickReplyAutosaveJob =
         scope.launch {
             delay(1200)
-            if (quickReplyBody.isBlank() && quickReplyAttachments.isEmpty()) {
+            if (quickReplyIsBlank()) {
                 discardQuickReplyDraftIfEmpty()
             } else {
                 saveQuickReplyDraft(showStatus = false)
@@ -816,10 +886,17 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
         return
     }
     val replyFrom = resolveQuickReplyFrom(parent, coreAccounts.firstOrNull { it.id == accountId })
+    // The seeded signature is handed over stripped, so the full composer inserts
+    // and tracks its own copy — the account is the same, so this is the identical
+    // text, now swappable if the draft later changes identity. When it can't be
+    // found the user has written into it: it stays in the body as theirs, and the
+    // composer must not add a second.
+    val (carriedBody, signatureStripped) = quickReplyWithoutSignature()
+    val carriesEditedSignature = !signatureStripped && quickReplySignature?.text?.isNotBlank() == true
     val params =
         parent.toReplyMailParams(
             accountId = accountId,
-            body = quickReplyBody.trim(),
+            body = carriedBody.trim(),
             from = replyFrom,
             ownAddresses = ownAddressList(coreAccounts),
             attachments = quickReplyAttachments,
@@ -833,7 +910,13 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
         cc = params.cc
         bcc = params.bcc
         subject = params.subject
-        body = seedBodyWithSignature(params.body, accountId)
+        body =
+            if (carriesEditedSignature) {
+                composeSignature = null
+                params.body
+            } else {
+                seedBodyWithSignature(params.body, accountId)
+            }
         attachments = quickReplyAttachments
         // A quick reply is plain text; nothing carries over from an earlier forward.
         composeForwardHtml = ""
@@ -849,7 +932,6 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
         composeInReplyTo = params.inReplyTo
         composeReferences = params.references
         quickReplyAutosaveJob?.cancel()
-        quickReplyBody = ""
         quickReplyAttachments = emptyList()
         quickReplyFailure = ""
         quickReplyDraftId = ""
@@ -857,6 +939,9 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
         quickReplyInReplyTo = ""
         quickReplyReferences = ""
         quickReplyFrom = ""
+        // The thread is still behind the composer, so the bar the user comes
+        // back to is a fresh quick reply — signature and all.
+        seedQuickReplySignature()
         composeReturnScreen = Screen.Thread
         screen = Screen.Compose
         status = ""
@@ -956,7 +1041,8 @@ internal fun MeronMobileState.sendQuickReply() {
         status = "RSS items do not support replies."
         return
     }
-    if (sentBody.isBlank() && sentAttachments.isEmpty()) {
+    // A box holding only the seeded signature is not a reply worth sending.
+    if (quickReplyIsBlank()) {
         status = "Write a reply or attach a file before sending."
         return
     }
@@ -1036,12 +1122,14 @@ internal fun MeronMobileState.sendQuickReply() {
             }
             quickReplySendInFlight = false
             quickReplyFailure = ""
-            quickReplyBody = ""
             quickReplyAttachments = emptyList()
             quickReplyDraftId = ""
             quickReplyDraftSaved = false
             quickReplyInReplyTo = ""
             quickReplyReferences = ""
+            // Back to a fresh reply bar rather than an empty one: the next reply
+            // in this thread gets a signature just like the one just sent did.
+            seedQuickReplySignature()
             status = "Reply sent"
             messages = messages.map { if (it.id == tempId) it.copy(sendStatus = SendStatus.None) else it }
             syncCoreThreads(syncFirst = false)

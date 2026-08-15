@@ -905,7 +905,6 @@ internal fun MeronMobileState.readCoreThread(
     previousTopScreen = returnScreen
     if (quickReplyThreadId != backendThreadId) {
         quickReplyAutosaveJob?.cancel()
-        quickReplyBody = ""
         quickReplyAttachments = emptyList()
         quickReplyFailure = ""
         quickReplyDraftId = ""
@@ -914,6 +913,10 @@ internal fun MeronMobileState.readCoreThread(
         quickReplyReferences = ""
         quickReplyFrom = ""
         quickReplyThreadId = backendThreadId
+        // Starts the new thread's bar on the replying account's signature rather
+        // than blank — the bar is what gets sent, so it shows what will go out.
+        // Set after quickReplyThreadId, which the late-signature re-seed keys on.
+        seedQuickReplySignature()
     }
     if (!readsDraftThread) {
         screen = Screen.Thread
@@ -987,6 +990,9 @@ internal fun MeronMobileState.hydrateQuickReplyFromTailDraft(
     quickReplyReferences = tail.references
     quickReplyFrom = tail.fromAddr
     quickReplyFailure = ""
+    // The saved body already carries whatever signature it was written with, so
+    // none of it is this app's to strip, re-seed, or discount as "not content".
+    quickReplySignature = null
     if (!tail.hasAttachments) {
         quickReplyAttachments = emptyList()
         return

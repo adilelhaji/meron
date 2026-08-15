@@ -129,6 +129,9 @@ internal fun ThreadScreen(
     onQuickReplyChange: (String) -> Unit,
     quickReplyAttachments: List<DraftAttachment>,
     quickReplyFailure: String,
+    // See ReplyBar's `hasContent`: a bar holding only its seeded signature has
+    // nothing to send.
+    quickReplyHasContent: Boolean,
     quickReplySending: Boolean = false,
     sendShortcutMode: SendShortcutMode,
     conversationLayout: ConversationLayout,
@@ -676,6 +679,7 @@ internal fun ThreadScreen(
                         onRemoveAttachment = onRemoveQuickReplyAttachment,
                         onOpenFullEditor = onOpenFullReply,
                         onSend = onSendReply,
+                        hasContent = quickReplyHasContent,
                         sending = quickReplySending,
                         fromIdentities = quickReplyFromIdentities,
                         selectedFrom = quickReplySelectedFrom,
@@ -1131,6 +1135,10 @@ internal fun ReplyBar(
     onRemoveAttachment: (DraftAttachment) -> Unit,
     onOpenFullEditor: () -> Unit,
     onSend: () -> Unit,
+    // Whether the bar holds anything worth sending. Passed in rather than read
+    // off `value`, because a bar seeded with the account's signature is not
+    // blank yet holds nothing the user wrote.
+    hasContent: Boolean = value.isNotBlank() || attachments.isNotEmpty(),
     sending: Boolean = false,
     fromIdentities: List<SendIdentity> = emptyList(),
     selectedFrom: SendIdentity? = null,
@@ -1191,7 +1199,7 @@ internal fun ReplyBar(
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                val canSend = !sending && (value.isNotBlank() || attachments.isNotEmpty())
+                val canSend = !sending && hasContent
                 TextField(
                     value = value,
                     onValueChange = onChange,

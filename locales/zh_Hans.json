@@ -683,7 +683,7 @@
   "settings.shareSyncLogHint": "导出最近的后台同步活动以进行故障排查",
   "settings.sideNav.showUnifiedInbox": "显示统一收件箱",
   "settings.signature.accountHint": "使用应用签名、不使用签名，或为该账户单独撰写签名。",
-  "settings.signature.hint": "会添加到新邮件、转发，以及在完整编辑器中打开的回复。各账户可在自己的设置中覆盖。",
+  "settings.signature.hint": "会添加到新邮件、转发和回复。各账户可在自己的设置中覆盖。",
   "settings.signature.label": "签名",
   "settings.signature.modeCustom": "自定义",
   "settings.signature.modeGlobal": "应用签名",

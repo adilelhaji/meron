@@ -683,7 +683,7 @@
   "settings.shareSyncLogHint": "Exportar atividade recente de sincronização em segundo plano para resolução de problemas",
   "settings.sideNav.showUnifiedInbox": "Mostrar caixa de entrada unificada",
   "settings.signature.accountHint": "Usar a assinatura da aplicação, não enviar nenhuma ou escrever uma só para esta conta.",
-  "settings.signature.hint": "Adicionada a novas mensagens, reencaminhamentos e respostas abertas no editor completo. As contas podem substituí-la nas suas definições.",
+  "settings.signature.hint": "Adicionada a novas mensagens, reencaminhamentos e respostas. As contas podem substituí-la nas suas definições.",
   "settings.signature.label": "Assinatura",
   "settings.signature.modeCustom": "Personalizada",
   "settings.signature.modeGlobal": "Assinatura da aplicação",

@@ -6,7 +6,9 @@ import jp.nonbili.meron.shared.ComposeDraft
 import jp.nonbili.meron.shared.CoreEvent
 import jp.nonbili.meron.shared.CoreEventStream
 import jp.nonbili.meron.shared.MeronCore
+import jp.nonbili.meron.shared.MessageBody
 import jp.nonbili.meron.shared.SignatureSpec
+import jp.nonbili.meron.shared.ThreadSummary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
@@ -15,6 +17,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 /** The signature a compose body carries as accounts and entry points change. */
 class ComposeSignatureTest {
@@ -198,6 +201,187 @@ class ComposeSignatureTest {
         assertEquals("b@example.com", state.composeFromEmail)
         assertEquals("\n\nFrom A", state.body)
         assertEquals(true, state.composeSignaturePending)
+    }
+
+    @Test
+    fun theReplyBarIsSeededWithTheSendingAccountsSignature() {
+        val state = quickReplyState()
+
+        state.seedQuickReplySignature()
+
+        assertEquals("\n\nFrom A", state.quickReplyBody)
+        assertEquals("From A", state.quickReplySignature?.text)
+    }
+
+    @Test
+    fun anAccountThatSendsNoneLeavesTheReplyBarEmpty() {
+        val state = quickReplyState(accountId = "c")
+
+        state.seedQuickReplySignature()
+
+        assertEquals("", state.quickReplyBody)
+        assertNull(state.quickReplySignature)
+    }
+
+    @Test
+    fun aReplyBarHoldingOnlyItsSignatureCountsAsBlank() {
+        val state = quickReplyState()
+
+        state.seedQuickReplySignature()
+        assertTrue(state.quickReplyIsBlank())
+
+        state.quickReplyBody = "t2\n\nFrom A"
+        assertFalse(state.quickReplyIsBlank())
+    }
+
+    @Test
+    fun escalatingHandsTheComposerAStrippedBodyToSeedItsOwn() {
+        val state = quickReplyState()
+        state.seedQuickReplySignature()
+        state.quickReplyBody = "t2\n\nFrom A"
+
+        state.openQuickReplyInFullEditor()
+
+        // Same text, but inserted and tracked by the composer, so a later change
+        // of identity can swap it.
+        assertEquals("t2\n\nFrom A", state.body)
+        assertEquals("From A", state.composeSignature?.text)
+        // And the bar behind the composer is a fresh quick reply, not an empty one.
+        assertEquals("\n\nFrom A", state.quickReplyBody)
+    }
+
+    @Test
+    fun escalatingAnEditedSignatureDoesNotProduceASecond() {
+        val state = quickReplyState()
+        state.seedQuickReplySignature()
+        state.quickReplyBody = "t2\n\nFrom A, but mine now"
+
+        state.openQuickReplyInFullEditor()
+
+        assertEquals("t2\n\nFrom A, but mine now", state.body)
+        assertNull(state.composeSignature)
+    }
+
+    @Test
+    fun aReplyBarSeededBeforeTheAppSignatureLandsIsSeededAgain() =
+        runBlocking {
+            val state = quickReplyState(this, accountId = "d")
+            state.appSignatureLoaded = false
+
+            state.seedQuickReplySignature()
+            assertEquals("", state.quickReplyBody)
+
+            state.appSignatureHtml = "<p>App wide</p>"
+            state.appSignatureLoaded = true
+            state.appSignatureLoadCompletion.complete(Unit)
+            yield()
+
+            assertEquals("\n\nApp wide", state.quickReplyBody)
+        }
+
+    @Test
+    fun aLateAppSignatureDoesNotOverwriteWhatTheUserTyped() =
+        runBlocking {
+            val state = quickReplyState(this, accountId = "d")
+            state.appSignatureLoaded = false
+            state.seedQuickReplySignature()
+            state.quickReplyBody = "already typing"
+
+            state.appSignatureHtml = "<p>App wide</p>"
+            state.appSignatureLoaded = true
+            state.appSignatureLoadCompletion.complete(Unit)
+            yield()
+
+            assertEquals("already typing", state.quickReplyBody)
+        }
+
+    @Test
+    fun rewritingTheAppSignatureUpdatesAnUntouchedReplyBar() {
+        // Account "d" follows the app-wide signature rather than its own.
+        val state = quickReplyState(accountId = "d")
+        state.appSignatureHtml = "<p>App wide</p>"
+        state.seedQuickReplySignature()
+        assertEquals("\n\nApp wide", state.quickReplyBody)
+
+        state.appSignatureHtml = "<p>Rewritten</p>"
+        state.reseedUntouchedQuickReply()
+
+        assertEquals("\n\nRewritten", state.quickReplyBody)
+    }
+
+    @Test
+    fun rewritingAnAccountSignatureUpdatesAnUntouchedReplyBar() {
+        val state = quickReplyState()
+        state.seedQuickReplySignature()
+        assertEquals("\n\nFrom A", state.quickReplyBody)
+
+        state.coreAccounts =
+            state.coreAccounts.map {
+                if (it.id == "a") it.copy(signature = SignatureSpec("custom", "<p>From A, revised</p>")) else it
+            }
+        state.reseedUntouchedQuickReply()
+
+        assertEquals("\n\nFrom A, revised", state.quickReplyBody)
+    }
+
+    @Test
+    fun rewritingASignatureLeavesAReplyBarInProgressAlone() {
+        val state = quickReplyState()
+        state.seedQuickReplySignature()
+        state.quickReplyBody = "half typed\n\nFrom A"
+
+        state.appSignatureHtml = "<p>Rewritten</p>"
+        state.reseedUntouchedQuickReply()
+
+        assertEquals("half typed\n\nFrom A", state.quickReplyBody)
+    }
+
+    @Test
+    fun rewritingASignatureLeavesAHydratedDraftAlone() {
+        val state = quickReplyState()
+        // What hydrateQuickReplyFromTailDraft leaves behind: an unmanaged body
+        // that already carries whatever signature it was written with.
+        state.quickReplyBody = "saved draft body"
+        state.quickReplySignature = null
+        state.quickReplyDraftId = "draft-1"
+        state.quickReplyDraftSaved = true
+
+        state.appSignatureHtml = "<p>Rewritten</p>"
+        state.reseedUntouchedQuickReply()
+
+        assertEquals("saved draft body", state.quickReplyBody)
+    }
+
+    private fun quickReplyState(
+        scope: CoroutineScope = CoroutineScope(EmptyCoroutineContext),
+        accountId: String = "a",
+    ): MeronMobileState {
+        val state = composeState(scope)
+        state.coreAccounts = state.coreAccounts + account("d", SignatureSpec("global", ""))
+        val thread =
+            ThreadSummary(
+                id = "t-1",
+                accountId = accountId,
+                folder = "INBOX",
+                subject = "Subject",
+                sender = "them@example.com",
+            )
+        state.selectedCoreThread = thread
+        state.quickReplyThreadId = thread.backendThreadId()
+        state.messages =
+            listOf(
+                MessageBody(
+                    id = "root",
+                    folderId = "INBOX",
+                    from = "Them",
+                    fromAddr = "them@example.com",
+                    to = "$accountId@example.com",
+                    subject = "Subject",
+                    body = "Original message",
+                    messageId = "root@example.com",
+                ),
+            )
+        return state
     }
 
     private fun composeState(scope: CoroutineScope = CoroutineScope(EmptyCoroutineContext)): MeronMobileState {

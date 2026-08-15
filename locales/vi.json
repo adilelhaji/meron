@@ -683,7 +683,7 @@
   "settings.shareSyncLogHint": "Xuất hoạt động đồng bộ hóa nền gần đây để khắc phục sự cố",
   "settings.sideNav.showUnifiedInbox": "Hiển thị Hộp thư đến chung",
   "settings.signature.accountHint": "Dùng chữ ký của ứng dụng, không dùng chữ ký nào, hoặc viết riêng cho tài khoản này.",
-  "settings.signature.hint": "Được thêm vào thư mới, thư chuyển tiếp và thư trả lời mở trong trình soạn thảo đầy đủ. Mỗi tài khoản có thể ghi đè trong cài đặt riêng.",
+  "settings.signature.hint": "Được thêm vào thư mới, thư chuyển tiếp và thư trả lời. Mỗi tài khoản có thể ghi đè trong cài đặt riêng.",
   "settings.signature.label": "Chữ ký",
   "settings.signature.modeCustom": "Tùy chỉnh",
   "settings.signature.modeGlobal": "Chữ ký của ứng dụng",

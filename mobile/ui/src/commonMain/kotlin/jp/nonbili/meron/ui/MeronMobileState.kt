@@ -13,6 +13,7 @@ import jp.nonbili.meron.shared.MeronCore
 import jp.nonbili.meron.shared.MessageAttachment
 import jp.nonbili.meron.shared.MessageBody
 import jp.nonbili.meron.shared.ProxySpec
+import jp.nonbili.meron.shared.SignatureMark
 import jp.nonbili.meron.shared.SignatureTracking
 import jp.nonbili.meron.shared.StarredItemSummary
 import jp.nonbili.meron.shared.StorageUsage
@@ -213,6 +214,17 @@ internal class MeronMobileState(
     // (detectReplyFromIdentity). Cleared on thread switch, so an override never
     // leaks into the next conversation.
     var quickReplyFrom by mutableStateOf("")
+
+    // The signature this app seeded into the reply bar, or null when there is
+    // none to account for — the account sends none, or the body was hydrated
+    // from a saved draft that already carries its own.
+    //
+    // Unlike [composeSignature] this needs no third "inserted nothing, but
+    // managed" state: a quick reply cannot change sending account, since its
+    // From row only offers aliases of the one account and those share a
+    // signature. With nothing to swap, the only question ever asked of this is
+    // which part of the box is the user's.
+    var quickReplySignature by mutableStateOf<SignatureMark?>(null)
 
     // Same double-send/autosave-race gate as composeSendInFlight, for the
     // inline reply bar.

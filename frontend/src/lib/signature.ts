@@ -6,10 +6,10 @@ import type { Account, AccountSignature } from '../types'
 // delete the text like any other content — rather than being stapled on at send
 // time, so what the composer shows is what goes out.
 //
-// The thread's quick reply is deliberately left out: it sends chat bubbles, and
-// stamping a signature onto every one of them reads as noise rather than
-// courtesy. Escalating a quick reply into the full composer does get one, which
-// is what the settings hint describes.
+// The thread's quick reply is seeded the same way. It renders as a chat bubble,
+// but what it sends is an ordinary mail that its recipient reads in an ordinary
+// client, so leaving it unsigned reads as inconsistency rather than brevity.
+// Its tracking is simpler — see compose$.quickReplySignature.
 
 /** Whether signature HTML carries any visible content (text or an image). */
 export function isBlankSignature(html: string): boolean {

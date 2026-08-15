@@ -450,6 +450,7 @@ internal fun MeronMobileState.saveAppSignature(html: String) {
     }
     val previous = appSignatureHtml
     appSignatureHtml = html
+    reseedUntouchedQuickReply()
     scope.launch {
         runCatching {
             withContext(ioDispatcher) {
@@ -457,6 +458,7 @@ internal fun MeronMobileState.saveAppSignature(html: String) {
             }
         }.onFailure {
             appSignatureHtml = previous
+            reseedUntouchedQuickReply()
             status = "Signature update failed: ${it.message}"
         }
     }
@@ -477,7 +479,10 @@ internal fun MeronMobileState.saveAccountSignature(
                 MobileMailCommandClient(core).setAccountSignature(AccountSignatureParams(account.id, spec))
             }
         }.onSuccess {
-            listAccounts()
+            // Joined, not fired and forgotten: the reseed below resolves the
+            // signature off coreAccounts, which this refresh is what updates.
+            listAccounts()?.join()
+            reseedUntouchedQuickReply()
         }.onFailure {
             status = "Signature update failed: ${it.message}"
         }

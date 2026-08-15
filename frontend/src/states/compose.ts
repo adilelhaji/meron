@@ -15,7 +15,9 @@ import {
   bodyWithSwappedSignature,
   resolveSignature,
   signatureForms,
+  type ComposeBody,
   type Signature,
+  type SignatureMark,
   type SignaturePlacement,
   type SignatureTracking,
 } from '../lib/signature'
@@ -195,6 +197,16 @@ export const compose$ = observable({
   // the original was delivered to (detectAliasFrom). Reset on thread switch, so
   // an override never leaks into the next conversation.
   quickReplyFrom: '',
+  // The signature this app seeded into the quick reply, or null when there is
+  // none to account for — the account sends none, or the body was hydrated from
+  // a saved draft that already carries its own.
+  //
+  // Unlike the full composer's tracking (see lib/signature's SignatureTracking)
+  // this needs no third "inserted nothing, but managed" state: a quick reply
+  // cannot change sending account, since its From picker only offers aliases of
+  // the one account and those all share a signature. With nothing to swap, the
+  // only question ever asked of this is which part of the box is the user's.
+  quickReplySignature: null as SignatureMark | null,
 })
 
 // While the Current conversation tab is active (activeTab ""), mirror every
@@ -277,6 +289,78 @@ compose$.tabs.onChange(({ value: tabs }) => {
   }
 })
 
+/**
+ * Seed the quick reply with the replying account's signature, as the box the
+ * user starts typing into rather than something stapled on at send time — the
+ * rule the full composer follows, and what every other mail client shows.
+ *
+ * Replaces whatever the box holds, so it is only ever called on a fresh quick
+ * reply: a thread switch, or the clear after a send or an escalation.
+ */
+export function seedQuickReplySignature() {
+  watchQuickReplySignatureSources()
+  const thread = getActiveThread()
+  const accountId = thread?.account_id || ui$.selectedAccount.peek()
+  const account = accounts$.peek().find((acc) => acc.id === accountId)
+  const signature = isSendableAccount(account) ? resolveSignatureFor(account) : signatureForms('')
+  compose$.composer.set(signature.text ? bodyWithSignature(EMPTY_PLAIN_BODY, signature).text : '')
+  compose$.quickReplySignature.set(signature.text ? { ...signature, placement: 'belowText' } : null)
+}
+
+/** An empty plaintext body, for seeding and for stripping back to. */
+const EMPTY_PLAIN_BODY: ComposeBody = { rich: false, html: '', text: '' }
+
+/**
+ * The quick reply with the signature this app seeded taken back out, and
+ * whether it was still there to take. A signature the user has typed into can
+ * no longer be identified (see `bodyWithSwappedSignature`), which is the same
+ * answer as "this text is theirs now".
+ */
+function quickReplyWithoutSignature(): { text: string; found: boolean } {
+  const text = compose$.composer.peek()
+  const mark = compose$.quickReplySignature.peek()
+  if (!mark?.text) return { text, found: false }
+  const swapped = bodyWithSwappedSignature({ ...EMPTY_PLAIN_BODY, text }, mark, signatureForms(''))
+  return swapped.tracking === undefined ? { text, found: false } : { text: swapped.body.text, found: true }
+}
+
+/**
+ * Whether the quick reply holds nothing the user put there. A seeded signature
+ * does not count as content: it is not something they wrote, and treating it as
+ * such would save a draft for every thread they merely open, and let an
+ * untouched box be "sent".
+ */
+export function isQuickReplyBlank(): boolean {
+  return !quickReplyWithoutSignature().text.trim() && compose$.composerAttachments.peek().length === 0
+}
+
+/**
+ * The quick reply as it should be saved and sent: what the box holds, minus
+ * only the blank line the signature was seeded under.
+ *
+ * That padding is dropped just when nothing was typed above it — an
+ * attachment-only reply, whose body is the untouched signature and would
+ * otherwise go out with leading newlines. Whitespace anywhere else is the
+ * user's (an indented first line, trailing blank lines they left) and is sent
+ * exactly as written, so this is never a blanket trim.
+ */
+function quickReplyOutgoingText(): string {
+  const text = compose$.composer.peek()
+  const withoutSignature = quickReplyWithoutSignature()
+  if (!withoutSignature.found || withoutSignature.text.trim()) return text
+  return text.replace(/^\n+/, '')
+}
+
+/**
+ * How far into the box the user's own text runs — where the caret belongs when
+ * the reply shortcut focuses a box whose last lines are the signature.
+ */
+export function quickReplyCaretOffset(): number {
+  const { text, found } = quickReplyWithoutSignature()
+  if (!found) return compose$.composer.peek().length
+  return text.replace(/\n+$/, '').length
+}
+
 // The one in-flight (or queued) quick-reply save. Saves are chained onto it so
 // autosaves can't overtake each other on the wire, and discardQuickReplyDraftIfEmpty
 // awaits it before trusting quickReplyDraftSaved — the flag is only set once the
@@ -304,9 +388,9 @@ export function saveQuickReplyDraft(): Promise<void> {
 async function performQuickReplyDraftSave() {
   const activeT = getActiveThread()
   if (!activeT) return
-  const text = compose$.composer.peek()
+  const text = quickReplyOutgoingText()
   const attachments = compose$.composerAttachments.peek()
-  if (!text.trim() && attachments.length === 0) return
+  if (isQuickReplyBlank()) return
 
   const replyAccountId = activeT.account_id || ui$.selectedAccount.peek()
   if (!replyAccountId || replyAccountId === 'unified') return
@@ -349,7 +433,7 @@ async function performQuickReplyDraftSave() {
   // in that window saw quickReplyDraftSaved still false and bailed. Drop the
   // draft we just wrote instead of letting it resurrect on the next thread open.
   const sameThread = ui$.selectedThread.peek() === activeT.thread_id
-  if (sameThread && !compose$.composer.peek().trim() && compose$.composerAttachments.peek().length === 0) {
+  if (sameThread && isQuickReplyBlank()) {
     if (compose$.quickReplyDraftId.peek() === savedDraftId) {
       compose$.quickReplyDraftId.set('')
       compose$.quickReplyDraftSaved.set(false)
@@ -374,9 +458,7 @@ export async function discardQuickReplyDraftIfEmpty() {
   // Wait out any in-flight autosave before peeking the flags below; the save
   // itself re-checks on completion and self-discards if the composer is blank.
   while (quickReplyDraftSaveInFlight) await quickReplyDraftSaveInFlight
-  const text = compose$.composer.peek()
-  const attachments = compose$.composerAttachments.peek()
-  if (text.trim() || attachments.length > 0) return
+  if (!isQuickReplyBlank()) return
   if (!compose$.quickReplyDraftSaved.peek()) return
   const draftId = compose$.quickReplyDraftId.peek()
   if (!draftId) return
@@ -417,9 +499,7 @@ export function scheduleQuickReplyDraftSave() {
   if (quickReplyDraftSaveTimer) clearTimeout(quickReplyDraftSaveTimer)
   quickReplyDraftSaveTimer = setTimeout(() => {
     quickReplyDraftSaveTimer = null
-    const text = compose$.composer.peek()
-    const attachments = compose$.composerAttachments.peek()
-    if (!text.trim() && attachments.length === 0) {
+    if (isQuickReplyBlank()) {
       void discardQuickReplyDraftIfEmpty()
     } else {
       void saveQuickReplyDraft()
@@ -444,6 +524,7 @@ ui$.selectedThread.onChange(({ value }) => {
   compose$.quickReplyDraftId.set('')
   compose$.quickReplyDraftSaved.set(false)
   compose$.quickReplyFrom.set('')
+  compose$.quickReplySignature.set(null)
 })
 
 // Pre-fills the quick reply with an already-saved draft sitting at the tail of
@@ -464,6 +545,9 @@ function hydrateQuickReplyFromTailDraft(messages: Message[]) {
   compose$.quickReplyDraftId.set(tailDraftId)
   compose$.quickReplyDraftSaved.set(true)
   compose$.quickReplyFrom.set(tail.from_addr ?? '')
+  // The saved body already carries whatever signature it was written with, so
+  // none of it is this app's to strip, re-seed, or discount as "not content".
+  compose$.quickReplySignature.set(null)
 
   if (tail.has_attachments) {
     void readComposerAttachments(tail.attachments ?? [], tail.body_html ?? '').then((valid) => {
@@ -475,6 +559,32 @@ function hydrateQuickReplyFromTailDraft(messages: Message[]) {
 }
 
 mail$.messages.onChange(({ value }) => hydrateQuickReplyFromTailDraft(value))
+
+// The app signature is read out of the prefs table after the first render, and
+// an account's override can be rewritten from the settings dialog while a
+// thread is open behind it. Re-seed a quick reply the user hasn't written in
+// yet, so it isn't left sitting there without the signature it should have had.
+// A box with anything of theirs in it — text, an attachment, a hydrated draft —
+// is never rewritten.
+function reseedUntouchedQuickReply() {
+  if (!ui$.selectedThread.peek()) return
+  if (compose$.quickReplyDraftSaved.peek() || compose$.quickReplyDraftId.peek()) return
+  if (!isQuickReplyBlank()) return
+  seedQuickReplySignature()
+}
+
+// Subscribed on the first seed rather than at module scope: this module and
+// ./accounts import each other, so `accounts$` is still in its temporal dead
+// zone while this file's body runs. Nothing can have seeded a quick reply
+// before both modules are live, which makes first-seed the earliest safe point.
+let quickReplySignatureSourcesWatched = false
+
+function watchQuickReplySignatureSources() {
+  if (quickReplySignatureSourcesWatched) return
+  quickReplySignatureSourcesWatched = true
+  settings$.signature.onChange(reseedUntouchedQuickReply)
+  accounts$.onChange(reseedUntouchedQuickReply)
+}
 
 // Open a single message in its own reader tab. The HTML is already on the
 // message (shipped with threadRead), so this is instant — no fetch. Re-opening
@@ -704,6 +814,12 @@ export function openReplyInFullEditor() {
   // duplicate one.
   const existingDraftId = compose$.quickReplyDraftSaved.peek() ? compose$.quickReplyDraftId.peek() : undefined
   cancelQuickReplyDraftSave()
+  // The seeded signature is handed over stripped, so the full composer inserts
+  // and tracks its own copy — the account is the same, so this is the identical
+  // text, now swappable if the draft later changes identity. When it can't be
+  // found the user has written into it: it stays in the body as theirs, and the
+  // composer is told not to add a second.
+  const carried = quickReplyWithoutSignature()
   openComposeTab({
     accountId: t.account_id || undefined,
     fromEmail: resolveQuickReplyFrom(target, replyAcc),
@@ -711,7 +827,8 @@ export function openReplyInFullEditor() {
     cc,
     showCcBcc: !!cc.trim(),
     subject,
-    text: compose$.composer.get(),
+    text: carried.text,
+    noSignature: !carried.found && !!compose$.quickReplySignature.peek()?.text,
     attachments: compose$.composerAttachments.get(),
     inReplyTo: in_reply_to,
     references,
@@ -719,11 +836,13 @@ export function openReplyInFullEditor() {
     title: subject,
     threadId: t.thread_id,
   })
-  compose$.composer.set('')
   compose$.composerAttachments.set([])
   compose$.quickReplyDraftId.set('')
   compose$.quickReplyDraftSaved.set(false)
   compose$.quickReplyFrom.set('')
+  // The thread stays open behind the new tab, so the box the user comes back to
+  // is a fresh quick reply — signature and all.
+  seedQuickReplySignature()
 }
 
 export function openMailtoCompose(raw: string) {
@@ -1312,12 +1431,13 @@ export function buildReplyThreading(target: Message): {
 }
 
 export async function sendReply() {
-  const composerText = compose$.composer.get()
+  const composerText = quickReplyOutgoingText()
   const attachments = compose$.composerAttachments.get()
   const activeT = getActiveThread()
   const selectedAcc = ui$.selectedAccount.get()
 
-  if ((!composerText.trim() && attachments.length === 0) || !activeT) return
+  // A box holding only the seeded signature is not a reply worth sending.
+  if (isQuickReplyBlank() || !activeT) return
 
   const replyAccountId = activeT.account_id || selectedAcc
   const accounts = accounts$.get()
@@ -1421,10 +1541,12 @@ export async function sendReply() {
   // doesn't affect retry.
   const savedDraftId = compose$.quickReplyDraftSaved.peek() ? compose$.quickReplyDraftId.peek() : ''
   cancelQuickReplyDraftSave()
-  compose$.composer.set('')
   compose$.composerAttachments.set([])
   compose$.quickReplyDraftId.set('')
   compose$.quickReplyDraftSaved.set(false)
+  // Back to a fresh quick reply rather than an empty box: the next reply in
+  // this thread gets a signature just like the one just sent did.
+  seedQuickReplySignature()
 
   await dispatchSend(tempId)
   // Discard the now-obsolete draft only once the send actually succeeded

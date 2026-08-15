@@ -1,7 +1,7 @@
 import { Loader2, Maximize2, Paperclip, Send } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
-import { compose$, openReplyInFullEditor } from '../../states/compose'
+import { compose$, isQuickReplyBlank, openReplyInFullEditor } from '../../states/compose'
 import { sendShortcutLabel, settings$ } from '../../states/settings'
 import { useQuickReply } from './useQuickReply'
 import { QuickReplyAttachments } from './QuickReplyAttachments'
@@ -22,7 +22,10 @@ export function QuickReplyComposer() {
     handleComposerKeyDown,
   } = useQuickReply()
 
-  const canSend = !sendingReply && (composer.trim().length > 0 || composerAttachments.length > 0)
+  // A box holding only its seeded signature counts as empty. The check peeks
+  // rather than subscribing, but `composer` is rendered below, so every
+  // keystroke re-renders this and re-evaluates it.
+  const canSend = !sendingReply && !isQuickReplyBlank()
 
   return (
     <footer className="p-3.5 bg-header border-t border-border z-10 flex flex-col items-center justify-center">

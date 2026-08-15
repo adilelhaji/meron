@@ -683,7 +683,7 @@
   "settings.shareSyncLogHint": "Eksportuj ostatnią aktywność synchronizacji w tle do rozwiązywania problemów",
   "settings.sideNav.showUnifiedInbox": "Pokaż wspólną skrzynkę odbiorczą",
   "settings.signature.accountHint": "Użyj podpisu aplikacji, nie wysyłaj żadnego albo napisz podpis tylko dla tego konta.",
-  "settings.signature.hint": "Dodawany do nowych wiadomości, przekazań i odpowiedzi otwartych w pełnym edytorze. Konta mogą go zastąpić we własnych ustawieniach.",
+  "settings.signature.hint": "Dodawany do nowych wiadomości, przekazań i odpowiedzi. Konta mogą go zastąpić we własnych ustawieniach.",
   "settings.signature.label": "Podpis",
   "settings.signature.modeCustom": "Własny",
   "settings.signature.modeGlobal": "Podpis aplikacji",
