@@ -1,0 +1,3 @@
+- Support app-wide and per-account email signatures
+- Include signature in quick replies
+- Improve compose draft session lifecycle
