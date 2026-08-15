@@ -27,6 +27,10 @@ type Account struct {
 	TokenExpiresAt    int64   `json:"token_expires_at,omitempty"`
 	SortOrder         int     `json:"sort_order"`
 	Aliases           []Alias `json:"aliases,omitempty"`
+	// Signature is the per-account override ({mode, html}); absent means the
+	// account follows the app-wide signature. Passed through untyped, like
+	// Proxy and ChatWallpaper — the engine owns its shape and validates it.
+	Signature any `json:"signature,omitempty"`
 	// Proxy is passed through untyped: the engine owns its shape, and the
 	// bridge has no reason to interpret it.
 	Proxy any `json:"proxy,omitempty"`
