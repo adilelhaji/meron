@@ -1,0 +1,4 @@
+- Support backup and restore for accounts and settings
+- Support app-wide and per-account email signatures
+- Seed quick replies with the sending account's signature
+- Harden compose draft session lifecycle and state persistence
