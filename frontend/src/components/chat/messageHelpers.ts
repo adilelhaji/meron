@@ -106,6 +106,15 @@ export function htmlReferencesMedia(html: string | undefined, media: Attachment)
   return html.includes(media.url) || html.includes(escapedUrl)
 }
 
+/** Images that need a separate grid because the active body does not already render them. */
+export function standaloneAttachmentImages(
+  attachmentImages: Attachment[],
+  useHtmlBody: boolean,
+  html: string | undefined,
+): Attachment[] {
+  return useHtmlBody ? attachmentImages.filter((image) => !htmlReferencesMedia(html, image)) : attachmentImages
+}
+
 function escapeHtmlAttribute(value: string): string {
   return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;')
 }

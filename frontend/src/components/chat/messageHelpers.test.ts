@@ -16,6 +16,7 @@ import {
   normalizeUrl,
   parseAddressList,
   parseInlineMessageContent,
+  standaloneAttachmentImages,
   splitFencedCodeBlocks,
 } from './messageHelpers'
 
@@ -67,6 +68,17 @@ describe('messageHelpers file and media helpers', () => {
         url: 'https://example.com/image.jpg',
       } as any),
     ).toBe(false)
+  })
+
+  it('keeps only HTML message image attachments that are not embedded in the body', () => {
+    const embedded = { key: 'account/embedded.jpg', mime: 'image/jpeg' } as any
+    const attached = { key: 'account/attached.jpg', mime: 'image/jpeg' } as any
+    const html = '<p>Message body</p><img src="/media/account/embedded.jpg">'
+
+    expect(standaloneAttachmentImages([embedded], true, html)).toEqual([])
+    expect(standaloneAttachmentImages([attached], true, html)).toEqual([attached])
+    expect(standaloneAttachmentImages([embedded, attached], true, html)).toEqual([attached])
+    expect(standaloneAttachmentImages([embedded], false, html)).toEqual([embedded])
   })
 
   it('hides remote media until account settings or reveal allow them', () => {

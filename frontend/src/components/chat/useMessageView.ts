@@ -3,7 +3,7 @@ import { accountIdentities, accounts$ } from '../../states/accounts'
 import { getActiveThread, isDraftFolder } from '../../states/mail'
 import { thread$ } from '../../states/thread'
 import type { Account, Message } from '../../types'
-import { extractAddr, formatRecipientSummary, getVisibleMedia, htmlReferencesMedia } from './messageHelpers'
+import { extractAddr, formatRecipientSummary, getVisibleMedia, standaloneAttachmentImages } from './messageHelpers'
 
 export type MessageView = ReturnType<typeof useMessageView>
 
@@ -40,9 +40,7 @@ export function useMessageView(message: Message) {
   // highlight their matches inside the frame (BubbleHtmlFrame), rather than
   // falling back to the plain-text renderer for the duration of the search.
   const useHtmlBody = conversationMode === 'html' && !!message.body_html
-  const showAttachmentImages =
-    attachmentImages.length > 0 &&
-    (!useHtmlBody || (outgoing && attachmentImages.some((image) => !htmlReferencesMedia(message.body_html, image))))
+  const bubbleAttachmentImages = standaloneAttachmentImages(attachmentImages, useHtmlBody, message.body_html)
 
   const replyToRaw = message.reply_to?.trim()
   const ccRaw = message.cc?.trim()
@@ -61,10 +59,10 @@ export function useMessageView(message: Message) {
     showOriginalDate: isRSS,
     revealed,
     attachmentImages,
+    bubbleAttachmentImages,
     videos,
     hiddenRemoteCount,
     files,
-    showAttachmentImages,
     useHtmlBody,
     normalizedSearchQuery,
     activeSearchMatch: activeSearchId === message.id,

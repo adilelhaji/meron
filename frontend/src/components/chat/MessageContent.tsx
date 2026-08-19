@@ -27,15 +27,15 @@ export function MessageContent({
   onLinkHover?: (url: string | null) => void
 }) {
   const { t } = useTranslation()
-  const { attachmentImages, videos, hiddenRemoteCount, files, showAttachmentImages } = view
+  const { attachmentImages, bubbleAttachmentImages, videos, hiddenRemoteCount, files } = view
   const onOpenImage = (idx: number) => thread$.galleryIndex.set(idx)
 
   return (
     <>
       {/* Image attachments */}
-      {showAttachmentImages &&
+      {bubbleAttachmentImages.length > 0 &&
         (() => {
-          const count = attachmentImages.length
+          const count = bubbleAttachmentImages.length
           let gridClass = 'grid-cols-2 max-w-[320px]'
           let btnClass = 'h-40'
 
@@ -55,11 +55,11 @@ export function MessageContent({
 
           return (
             <div className={`mb-2 grid gap-1.5 rounded-lg overflow-hidden border border-border/20 ${gridClass}`}>
-              {attachmentImages.map((image, idx) => (
+              {bubbleAttachmentImages.map((image, idx) => (
                 <button
                   key={idx}
                   type="button"
-                  onClick={() => onOpenImage(galleryOffset + idx)}
+                  onClick={() => onOpenImage(galleryOffset + attachmentImages.indexOf(image))}
                   className={`block w-full overflow-hidden hover:opacity-90 cursor-pointer ${btnClass}`}
                   title={image.filename}
                 >
