@@ -107,7 +107,8 @@ private fun ProxyEditorDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("settings.network.proxy")) },
         text = {
-            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+            val scrollState = rememberScrollState()
+            Column(modifier = Modifier.heightIn(max = 480.dp).appScrollbar(scrollState).verticalScroll(scrollState)) {
                 Text(
                     if (accountScoped) tr("settings.network.accountProxyHint") else tr("settings.network.proxyHint"),
                     style = MaterialTheme.typography.bodySmall,

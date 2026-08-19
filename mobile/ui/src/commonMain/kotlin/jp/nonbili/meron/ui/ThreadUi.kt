@@ -579,7 +579,7 @@ internal fun ThreadScreen(
                     } else {
                         val traditional = conversationLayout == ConversationLayout.Traditional
                         LazyColumn(
-                            Modifier.fillMaxSize(),
+                            Modifier.fillMaxSize().appScrollbar(listState),
                             state = listState,
                             contentPadding =
                                 PaddingValues(
@@ -801,12 +801,15 @@ internal fun ConversationDetailsScreen(
             )
         },
     ) { innerPadding ->
+        val detailsListState = rememberLazyListState()
         LazyColumn(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .appScrollbar(detailsListState)
                     .padding(horizontal = 16.dp),
+            state = detailsListState,
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             // Section 0: Subject

@@ -67,8 +67,9 @@ internal fun ChangelogDialog(
                 }
 
                 else -> {
+                    val scrollState = rememberScrollState()
                     Column(
-                        Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
+                        Modifier.heightIn(max = 420.dp).appScrollbar(scrollState).verticalScroll(scrollState),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         releases.forEach { release -> ChangelogReleaseItem(release) }

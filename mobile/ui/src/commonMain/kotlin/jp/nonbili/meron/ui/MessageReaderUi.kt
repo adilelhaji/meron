@@ -277,6 +277,7 @@ internal fun MessageReaderScreen(
                     .fillMaxSize()
                     .background(MaterialTheme.colorScheme.background)
                     .padding(innerPadding)
+                    .appScrollbar(scrollState)
                     .verticalScroll(scrollState)
                     .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),

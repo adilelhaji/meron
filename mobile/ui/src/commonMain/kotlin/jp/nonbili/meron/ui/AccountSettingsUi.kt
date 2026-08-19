@@ -162,7 +162,7 @@ internal fun SettingsAccountDetailPage(
         )
     }
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (focusProxy && !isRss) 9 else 0)
-    LazyColumn(modifier, state = listState) {
+    LazyColumn(modifier.appScrollbar(listState), state = listState) {
         item {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),

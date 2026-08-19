@@ -490,7 +490,8 @@ internal fun SettingsScreen(
                 // then Kanban boards, Mail accounts, and Feed accounts sections.
                 val mailAccounts = accounts.filter { !accountSummaryIsRss(it) }
                 val feedAccounts = accounts.filter { accountSummaryIsRss(it) }
-                LazyColumn(Modifier.fillMaxSize()) {
+                val rootListState = rememberLazyListState()
+                LazyColumn(Modifier.fillMaxSize().appScrollbar(rootListState), state = rootListState) {
                     item {
                         SettingsRow(
                             icon = Icons.Filled.Settings,
@@ -589,7 +590,7 @@ private fun SettingsSyncLogPage(
     val scrollState = rememberScrollState()
     // The newest entries are at the end; start there.
     LaunchedEffect(logText) { scrollState.scrollTo(scrollState.maxValue) }
-    Column(modifier.verticalScroll(scrollState).padding(16.dp)) {
+    Column(modifier.appScrollbar(scrollState).verticalScroll(scrollState).padding(16.dp)) {
         if (logText.isBlank()) {
             Text(tr("settings.syncLogEmpty"), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else {
@@ -683,7 +684,7 @@ internal fun SettingsGeneralPage(
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = if (focusProxy) 12 else 0)
-    LazyColumn(modifier, state = listState) {
+    LazyColumn(modifier.appScrollbar(listState), state = listState) {
         item { SettingsSectionLabel(tr("settings.pages.appearance")) }
         item {
             val displayedAppearanceMode =

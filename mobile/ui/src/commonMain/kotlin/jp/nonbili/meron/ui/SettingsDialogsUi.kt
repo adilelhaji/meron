@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -53,8 +54,10 @@ internal fun ThemePickerDialog(
         text = {
             val lightLabel = tr("theme.light")
             val darkLabel = tr("theme.dark")
+            val listState = rememberLazyListState()
             LazyColumn(
-                modifier = Modifier.heightIn(max = 480.dp),
+                modifier = Modifier.heightIn(max = 480.dp).appScrollbar(listState),
+                state = listState,
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 themeSwatchSection(lightLabel, lightModes, current, onSelect, onDismiss)
@@ -186,7 +189,8 @@ internal fun LanguagePickerDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("settings.language.label")) },
         text = {
-            LazyColumn(modifier = Modifier.heightIn(max = 480.dp)) {
+            val listState = rememberLazyListState()
+            LazyColumn(modifier = Modifier.heightIn(max = 480.dp).appScrollbar(listState), state = listState) {
                 item {
                     Row(
                         Modifier
@@ -259,8 +263,9 @@ internal fun BackupPassphraseDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text(if (exporting) tr("settings.backup.exportTitle") else tr("settings.backup.restoreTitle")) },
         text = {
+            val scrollState = rememberScrollState()
             Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
+                modifier = Modifier.appScrollbar(scrollState).verticalScroll(scrollState),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (exporting) {

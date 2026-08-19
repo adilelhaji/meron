@@ -136,7 +136,8 @@ private fun SignatureEditorDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("settings.signature.label")) },
         text = {
-            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+            val scrollState = rememberScrollState()
+            Column(modifier = Modifier.heightIn(max = 480.dp).appScrollbar(scrollState).verticalScroll(scrollState)) {
                 Text(
                     tr("settings.signature.hint"),
                     style = MaterialTheme.typography.bodySmall,
@@ -171,7 +172,8 @@ private fun AccountSignatureDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("settings.signature.label")) },
         text = {
-            Column(modifier = Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
+            val scrollState = rememberScrollState()
+            Column(modifier = Modifier.heightIn(max = 480.dp).appScrollbar(scrollState).verticalScroll(scrollState)) {
                 Text(
                     tr("settings.signature.accountHint"),
                     style = MaterialTheme.typography.bodySmall,

@@ -396,7 +396,11 @@ internal fun MailList(
             },
         )
     }
-    LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(bottom = 88.dp)) {
+    LazyColumn(
+        Modifier.fillMaxSize().appScrollbar(listState),
+        state = listState,
+        contentPadding = PaddingValues(bottom = 88.dp),
+    ) {
         items(threads, key = { it.id }) { thread ->
             if (selectionActive) {
                 MailRow(

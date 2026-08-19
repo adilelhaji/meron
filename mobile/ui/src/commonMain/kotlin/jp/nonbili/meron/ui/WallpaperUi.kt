@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -139,7 +140,8 @@ internal fun WallpaperPickerPage(
     var localSelected by remember(selected, previewPresetId, previewCustomUrl) { mutableStateOf(normalizedSelected) }
     var localPresetId by remember(selected, previewPresetId, previewCustomUrl) { mutableStateOf(normalizedPreviewPresetId) }
     var localCustomUrl by remember(selected, previewPresetId, previewCustomUrl) { mutableStateOf(previewCustomUrl) }
-    LazyColumn(modifier) {
+    val listState = rememberLazyListState()
+    LazyColumn(modifier.appScrollbar(listState), state = listState) {
         item {
             ChatWallpaperPreview(
                 presetId = localPresetId,

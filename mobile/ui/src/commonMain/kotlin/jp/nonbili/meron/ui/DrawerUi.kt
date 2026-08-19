@@ -258,7 +258,12 @@ internal fun MailDrawer(
         drawerContainerColor = chat.sidebar,
         drawerContentColor = chat.onSidebar,
     ) {
-        LazyColumn(contentPadding = PaddingValues(vertical = 16.dp)) {
+        val listState = rememberLazyListState()
+        LazyColumn(
+            Modifier.appScrollbar(listState, color = chat.onSidebar.copy(alpha = 0.4f)),
+            state = listState,
+            contentPadding = PaddingValues(vertical = 16.dp),
+        ) {
             item {
                 Text(
                     "Meron",

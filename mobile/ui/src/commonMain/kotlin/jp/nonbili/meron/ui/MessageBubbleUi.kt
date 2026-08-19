@@ -56,6 +56,9 @@ import jp.nonbili.meron.shared.folderIsDrafts
 import jp.nonbili.meron.shared.formatRecipientSummary
 import jp.nonbili.meron.shared.standaloneAttachments
 
+/** Bubble inner padding; capped bodies offset their scrollbar back over it. */
+private val BubbleHorizontalPadding = 14.dp
+
 @Composable
 internal fun MessageBubble(
     message: MessageBody,
@@ -117,7 +120,7 @@ internal fun MessageBubble(
                         Modifier
                     },
                 ).background(bubbleColor)
-                .padding(start = 14.dp, end = 14.dp, top = 8.dp, bottom = 6.dp),
+                .padding(start = BubbleHorizontalPadding, end = BubbleHorizontalPadding, top = 8.dp, bottom = 6.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             // Sender, timestamp and the actions menu share one row to keep the
@@ -438,11 +441,16 @@ internal fun ColumnScope.MessageBodyContent(
             // lazy list and throw.
             bodyText()
         } else {
+            val bodyScrollState = rememberScrollState()
             Box(
                 Modifier
                     .fillMaxWidth()
                     .heightIn(max = bodyMaxHeight)
-                    .verticalScroll(rememberScrollState()),
+                    .appScrollbar(
+                        bodyScrollState,
+                        color = textColor.copy(alpha = 0.4f),
+                        endOffset = BubbleHorizontalPadding,
+                    ).verticalScroll(bodyScrollState),
             ) {
                 bodyText()
             }
@@ -878,11 +886,13 @@ internal fun HtmlMessageBody(
             )
 
     if (capped) {
+        val htmlScrollState = rememberScrollState()
         Box(
             Modifier
                 .fillMaxWidth()
                 .height(maxHeight)
-                .verticalScroll(rememberScrollState()),
+                .appScrollbar(htmlScrollState, endOffset = BubbleHorizontalPadding)
+                .verticalScroll(htmlScrollState),
         ) {
             MailWebViewWithLinkMenu(
                 html = mobileHtml,

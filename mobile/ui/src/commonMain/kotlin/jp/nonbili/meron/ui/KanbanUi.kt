@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -498,8 +499,10 @@ internal fun KanbanScreen(
                 onAction = onAddColumn,
             )
         } else {
+            val boardRowState = rememberLazyListState()
             LazyRow(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxSize().appScrollbar(boardRowState, Orientation.Horizontal),
+                state = boardRowState,
                 contentPadding = PaddingValues(start = 12.dp, top = 8.dp, end = 12.dp, bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -738,7 +741,7 @@ internal fun KanbanColumn(
                     if (nearBottom && canLoadMore && !state.loadingMore) onLoadMore()
                 }
                 LazyColumn(
-                    Modifier.fillMaxSize(),
+                    Modifier.fillMaxSize().appScrollbar(columnListState),
                     state = columnListState,
                     contentPadding = PaddingValues(bottom = 8.dp),
                 ) {
@@ -1079,7 +1082,12 @@ internal fun KanbanColumnDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("kanban.actions.addColumn")) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 460.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            val listState = rememberLazyListState()
+            LazyColumn(
+                Modifier.heightIn(max = 460.dp).appScrollbar(listState),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 item {
                     Text(
                         tr("kanban.addColumnsHint"),
@@ -1238,7 +1246,12 @@ internal fun KanbanThreadActionDialog(
         onDismissRequest = onDismiss,
         title = { Text(thread.subject.ifBlank { tr("threads.noSubject") }, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 430.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val listState = rememberLazyListState()
+            LazyColumn(
+                Modifier.heightIn(max = 430.dp).appScrollbar(listState),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 item { DialogAction(tr("kanban.actions.openThread"), onOpen) }
                 item { DialogAction(if (thread.starred) tr("chat.unstar") else tr("chat.star"), onToggleStar) }
                 item { DialogAction(if (thread.unread) tr("threads.actions.markAsRead") else tr("threads.actions.markAsUnread"), onToggleRead) }

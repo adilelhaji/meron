@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
@@ -38,7 +39,12 @@ internal fun MoveThreadDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("threads.moveConversation")) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val listState = rememberLazyListState()
+            LazyColumn(
+                Modifier.heightIn(max = 420.dp).appScrollbar(listState),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 item {
                     Text(
                         thread.subject.ifBlank { tr("threads.noSubject") },
@@ -101,7 +107,12 @@ internal fun CopyThreadDialog(
         onDismissRequest = onDismiss,
         title = { Text(tr("threads.copyConversation")) },
         text = {
-            LazyColumn(Modifier.heightIn(max = 420.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            val listState = rememberLazyListState()
+            LazyColumn(
+                Modifier.heightIn(max = 420.dp).appScrollbar(listState),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 item {
                     Text(
                         thread.subject.ifBlank { tr("threads.noSubject") },

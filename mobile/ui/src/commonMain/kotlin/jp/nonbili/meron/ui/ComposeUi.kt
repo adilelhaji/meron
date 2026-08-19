@@ -444,10 +444,12 @@ internal fun ComposeScreen(
                     280f,
                     maxHeight.value - optionalFieldsHeight - attachmentHeight - 220f,
                 ).dp
+            val bodyScrollState = rememberScrollState()
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState()),
+                    .appScrollbar(bodyScrollState)
+                    .verticalScroll(bodyScrollState),
             ) {
                 if (sendIdentities.size > 1) {
                     FromIdentitySelector(
