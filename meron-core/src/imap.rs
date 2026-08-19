@@ -959,23 +959,21 @@ pub async fn read_message(
         .ok_or_else(|| anyhow!("message uid {uid} not found in {folder}"))
 }
 
-/// Add or remove the `\Seen` flag on a set of UIDs. `seen = true` marks read
-/// (`+FLAGS`), `false` marks unread (`-FLAGS`).
-pub async fn set_seen(session: &mut Session, folder: &str, uids: &[u32], seen: bool) -> Result<()> {
-    if uids.is_empty() {
-        return Ok(());
-    }
+/// SELECT `folder` as the preflight of a flag update. Pooled sessions die
+/// silently, and the SELECT is the first command that notices, so running it
+/// as a separate phase lets a stale connection be replaced before any STORE
+/// reaches the server (see `Engine::with_preflighted_write_session`).
+pub async fn prepare_flag_update(session: &mut Session, folder: &str) -> Result<()> {
     session.select(folder).await.context("SELECT")?;
+    Ok(())
+}
+
+async fn store_flag(session: &mut Session, uids: &[u32], op: &str) -> Result<()> {
     let uid_set = uids
         .iter()
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    let op = if seen {
-        "+FLAGS.SILENT (\\Seen)"
-    } else {
-        "-FLAGS.SILENT (\\Seen)"
-    };
     let mut stream = session
         .uid_store(uid_set, op)
         .await
@@ -986,36 +984,32 @@ pub async fn set_seen(session: &mut Session, folder: &str, uids: &[u32], seen: b
     Ok(())
 }
 
-/// Add or remove the `\Flagged` flag on a set of UIDs. `starred = true` marks starred
-/// (`+FLAGS`), `false` marks unstarred (`-FLAGS`).
-pub async fn set_starred(
-    session: &mut Session,
-    folder: &str,
-    uids: &[u32],
-    starred: bool,
-) -> Result<()> {
+/// Add or remove the `\Seen` flag on a set of UIDs already in the selected
+/// mailbox. The caller must first run [`prepare_flag_update`] on the session.
+pub async fn store_seen(session: &mut Session, uids: &[u32], seen: bool) -> Result<()> {
     if uids.is_empty() {
         return Ok(());
     }
-    session.select(folder).await.context("SELECT")?;
-    let uid_set = uids
-        .iter()
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
+    let op = if seen {
+        "+FLAGS.SILENT (\\Seen)"
+    } else {
+        "-FLAGS.SILENT (\\Seen)"
+    };
+    store_flag(session, uids, op).await
+}
+
+/// Add or remove the `\Flagged` flag on a set of UIDs already in the selected
+/// mailbox. The caller must first run [`prepare_flag_update`] on the session.
+pub async fn store_starred(session: &mut Session, uids: &[u32], starred: bool) -> Result<()> {
+    if uids.is_empty() {
+        return Ok(());
+    }
     let op = if starred {
         "+FLAGS.SILENT (\\Flagged)"
     } else {
         "-FLAGS.SILENT (\\Flagged)"
     };
-    let mut stream = session
-        .uid_store(uid_set, op)
-        .await
-        .context("UID STORE FLAGS.SILENT")?;
-    while let Some(item) = stream.next().await {
-        item.context("UID STORE item")?;
-    }
-    Ok(())
+    store_flag(session, uids, op).await
 }
 
 pub async fn move_to_folder(

@@ -1831,11 +1831,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
             if !uids.is_empty() {
                 engine
-                    .with_write_session(&account, |session| {
-                        let folder = folder.clone();
-                        let uids = uids.clone();
-                        Box::pin(async move { imap::set_seen(session, &folder, &uids, seen).await })
-                    })
+                    .with_preflighted_write_session(
+                        &account,
+                        |session| {
+                            let folder = folder.clone();
+                            Box::pin(
+                                async move { imap::prepare_flag_update(session, &folder).await },
+                            )
+                        },
+                        |session| {
+                            let uids = uids.clone();
+                            Box::pin(async move { imap::store_seen(session, &uids, seen).await })
+                        },
+                    )
                     .await?;
             }
 
@@ -1918,13 +1926,21 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
             if !uids.is_empty() {
                 engine
-                    .with_write_session(&account, |session| {
-                        let folder = folder.clone();
-                        let uids = uids.clone();
-                        Box::pin(async move {
-                            imap::set_starred(session, &folder, &uids, starred).await
-                        })
-                    })
+                    .with_preflighted_write_session(
+                        &account,
+                        |session| {
+                            let folder = folder.clone();
+                            Box::pin(
+                                async move { imap::prepare_flag_update(session, &folder).await },
+                            )
+                        },
+                        |session| {
+                            let uids = uids.clone();
+                            Box::pin(
+                                async move { imap::store_starred(session, &uids, starred).await },
+                            )
+                        },
+                    )
                     .await?;
             }
 
@@ -2304,11 +2320,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
             if !uids.is_empty() {
                 engine
-                    .with_write_session(&account, |session| {
-                        let folder = folder.clone();
-                        let uids = uids.clone();
-                        Box::pin(async move { imap::set_seen(session, &folder, &uids, true).await })
-                    })
+                    .with_preflighted_write_session(
+                        &account,
+                        |session| {
+                            let folder = folder.clone();
+                            Box::pin(
+                                async move { imap::prepare_flag_update(session, &folder).await },
+                            )
+                        },
+                        |session| {
+                            let uids = uids.clone();
+                            Box::pin(async move { imap::store_seen(session, &uids, true).await })
+                        },
+                    )
                     .await?;
             }
 

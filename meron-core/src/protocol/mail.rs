@@ -1281,13 +1281,16 @@ pub(crate) fn mark_mobile_thread_read(data_dir: &str, params: &Value) -> Result<
                 return Err(format!("account needs reconnect: {}", parsed.account));
             }
             let folder = parsed.folder.clone();
-            crate::ffi::engine_block_on(engine.with_write_session(
+            crate::ffi::engine_block_on(engine.with_preflighted_write_session(
                 &parsed.account,
                 move |session| {
                     let folder = folder.clone();
+                    Box::pin(async move { imap::prepare_flag_update(session, &folder).await })
+                },
+                move |session| {
                     let uids = uids.clone();
                     Box::pin(async move {
-                        imap::set_seen(session, &folder, &uids, seen).await?;
+                        imap::store_seen(session, &uids, seen).await?;
                         anyhow::Ok(())
                     })
                 },
@@ -1409,15 +1412,21 @@ pub(crate) fn mark_mobile_folder_all_read(data_dir: &str, params: &Value) -> Res
             if account_needs_reconnect(&creds) {
                 return Err(format!("account needs reconnect: {account_id}"));
             }
-            let folder = folder.clone();
-            crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
-                let folder = folder.clone();
-                let uids = uids.clone();
-                Box::pin(async move {
-                    imap::set_seen(session, &folder, &uids, true).await?;
-                    anyhow::Ok(())
-                })
-            }))?;
+            let select_folder = folder.clone();
+            crate::ffi::engine_block_on(engine.with_preflighted_write_session(
+                &account_id,
+                move |session| {
+                    let folder = select_folder.clone();
+                    Box::pin(async move { imap::prepare_flag_update(session, &folder).await })
+                },
+                move |session| {
+                    let uids = uids.clone();
+                    Box::pin(async move {
+                        imap::store_seen(session, &uids, true).await?;
+                        anyhow::Ok(())
+                    })
+                },
+            ))?;
         }
         store::mark_folder_seen(&conn, &account_id, &folder, true)
             .map_err(|err| err.to_string())?;
@@ -1512,14 +1521,17 @@ pub(crate) fn mark_mobile_thread_starred(data_dir: &str, params: &Value) -> Resu
                 return Err(format!("account needs reconnect: {}", parsed.account));
             }
             let folder = parsed.folder.clone();
-            let uids = uids.clone();
-            crate::ffi::engine_block_on(engine.with_write_session(
+            let server_uids = uids.clone();
+            crate::ffi::engine_block_on(engine.with_preflighted_write_session(
                 &parsed.account,
                 move |session| {
                     let folder = folder.clone();
-                    let uids = uids.clone();
+                    Box::pin(async move { imap::prepare_flag_update(session, &folder).await })
+                },
+                move |session| {
+                    let uids = server_uids.clone();
                     Box::pin(async move {
-                        imap::set_starred(session, &folder, &uids, starred).await?;
+                        imap::store_starred(session, &uids, starred).await?;
                         anyhow::Ok(())
                     })
                 },

@@ -9,6 +9,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -273,4 +274,83 @@ func callMap(t *testing.T, sidecar *Sidecar, method string, params map[string]an
 		t.Fatalf("%s: expected object result, got %T", method, result)
 	}
 	return object
+}
+
+// imapProxy forwards IMAP connections to the maddy container so a test can cut
+// the client's live sockets on demand, standing in for a pooled connection the
+// server dropped without telling the client. Cutting it here rather than by
+// restarting or unplugging the container keeps the server itself reachable —
+// and Docker's host-side port forwarding survives a container restart anyway,
+// so the socket the client holds would stay usable.
+type imapProxy struct {
+	listener net.Listener
+	mu       sync.Mutex
+	conns    []net.Conn
+}
+
+// startIMAPProxy listens on a free localhost port and forwards to targetPort.
+func startIMAPProxy(t *testing.T, targetPort int) *imapProxy {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen for imap proxy: %v", err)
+	}
+	proxy := &imapProxy{listener: listener}
+	t.Cleanup(func() {
+		listener.Close()
+		proxy.sever()
+	})
+	go func() {
+		for {
+			client, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			upstream, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", targetPort), 5*time.Second)
+			if err != nil {
+				client.Close()
+				continue
+			}
+			proxy.track(client, upstream)
+			go func() {
+				defer client.Close()
+				defer upstream.Close()
+				io.Copy(upstream, client)
+			}()
+			go func() {
+				defer client.Close()
+				defer upstream.Close()
+				io.Copy(client, upstream)
+			}()
+		}
+	}()
+	return proxy
+}
+
+func (p *imapProxy) port() int {
+	return p.listener.Addr().(*net.TCPAddr).Port
+}
+
+func (p *imapProxy) track(conns ...net.Conn) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.conns = append(p.conns, conns...)
+}
+
+// sever closes every connection opened so far. Connections made afterwards are
+// proxied normally, so a client that reconnects recovers.
+func (p *imapProxy) sever() {
+	p.mu.Lock()
+	conns := p.conns
+	p.conns = nil
+	p.mu.Unlock()
+	for _, conn := range conns {
+		// RST rather than FIN: a half-closed socket still accepts writes, so
+		// the client would only notice several commands in. A reset surfaces
+		// on its very next command, like a server that dropped the session.
+		if tcp, ok := conn.(*net.TCPConn); ok {
+			tcp.SetLinger(0)
+		}
+		conn.Close()
+	}
 }

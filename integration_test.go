@@ -1939,6 +1939,73 @@ func TestIntegrationMailFlow(t *testing.T) {
 		}
 	})
 
+	t.Run("flag writes recover from a stale pooled connection", func(t *testing.T) {
+		// Regression test: a pooled session the server had silently dropped
+		// failed messages.markRead outright ("SELECT: Broken pipe"), so the
+		// flag never reached the server and the next sync pulled the message
+		// back as unread. The SELECT now runs as a retryable preflight, ahead
+		// of the STORE that must not be replayed.
+		server := startMaddy(t)
+		sidecar, _ := startSidecar(t)
+		// The account talks to maddy through a proxy the test can cut, so the
+		// pooled socket can be killed without taking the server down with it.
+		proxy := startIMAPProxy(t, server.imapPort)
+		proxied := *server
+		proxied.imapPort = proxy.port()
+		connectAccount(t, sidecar, &proxied, "bob", "bob@maddy.test")
+		nonce := fmt.Sprintf("%d", time.Now().UnixNano())
+
+		staleSubject := "Meron integration stale pool " + nonce
+		imapAppend(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", rawMessage([]string{
+			"From: Carol <carol@example.net>",
+			"To: bob@maddy.test",
+			"Subject: " + staleSubject,
+			fmt.Sprintf("Message-ID: <itest-stale-pool-%s@maddy.test>", nonce),
+			"Date: " + time.Now().Format(time.RFC1123Z),
+		}, "flagged over a pooled connection the server dropped"))
+
+		message := pollInbox(t, sidecar, "bob", func(m map[string]any) bool {
+			return str(m, "subject") == staleSubject
+		})
+		uid := num(message, "uid")
+		if uid == 0 {
+			t.Fatalf("delivered stale-pool fixture has no uid: %v", message)
+		}
+
+		// The sync above leaves a warm session in the pool; severing it is
+		// invisible to the client until its next command, so a flag write can
+		// start out holding a dead socket. Stop the IDLE watcher first, and let its connection go: a reconnecting
+		// watcher would otherwise be the one to pick the dead session out of the
+		// pool, leaving the flag write a healthy connection and no bug to catch.
+		if _, err := sidecar.Call("watch.stop", map[string]any{"account": "bob", "folder": "INBOX"}); err != nil {
+			t.Logf("watch.stop: %v", err)
+		}
+		time.Sleep(500 * time.Millisecond)
+
+		// Both writes below start out holding a severed session: the first one
+		// leaves a healthy connection behind, so sever again before the second.
+		proxy.sever()
+		callMap(t, sidecar, "messages.markRead", map[string]any{
+			"account": "bob",
+			"folder":  "INBOX",
+			"uid":     uid,
+			"seen":    true,
+		})
+		proxy.sever()
+		callMap(t, sidecar, "messages.markStarred", map[string]any{
+			"account": "bob",
+			"folder":  "INBOX",
+			"uid":     uid,
+			"starred": true,
+		})
+
+		// Server truth, not the local store: a STORE that never left the
+		// client would look identical in messages.recent.
+		if flags := imapFlags(t, server.imapPort, "bob@maddy.test", testPassword, "INBOX", uid); !strings.Contains(flags, `\Seen`) || !strings.Contains(flags, `\Flagged`) {
+			t.Fatalf("server flags for INBOX uid %d = %q, want \\Seen and \\Flagged", uid, flags)
+		}
+	})
+
 	// Last on purpose: no later subtest sends from alice, so nothing but the
 	// piggyback under test can refresh her Sent folder.
 	t.Run("sent from another client surfaces via inbox sync", func(t *testing.T) {
