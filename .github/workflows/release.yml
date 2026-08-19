@@ -216,7 +216,14 @@ jobs:
         if: startsWith(matrix.os, 'ubuntu')
         env:
           APPIMAGE_EXTRACT_AND_RUN: '1'
-          OUTPUT: dist/${{ matrix.artifact }}.AppImage
+          LDAI_OUTPUT: dist/${{ matrix.artifact }}.AppImage
+          # Embedding update information makes the AppImage self-describing for
+          # AppImageUpdate, AppImageLauncher, AM and friends, and makes
+          # appimagetool emit the matching .zsync file so those tools can pull
+          # only the changed blocks. The pattern is matched against the assets
+          # of whatever release carries the `latest` pointer, which the release
+          # job always keeps on the newest desktop tag.
+          LDAI_UPDATE_INFORMATION: gh-releases-zsync|${{ github.repository_owner }}|${{ github.event.repository.name }}|latest|${{ matrix.artifact }}.AppImage.zsync
         run: |
           set -euo pipefail
           mkdir -p dist
@@ -252,6 +259,20 @@ jobs:
           # linuxdeploy re-resolves dependencies whenever it touches an AppDir,
           # so package via the plugin directly to keep usr/lib empty.
           ./linuxdeploy-plugin-appimage --appdir AppDir
+
+          # appimagetool drops the .zsync in the working directory rather than
+          # beside the image, so move it into dist/ to get it released next to
+          # the AppImage — the zsync's URL header is a bare filename, resolved
+          # relative to wherever the .zsync itself was fetched from.
+          zsync="dist/${{ matrix.artifact }}.AppImage.zsync"
+          if [ ! -f "$zsync" ]; then
+            stray=$(ls ./*.AppImage.zsync 2>/dev/null | head -1 || true)
+            if [ -z "$stray" ]; then
+              echo "AppImage built without a .zsync file — update information was not embedded" >&2
+              exit 1
+            fi
+            mv "$stray" "$zsync"
+          fi
 
       - name: stage snap payload
         if: startsWith(matrix.os, 'ubuntu')
