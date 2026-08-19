@@ -179,6 +179,7 @@
   "chat.searchThread": "스레드 검색",
   "chat.sharedFiles": "공유된 파일",
   "chat.showDetails": "세부 정보 표시",
+  "chat.showInConversation": "대화에서 보기",
   "chat.showImages": "{count, plural, one {이미지 표시} other {이미지 {count}개 표시}}",
   "chat.star": "별표 표시",
   "chat.threadLoadFailed": "이 대화를 불러오지 못했습니다.",

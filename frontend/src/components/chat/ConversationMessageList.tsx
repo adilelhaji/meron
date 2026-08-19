@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { CSSProperties } from 'react'
 import { Loader2 } from 'lucide-react'
@@ -32,6 +32,7 @@ export function ConversationMessageList({
   activeThreadId,
   searchMatches,
   activeSearchId,
+  jumpMessageId,
   galleryOffsets,
   scrollRef,
   messagesWrapperRef,
@@ -51,6 +52,9 @@ export function ConversationMessageList({
   activeThreadId: string
   searchMatches: string[]
   activeSearchId: string
+  /** Message briefly highlighted by a direct jump. Its expansion is persisted
+   *  separately so it stays open after the highlight expires. */
+  jumpMessageId: string
   galleryOffsets: Map<string, number>
   scrollRef: RefObject<HTMLDivElement | null>
   messagesWrapperRef: RefObject<HTMLDivElement | null>
@@ -84,6 +88,11 @@ export function ConversationMessageList({
     setExpandOverrides({})
     unreadOnArrivalRef.current = new Set()
   }, [activeThreadId])
+
+  useLayoutEffect(() => {
+    if (!jumpMessageId) return
+    setExpandOverrides((current) => (current[jumpMessageId] === true ? current : { ...current, [jumpMessageId]: true }))
+  }, [jumpMessageId])
 
   for (const message of messages) {
     if (message.unread) unreadOnArrivalRef.current.add(message.id)
@@ -220,7 +229,7 @@ export function ConversationMessageList({
                     onOpenContextMenu({ x: event.clientX, y: event.clientY, message, linkUrl })
                   }}
                   className={`rounded-2xl transition-shadow ${traditional ? 'space-y-2' : 'space-y-4'} ${
-                    activeSearchId === message.id
+                    activeSearchId === message.id || jumpMessageId === message.id
                       ? 'ring-2 ring-amber-300/80 ring-offset-2 ring-offset-transparent'
                       : ''
                   }`}

@@ -179,6 +179,7 @@
   "chat.searchThread": "البحث في سلسلة الرسائل",
   "chat.sharedFiles": "الملفات المشتركة",
   "chat.showDetails": "إظهار التفاصيل",
+  "chat.showInConversation": "عرض في المحادثة",
   "chat.showImages": "{count, plural, one {إظهار الصورة} other {إظهار {count} صور}}",
   "chat.star": "تمييز بنجمة",
   "chat.threadLoadFailed": "تعذّر تحميل هذه المحادثة.",

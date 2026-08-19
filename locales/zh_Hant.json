@@ -179,6 +179,7 @@
   "chat.searchThread": "搜尋對話串",
   "chat.sharedFiles": "共享文件",
   "chat.showDetails": "顯示詳細資訊",
+  "chat.showInConversation": "在對話中顯示",
   "chat.showImages": "{count, plural, one {顯示圖片} other {顯示 {count} 張圖片}}",
   "chat.star": "加星號",
   "chat.threadLoadFailed": "無法載入此對話。",

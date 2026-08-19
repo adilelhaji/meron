@@ -179,6 +179,7 @@
   "chat.searchThread": "Przeszukaj wątek",
   "chat.sharedFiles": "Udostępnione pliki",
   "chat.showDetails": "Pokaż szczegóły",
+  "chat.showInConversation": "Pokaż w rozmowie",
   "chat.showImages": "{count, plural, one {Pokaż obraz} other {Pokaż obrazy ({count})}}",
   "chat.star": "Dodaj gwiazdkę",
   "chat.threadLoadFailed": "Nie udało się wczytać tej rozmowy.",

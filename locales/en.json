@@ -178,6 +178,7 @@
   "chat.searchThread": "Search thread",
   "chat.sharedFiles": "Shared files",
   "chat.showDetails": "Show details",
+  "chat.showInConversation": "Show in conversation",
   "chat.showImages": "{count, plural, one {Show image} other {Show {count} images}}",
   "chat.star": "Star",
   "chat.threadLoadFailed": "Couldn't load this conversation.",

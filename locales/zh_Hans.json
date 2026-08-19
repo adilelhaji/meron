@@ -179,6 +179,7 @@
   "chat.searchThread": "搜索会话线索",
   "chat.sharedFiles": "共享文件",
   "chat.showDetails": "显示详情",
+  "chat.showInConversation": "在对话中显示",
   "chat.showImages": "{count, plural, one {显示图片} other {显示 {count} 张图片}}",
   "chat.star": "星标",
   "chat.threadLoadFailed": "无法加载此会话。",

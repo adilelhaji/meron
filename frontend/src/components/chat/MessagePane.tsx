@@ -95,13 +95,13 @@ export function MessagePane() {
   const retryThreadLoad = useCallback(() => {
     if (activeThreadId) void loadThread(activeThreadId).catch(console.error)
   }, [activeThreadId])
-  const unreadKey = messages.map((message) => `${message.id}:${message.unread ? '1' : '0'}`).join('|')
   // Keep the draft hydrated into the quick-reply bar out of the conversation,
   // including while an optimistic sending bubble follows it.
   const displayMessages = useMemo(
     () => withoutHydratedQuickReplyDraft(messages, quickReplyDraftId, quickReplyDraftSaved),
     [messages, quickReplyDraftId, quickReplyDraftSaved],
   )
+  const unreadKey = displayMessages.map((message) => `${message.id}:${message.unread ? '1' : '0'}`).join('|')
 
   const accountConversationMode: ConversationMode = (activeAccount?.conversation_html ?? true) ? 'html' : 'plain'
   const conversationMode: ConversationMode = activeAccount
@@ -116,24 +116,33 @@ export function MessagePane() {
   )
 
   const { galleryItems, galleryOffsets } = useMemo(
-    () => buildGalleryItems(messages, accounts, revealedRemote),
-    [messages, accounts, revealedRemote],
+    () => buildGalleryItems(displayMessages, accounts, revealedRemote),
+    [displayMessages, accounts, revealedRemote],
   )
   const { mediaItems, fileItems } = useMemo(
-    () => buildThreadMedia(messages, accounts, revealedRemote),
-    [messages, accounts, revealedRemote],
+    () => buildThreadMedia(displayMessages, accounts, revealedRemote),
+    [displayMessages, accounts, revealedRemote],
   )
-  const participants = useMemo(() => buildParticipants(messages, accounts, isRSS), [messages, accounts, isRSS])
+  const participants = useMemo(
+    () => buildParticipants(displayMessages, accounts, isRSS),
+    [displayMessages, accounts, isRSS],
+  )
 
   const threadSearchFocus = useValue(thread$.searchFocus)
   const desktopThreadSearchInputRef = useRef<HTMLInputElement | null>(null)
   const mobileThreadSearchInputRef = useRef<HTMLInputElement | null>(null)
   const { threadSearchOpen, searchMatches, activeSearchIndex, activeSearchId, goToSearchMatch } =
-    useThreadSearch(messages)
+    useThreadSearch(displayMessages)
   const { scrollRef, bottomAnchorRef, messagesWrapperRef, handleConversationScroll, setScrollTop } =
-    useConversationScroll(activeThreadId, messages, conversationActiveTab, unreadKey)
+    useConversationScroll(activeThreadId, displayMessages, conversationActiveTab, unreadKey)
 
   const [contextMenu, setContextMenu] = useState<MessageContextMenuState | null>(null)
+
+  const showMessageInConversation = useCallback((messageId: string) => {
+    thread$.pendingScrollMessageId.set(messageId)
+    thread$.galleryIndex.set(null)
+    thread$.mediaOpen.set(false)
+  }, [])
 
   useEffect(() => {
     resetThreadView()
@@ -258,7 +267,8 @@ export function MessagePane() {
         messagesLoadingMore={messagesLoadingMore}
         activeThreadId={activeThreadId}
         searchMatches={searchMatches}
-        activeSearchId={activeSearchId || flashMessageId}
+        activeSearchId={activeSearchId}
+        jumpMessageId={flashMessageId}
         galleryOffsets={galleryOffsets}
         scrollRef={scrollRef}
         messagesWrapperRef={messagesWrapperRef}
@@ -316,6 +326,7 @@ export function MessagePane() {
             scopeSubtitle={isRSS ? activeThread.from_addr : activeThread.from_name || activeThread.from_addr}
             loading={showThreadLoading}
             onOpenImage={(index) => thread$.galleryIndex.set(index)}
+            onShowInConversation={showMessageInConversation}
             onComposeTo={(person) =>
               openComposeTab({
                 accountId: activeThread.account_id,

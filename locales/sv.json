@@ -179,6 +179,7 @@
   "chat.searchThread": "Sök i tråd",
   "chat.sharedFiles": "Delade filer",
   "chat.showDetails": "Visa detaljer",
+  "chat.showInConversation": "Visa i konversationen",
   "chat.showImages": "{count, plural, one {Visa bild} other {Visa {count} bilder}}",
   "chat.star": "Stjärnmärk",
   "chat.threadLoadFailed": "Det gick inte att läsa in den här konversationen.",

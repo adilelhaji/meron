@@ -179,6 +179,7 @@
   "chat.searchThread": "Tìm kiếm trong luồng",
   "chat.sharedFiles": "Tệp được chia sẻ",
   "chat.showDetails": "Hiển thị chi tiết",
+  "chat.showInConversation": "Hiển thị trong cuộc trò chuyện",
   "chat.showImages": "{count, plural, one {Hiển thị ảnh} other {Hiển thị {count} ảnh}}",
   "chat.star": "Gắn sao",
   "chat.threadLoadFailed": "Không thể tải cuộc trò chuyện này.",

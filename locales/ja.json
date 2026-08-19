@@ -179,6 +179,7 @@
   "chat.searchThread": "スレッドを検索",
   "chat.sharedFiles": "共有ファイル",
   "chat.showDetails": "詳細を表示",
+  "chat.showInConversation": "会話内で表示",
   "chat.showImages": "{count, plural, one {画像を表示} other {{count}枚の画像を表示}}",
   "chat.star": "スター",
   "chat.threadLoadFailed": "この会話を読み込めませんでした。",

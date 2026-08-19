@@ -259,7 +259,8 @@ export function useConversationScroll(
     if (activeTab !== '' || !container || !activeThreadId || messages.length === 0) return
     if (messages.some((message) => message.thread_id !== activeThreadId)) return
 
-    // A starred-list jump: scroll to the requested message and flash its ring.
+    // A direct jump (for example, from starred items or shared media): scroll
+    // to the requested message and flash its ring.
     // Consumed exactly once; if the message isn't in the loaded page (older than
     // the first page), fall through to the normal open positioning.
     if (pendingScrollMessageId) {

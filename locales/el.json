@@ -179,6 +179,7 @@
   "chat.searchThread": "Αναζήτηση νήματος",
   "chat.sharedFiles": "Κοινόχρηστα αρχεία",
   "chat.showDetails": "Εμφάνιση λεπτομερειών",
+  "chat.showInConversation": "Προβολή στη συνομιλία",
   "chat.showImages": "{count, plural, one {Εμφάνιση εικόνας} other {Εμφάνιση {count} εικόνων}}",
   "chat.star": "Προσθήκη αστεριού",
   "chat.threadLoadFailed": "Δεν ήταν δυνατή η φόρτωση αυτής της συνομιλίας.",

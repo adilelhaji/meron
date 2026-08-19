@@ -46,7 +46,7 @@ export function buildThreadMedia(messages: Message[], accounts: Account[], revea
       files: msgFiles,
     } = getVisibleMedia(message, account, !!revealedRemote[message.id])
     for (const image of attachmentImages) {
-      media.push({ type: 'image', src: mediaSrc(image), filename: image.filename, galleryIndex })
+      media.push({ type: 'image', src: mediaSrc(image), filename: image.filename, galleryIndex, messageId: message.id })
       galleryIndex++
     }
     for (const video of videos) {
@@ -56,11 +56,12 @@ export function buildThreadMedia(messages: Message[], accounts: Account[], revea
         filename: video.filename,
         url: video.url ?? mediaSrc(video),
         galleryIndex,
+        messageId: message.id,
       })
       galleryIndex++
     }
     for (const file of msgFiles) {
-      files.push({ filename: file.filename, mime: file.mime, size: file.size, key: file.key })
+      files.push({ filename: file.filename, mime: file.mime, size: file.size, key: file.key, messageId: message.id })
     }
   }
   media.reverse()

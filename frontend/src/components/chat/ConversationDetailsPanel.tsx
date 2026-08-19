@@ -1,5 +1,18 @@
 import { useEffect, useState, type MouseEvent } from 'react'
-import { ChevronLeft, Copy, Download, File, Image, Loader2, Play, Search, SquarePen, Users, X } from 'lucide-react'
+import {
+  ChevronLeft,
+  Copy,
+  Download,
+  File,
+  Image,
+  Loader2,
+  MessageSquare,
+  Play,
+  Search,
+  SquarePen,
+  Users,
+  X,
+} from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
@@ -20,6 +33,7 @@ export type ConversationMediaItem = {
   // Index into the thread-wide gallery list so a thumbnail can open the same
   // lightbox the message bubbles use.
   galleryIndex?: number
+  messageId: string
 }
 
 export type ConversationFileItem = {
@@ -28,6 +42,7 @@ export type ConversationFileItem = {
   size: number
   // Media key for the on-disk bytes; null when the file wasn't persisted.
   key: string | null
+  messageId: string
 }
 
 export type Participant = {
@@ -49,6 +64,7 @@ interface ConversationDetailsPanelProps {
    * belong to the previous thread until it resolves. */
   loading: boolean
   onOpenImage: (galleryIndex: number) => void
+  onShowInConversation: (messageId: string) => void
   onComposeTo: (person: Participant) => void
   onViewMessagesWith: (person: Participant) => void
   onClose: () => void
@@ -64,6 +80,7 @@ export function ConversationDetailsPanel({
   scopeSubtitle,
   loading,
   onOpenImage,
+  onShowInConversation,
   onComposeTo,
   onViewMessagesWith,
   onClose,
@@ -146,36 +163,49 @@ export function ConversationDetailsPanel({
             ) : (
               <div className="grid grid-cols-3 gap-1.5 p-3">
                 {media.map((item, idx) => (
-                  <button
+                  <div
                     key={idx}
-                    type="button"
-                    onClick={() => {
-                      if (item.galleryIndex !== undefined) {
-                        onOpenImage(item.galleryIndex)
-                      } else if (item.url) {
-                        openExternal(item.url)
-                      }
-                    }}
-                    className="group relative aspect-square overflow-hidden rounded-md border border-border/30 bg-black/5 dark:bg-white/5 hover:opacity-90 cursor-pointer [content-visibility:auto] [contain-intrinsic-size:auto_none]"
-                    title={item.filename}
+                    className="group relative aspect-square overflow-hidden rounded-md border border-border/30 bg-black/5 dark:bg-white/5 [content-visibility:auto] [contain-intrinsic-size:auto_none]"
                   >
-                    {item.type === 'image' ? (
-                      <img
-                        src={item.src}
-                        alt={item.filename}
-                        loading="lazy"
-                        decoding="async"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      // Static tile — never a live <video>. Each <video> spins up a
-                      // GStreamer pipeline in WebKitGTK; a grid of them freezes the
-                      // webview. Click opens the lightbox, which mounts one player.
-                      <span className="flex h-full w-full items-center justify-center bg-black/75 text-white/90">
-                        <Play size={22} fill="currentColor" />
-                      </span>
-                    )}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (item.galleryIndex !== undefined) {
+                          onOpenImage(item.galleryIndex)
+                        } else if (item.url) {
+                          openExternal(item.url)
+                        }
+                      }}
+                      className="h-full w-full hover:opacity-90 cursor-pointer"
+                      title={item.filename}
+                    >
+                      {item.type === 'image' ? (
+                        <img
+                          src={item.src}
+                          alt={item.filename}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        // Static tile — never a live <video>. Each <video> spins up a
+                        // GStreamer pipeline in WebKitGTK; a grid of them freezes the
+                        // webview. Click opens the lightbox, which mounts one player.
+                        <span className="flex h-full w-full items-center justify-center bg-black/75 text-white/90">
+                          <Play size={22} fill="currentColor" />
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onShowInConversation(item.messageId)}
+                      title={t('chat.showInConversation')}
+                      aria-label={t('chat.showInConversation')}
+                      className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full border border-white/20 bg-black/65 text-white shadow-sm transition-colors hover:bg-accent cursor-pointer"
+                    >
+                      <MessageSquare size={14} />
+                    </button>
+                  </div>
                 ))}
               </div>
             )
@@ -187,32 +217,45 @@ export function ConversationDetailsPanel({
                 const downloadable = !!file.key
                 const FileIcon = fileIconFor(file.filename, file.mime)
                 return (
-                  <button
+                  <div
                     key={idx}
-                    type="button"
-                    disabled={!downloadable}
-                    onClick={() => downloadAttachment(file)}
-                    title={downloadable ? t('chat.saveFile', { filename: file.filename }) : file.filename}
-                    className={`group flex items-center gap-2.5 rounded-xl border border-border/30 bg-black/[0.02] dark:bg-white/[0.02] p-2.5 text-left ${
-                      downloadable
-                        ? 'hover:bg-black/[0.05] dark:hover:bg-white/[0.05] cursor-pointer'
-                        : 'cursor-default'
-                    }`}
+                    className="group flex items-center rounded-xl border border-border/30 bg-black/[0.02] dark:bg-white/[0.02]"
                   >
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
-                      <FileIcon size={16} />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-semibold text-primary">{file.filename}</p>
-                      <p className="text-[0.625rem] text-secondary">{formatFileSize(file.size)}</p>
-                    </div>
-                    {downloadable && (
-                      <Download
-                        size={15}
-                        className="shrink-0 text-secondary opacity-0 group-hover:opacity-100 transition-opacity"
-                      />
-                    )}
-                  </button>
+                    <button
+                      type="button"
+                      disabled={!downloadable}
+                      onClick={() => downloadAttachment(file)}
+                      title={downloadable ? t('chat.saveFile', { filename: file.filename }) : file.filename}
+                      className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-l-xl p-2.5 text-left ${
+                        downloadable
+                          ? 'hover:bg-black/[0.05] dark:hover:bg-white/[0.05] cursor-pointer'
+                          : 'cursor-default'
+                      }`}
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent">
+                        <FileIcon size={16} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-primary">{file.filename}</p>
+                        <p className="text-[0.625rem] text-secondary">{formatFileSize(file.size)}</p>
+                      </div>
+                      {downloadable && (
+                        <Download
+                          size={15}
+                          className="shrink-0 text-secondary opacity-0 group-hover:opacity-100 transition-opacity"
+                        />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onShowInConversation(file.messageId)}
+                      title={t('chat.showInConversation')}
+                      aria-label={t('chat.showInConversation')}
+                      className="mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-secondary transition-colors hover:bg-black/[0.06] hover:text-primary dark:hover:bg-white/[0.08] cursor-pointer"
+                    >
+                      <MessageSquare size={15} />
+                    </button>
+                  </div>
                 )
               })}
             </div>

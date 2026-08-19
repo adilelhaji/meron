@@ -179,6 +179,7 @@
   "chat.searchThread": "Meklēt pavedienā",
   "chat.sharedFiles": "Koplietotie faili",
   "chat.showDetails": "Rādīt informāciju",
+  "chat.showInConversation": "Rādīt sarunā",
   "chat.showImages": "{count, plural, one {Rādīt attēlu} other {Rādīt {count} attēlus}}",
   "chat.star": "Atzīmēt ar zvaigznīti",
   "chat.threadLoadFailed": "Neizdevās ielādēt šo sarunu.",

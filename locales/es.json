@@ -179,6 +179,7 @@
   "chat.searchThread": "Buscar en el hilo",
   "chat.sharedFiles": "Archivos compartidos",
   "chat.showDetails": "Mostrar detalles",
+  "chat.showInConversation": "Mostrar en la conversación",
   "chat.showImages": "{count, plural, one {Mostrar imagen} other {Mostrar {count} imágenes}}",
   "chat.star": "Destacar",
   "chat.threadLoadFailed": "No se pudo cargar esta conversación.",

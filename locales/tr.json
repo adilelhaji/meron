@@ -179,6 +179,7 @@
   "chat.searchThread": "İleti dizisinde ara",
   "chat.sharedFiles": "Paylaşılan dosyalar",
   "chat.showDetails": "Detayları göster",
+  "chat.showInConversation": "Konuşmada göster",
   "chat.showImages": "{count, plural, one {Resmi göster} other {{count} resmi göster}}",
   "chat.star": "Yıldızla",
   "chat.threadLoadFailed": "Bu konuşma yüklenemedi.",

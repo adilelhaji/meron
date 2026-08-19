@@ -15,8 +15,9 @@ export const thread$ = observable({
   // Message id of the currently-focused search match; written by MessagePane
   // when search/index change, read by MessageBubble for highlight styling.
   activeSearchId: '',
-  // Message id to scroll to when its thread next renders — set by the starred
-  // list before selecting the thread, consumed once by useConversationScroll.
+  // Message id to scroll to when its thread next renders — set by direct-jump
+  // actions such as starred items and shared media, consumed once by
+  // useConversationScroll.
   pendingScrollMessageId: '',
   // Message id briefly ring-highlighted after such a jump.
   flashMessageId: '',

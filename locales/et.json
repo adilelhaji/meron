@@ -179,6 +179,7 @@
   "chat.searchThread": "Otsi lõimest",
   "chat.sharedFiles": "Jagatud failid",
   "chat.showDetails": "Näita üksikasju",
+  "chat.showInConversation": "Kuva vestluses",
   "chat.showImages": "{count, plural, one {Näita pilti} other {Näita {count} pilti}}",
   "chat.star": "Märgi tärniga",
   "chat.threadLoadFailed": "Selle vestluse laadimine ebaõnnestus.",
