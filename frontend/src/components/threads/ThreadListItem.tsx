@@ -129,7 +129,7 @@ export function ThreadListItem({
                   count, and outside the truncating span so a long sender
                   ellipsises itself instead of clipping the count. */}
               {(thread.message_count ?? 0) > 1 && (
-                <span className="shrink-0 text-[0.8125rem] font-normal text-secondary/70">{thread.message_count}</span>
+                <span className="shrink-0 text-[0.75rem] font-normal text-secondary/70">{thread.message_count}</span>
               )}
             </div>
             <time

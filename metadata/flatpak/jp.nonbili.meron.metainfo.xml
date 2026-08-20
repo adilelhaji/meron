@@ -63,6 +63,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.13" date="2026-08-20">
+      <description>
+        <ul>
+          <li>Show message count on thread list rows</li>
+          <li>Jump from attachments to source message</li>
+          <li>Support mail server security configuration</li>
+          <li>Show unattached HTML message images in bubbles</li>
+          <li>Fix blank newsletter HTML rendering</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.12" date="2026-08-15">
       <description>
         <ul>

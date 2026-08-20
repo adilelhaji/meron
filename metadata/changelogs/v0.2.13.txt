@@ -1,0 +1,5 @@
+- Show message count on thread list rows
+- Jump from attachments to source message
+- Support mail server security configuration
+- Show unattached HTML message images in bubbles
+- Fix blank newsletter HTML rendering
