@@ -59,6 +59,21 @@ import jp.nonbili.meron.shared.standaloneAttachments
 /** Bubble inner padding; capped bodies offset their scrollbar back over it. */
 private val BubbleHorizontalPadding = 14.dp
 
+/** Bubble inner padding for an HTML body. Mail HTML usually centres itself in a
+ *  wrapper with 20-40px of padding of its own, and on a phone the two gutters
+ *  together eat most of the bubble, so the bubble keeps only enough of its own
+ *  to hold the body off the rounded corners. The chrome around the body pads
+ *  back up to [BubbleHorizontalPadding] so it still lines up bubble to bubble. */
+private val HtmlBubbleHorizontalPadding = 6.dp
+
+/** True when the bubble shows the sender's HTML rather than plain text: the
+ *  search highlighter works on the plain body, so an open search turns it off. */
+internal fun usesHtmlBody(
+    message: MessageBody,
+    preferHtml: Boolean,
+    searchQuery: String,
+): Boolean = preferHtml && message.bodyHtml.isNotBlank() && searchQuery.isBlank()
+
 @Composable
 internal fun MessageBubble(
     message: MessageBody,
@@ -101,6 +116,10 @@ internal fun MessageBubble(
     val bubbleColor = if (outgoing) chat.bubbleOut else chat.bubbleIn
     val textColor = if (outgoing) chat.bubbleOutText else chat.bubbleInText
     val bodyMaxHeight = 360.dp
+    val htmlBody = usesHtmlBody(message, preferHtml, searchQuery)
+    val bubblePadding = if (htmlBody) HtmlBubbleHorizontalPadding else BubbleHorizontalPadding
+    // What the chrome around an HTML body adds back to sit where it always does.
+    val chromeInset = BubbleHorizontalPadding - bubblePadding
     Row(
         Modifier.fillMaxWidth(),
         horizontalArrangement = if (outgoing) Arrangement.End else Arrangement.Start,
@@ -109,7 +128,9 @@ internal fun MessageBubble(
             Modifier
                 // Bubble width tracks the screen: ~85% of available width so it
                 // grows on tablets, capped so it stays readable on wide screens.
-                .fillMaxWidth(0.85f)
+                // HTML mail is laid out for a wider page than a phone bubble, so
+                // it gets the extra tenth (desktop widens its HTML bubbles too).
+                .fillMaxWidth(if (htmlBody) 0.95f else 0.85f)
                 .widthIn(max = 560.dp)
                 .shadow(3.dp, bubbleShape, clip = false)
                 .clip(bubbleShape)
@@ -120,13 +141,13 @@ internal fun MessageBubble(
                         Modifier
                     },
                 ).background(bubbleColor)
-                .padding(start = BubbleHorizontalPadding, end = BubbleHorizontalPadding, top = 8.dp, bottom = 6.dp),
+                .padding(start = bubblePadding, end = bubblePadding, top = 8.dp, bottom = 6.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             // Sender, timestamp and the actions menu share one row to keep the
             // bubble compact, matching the desktop reader's header layout.
             Row(
-                Modifier.fillMaxWidth(),
+                Modifier.fillMaxWidth().padding(horizontal = chromeInset),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
@@ -242,7 +263,7 @@ internal fun MessageBubble(
                     onCopy = onCopyMessageText,
                     onComposeTo = onComposeTo,
                     textColor = textColor,
-                    modifier = Modifier.padding(bottom = 2.dp),
+                    modifier = Modifier.padding(bottom = 2.dp, start = chromeInset, end = chromeInset),
                 )
             }
             MessageBodyContent(
@@ -253,6 +274,7 @@ internal fun MessageBubble(
                 activeSearchMatch = activeSearchMatch,
                 showSubject = showSubject,
                 bodyMaxHeight = bodyMaxHeight,
+                chromeInset = chromeInset,
                 onOpenAttachment = onOpenAttachment,
                 onSaveAttachment = onSaveAttachment,
                 loadImageAttachment = loadImageAttachment,
@@ -376,6 +398,10 @@ internal fun ColumnScope.MessageBodyContent(
     activeSearchMatch: Boolean,
     showSubject: Boolean,
     bodyMaxHeight: Dp,
+    // Horizontal inset for everything but the HTML body: the chat bubble trims
+    // its own padding for HTML mail (see [HtmlBubbleHorizontalPadding]) and pads
+    // the rest of the message back to where it sits in every other bubble.
+    chromeInset: Dp = 0.dp,
     onOpenAttachment: (MessageAttachment) -> Unit,
     onSaveAttachment: (MessageAttachment) -> Unit,
     loadImageAttachment: suspend (MessageAttachment) -> ImageBitmap?,
@@ -387,13 +413,14 @@ internal fun ColumnScope.MessageBodyContent(
     if (showSubject && message.subject.isNotBlank()) {
         Text(
             text = highlightedMessageText(message.subject, searchQuery, activeSearchMatch),
+            modifier = Modifier.padding(horizontal = chromeInset),
             color = textColor,
             fontSize = 16.sp,
             lineHeight = 21.sp,
             fontWeight = FontWeight.SemiBold,
         )
     }
-    if (preferHtml && message.bodyHtml.isNotBlank() && searchQuery.isBlank()) {
+    if (usesHtmlBody(message, preferHtml, searchQuery)) {
         HtmlMessageBody(
             html = message.bodyHtml,
             maxHeight = bodyMaxHeight,
@@ -404,7 +431,7 @@ internal fun ColumnScope.MessageBodyContent(
         // The core has no cached body (the on-demand fetch failed) — a
         // different state from a genuinely empty message, so offer a retry
         // instead of "(no content)".
-        Column {
+        Column(Modifier.padding(horizontal = chromeInset)) {
             Text(
                 tr("chat.messageLoadFailed"),
                 color = textColor.copy(alpha = 0.6f),
@@ -439,12 +466,13 @@ internal fun ColumnScope.MessageBodyContent(
             // needs to be and the conversation list scrolls it. A nested
             // scroller here would be measured with an infinite height by the
             // lazy list and throw.
-            bodyText()
+            Box(Modifier.padding(horizontal = chromeInset)) { bodyText() }
         } else {
             val bodyScrollState = rememberScrollState()
             Box(
                 Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = chromeInset)
                     .heightIn(max = bodyMaxHeight)
                     .appScrollbar(
                         bodyScrollState,
@@ -460,7 +488,10 @@ internal fun ColumnScope.MessageBodyContent(
     if (standaloneAttachmentsForMessage.isNotEmpty()) {
         val (imageAttachments, otherAttachments) =
             standaloneAttachmentsForMessage.partition { it.mimeType.startsWith("image/") }
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            Modifier.padding(horizontal = chromeInset),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             if (imageAttachments.isNotEmpty()) {
                 AttachmentImageGrid(
                     images = imageAttachments,
@@ -485,7 +516,7 @@ internal fun ColumnScope.MessageBodyContent(
         SendStatus.Sending -> {
             Text(
                 "Sending…",
-                modifier = Modifier.align(Alignment.End),
+                modifier = Modifier.align(Alignment.End).padding(horizontal = chromeInset),
                 fontSize = 10.5.sp,
                 color = textColor.copy(alpha = 0.55f),
             )
@@ -494,7 +525,7 @@ internal fun ColumnScope.MessageBodyContent(
         SendStatus.Failed -> {
             Text(
                 "Failed to send",
-                modifier = Modifier.align(Alignment.End),
+                modifier = Modifier.align(Alignment.End).padding(horizontal = chromeInset),
                 fontSize = 10.5.sp,
                 color = MaterialTheme.colorScheme.error,
             )
@@ -899,7 +930,7 @@ internal fun HtmlMessageBody(
             Modifier
                 .fillMaxWidth()
                 .height(maxHeight)
-                .appScrollbar(htmlScrollState, endOffset = BubbleHorizontalPadding)
+                .appScrollbar(htmlScrollState, endOffset = HtmlBubbleHorizontalPadding)
                 .verticalScroll(htmlScrollState),
         ) {
             MailWebViewWithLinkMenu(

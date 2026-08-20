@@ -28,18 +28,32 @@ internal fun threadHeaderSubtitle(
 internal const val THREAD_OPEN_ANCHOR_WINDOW_MS = 2_000L
 
 // List index to land on when a thread opens: the first unread message, or the
-// newest message when everything is read. `headerItemCount` counts the list
-// items rendered above the messages (the load-older row). Returns null when
+// newest message when everything is read. The subject header is always item 0,
+// followed by the load-older row when there is an older page. Returns null when
 // the default top position is already correct.
 internal fun threadOpenScrollIndex(
     messages: List<MessageBody>,
-    headerItemCount: Int,
+    hasLoadOlderRow: Boolean,
 ): Int? {
     if (messages.isEmpty()) return null
     val firstUnread = messages.indexOfFirst { it.unread }
     val target = if (firstUnread >= 0) firstUnread else messages.lastIndex
-    return (target + headerItemCount).takeIf { it > 0 }
+    // Nothing to scroll past: staying at the top leaves the full subject on
+    // screen above the message. With an older page still to load, the
+    // load-older row sits between them, so scroll past both headers instead —
+    // landing on the row would auto-load the older page straight away.
+    if (target == 0 && !hasLoadOlderRow) return null
+    return target + threadHeaderItemCount(hasLoadOlderRow)
 }
+
+// List items rendered above the messages: the subject header, plus the
+// load-older row when an older page can still be loaded.
+internal fun threadHeaderItemCount(hasLoadOlderRow: Boolean): Int = if (hasLoadOlderRow) 2 else 1
+
+// Where the load-older row sits when there is one: directly below the subject
+// header. Scrolling far enough to bring it into view is what asks for the older
+// page, so the watcher fires on any first-visible index at or above it.
+internal const val THREAD_LOAD_OLDER_ITEM_INDEX = 1
 
 // Geometry of one visible LazyColumn item, decoupled from compose types so the
 // scroll-driven read marking below is unit-testable.
@@ -75,8 +89,8 @@ internal fun manualUnreadIds(
 // merely peeking in from the bottom is the next message waiting its turn, not
 // one that was read. Mirrors isMessageRead on desktop.
 //
-// `headerItemCount` counts the list items above the messages (the load-older
-// row). `topSlackPx` is the grace on the top edge: unlike desktop, which lands
+// `headerItemCount` counts the list items above the messages (see
+// threadHeaderItemCount). `topSlackPx` is the grace on the top edge: unlike desktop, which lands
 // its open anchor 24px below the edge, mobile scrolls the anchored item flush
 // to it, so a pixel of rounding must not read as "scrolled past".
 internal fun readMessageIndices(

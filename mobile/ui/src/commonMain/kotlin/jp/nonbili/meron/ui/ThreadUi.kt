@@ -240,8 +240,7 @@ internal fun ThreadScreen(
     LaunchedEffect(thread?.id, messages.isEmpty()) {
         if (openScrollPositioned || messages.isEmpty()) return@LaunchedEffect
         openScrollPositioned = true
-        val headerItemCount = if (canLoadOlder || loadingOlder) 1 else 0
-        val target = threadOpenScrollIndex(messages, headerItemCount)
+        val target = threadOpenScrollIndex(messages, hasLoadOlderRow = canLoadOlder || loadingOlder)
         if (target == null) {
             autoLoadOlderArmed = true
             return@LaunchedEffect
@@ -271,7 +270,7 @@ internal fun ThreadScreen(
         if (thread == null || !autoLoadOlderArmed || !canLoadOlder || loadingOlder) return@LaunchedEffect
         snapshotFlow { listState.firstVisibleItemIndex }
             .distinctUntilChanged()
-            .first { firstVisibleIndex -> firstVisibleIndex == 0 }
+            .first { firstVisibleIndex -> firstVisibleIndex <= THREAD_LOAD_OLDER_ITEM_INDEX }
         currentOnLoadOlder()
     }
     // Mark messages read as their bubbles scroll past the top of the viewport,
@@ -279,7 +278,7 @@ internal fun ThreadScreen(
     // scroll-driven read marking (useConversationScroll.ts) on mobile. Marked
     // ids are remembered per open so each is sent at most once.
     val currentMessages by rememberUpdatedState(messages)
-    val currentHeaderItemCount by rememberUpdatedState(if (canLoadOlder || loadingOlder) 1 else 0)
+    val currentHeaderItemCount by rememberUpdatedState(threadHeaderItemCount(canLoadOlder || loadingOlder))
     val currentOnMessagesRead by rememberUpdatedState(onMessagesRead)
     val currentOnViewedToBottom by rememberUpdatedState(onViewedToBottom)
     if (thread != null) {
@@ -368,8 +367,7 @@ internal fun ThreadScreen(
         if (activeSearchId.isBlank()) return@LaunchedEffect
         val messageIndex = messages.indexOfFirst { it.id == activeSearchId }
         if (messageIndex >= 0) {
-            val offset = if (canLoadOlder || loadingOlder) 1 else 0
-            listState.animateScrollToItem(messageIndex + offset)
+            listState.animateScrollToItem(messageIndex + threadHeaderItemCount(canLoadOlder || loadingOlder))
         }
     }
 
@@ -588,6 +586,17 @@ internal fun ThreadScreen(
                                 ),
                             verticalArrangement = Arrangement.spacedBy(if (traditional) 6.dp else 10.dp),
                         ) {
+                            // The app bar clips the subject to one line, so repeat it
+                            // in full at the top of the list. It scrolls away with the
+                            // messages; the bar title stays as the fallback.
+                            item {
+                                Text(
+                                    (thread?.subject ?: "").ifBlank { tr("threads.noSubject") },
+                                    modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                                    fontWeight = FontWeight.Medium,
+                                    style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp, lineHeight = 24.sp),
+                                )
+                            }
                             if (canLoadOlder || loadingOlder) {
                                 item {
                                     Box(Modifier.fillMaxWidth().padding(bottom = 4.dp), contentAlignment = Alignment.Center) {

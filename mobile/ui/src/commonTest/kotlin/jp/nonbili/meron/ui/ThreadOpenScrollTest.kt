@@ -10,36 +10,39 @@ class ThreadOpenScrollTest {
     fun jumpsToFirstUnreadMessage() {
         val messages = listOf(message("m1"), message("m2", unread = true), message("m3", unread = true))
 
-        assertEquals(1, threadOpenScrollIndex(messages, headerItemCount = 0))
+        // Message 1, one item below the subject header.
+        assertEquals(2, threadOpenScrollIndex(messages, hasLoadOlderRow = false))
     }
 
     @Test
     fun offsetsForLoadOlderHeaderRow() {
         val messages = listOf(message("m1"), message("m2", unread = true))
 
-        assertEquals(2, threadOpenScrollIndex(messages, headerItemCount = 1))
+        assertEquals(3, threadOpenScrollIndex(messages, hasLoadOlderRow = true))
     }
 
     @Test
     fun jumpsToNewestMessageWhenAllRead() {
         val messages = listOf(message("m1"), message("m2"), message("m3"))
 
-        assertEquals(2, threadOpenScrollIndex(messages, headerItemCount = 0))
-        assertEquals(3, threadOpenScrollIndex(messages, headerItemCount = 1))
+        assertEquals(3, threadOpenScrollIndex(messages, hasLoadOlderRow = false))
+        assertEquals(4, threadOpenScrollIndex(messages, hasLoadOlderRow = true))
     }
 
     @Test
     fun staysPutWhenTargetIsAlreadyAtTop() {
-        assertNull(threadOpenScrollIndex(listOf(message("m1", unread = true), message("m2")), headerItemCount = 0))
-        assertNull(threadOpenScrollIndex(listOf(message("m1")), headerItemCount = 0))
-        assertNull(threadOpenScrollIndex(emptyList(), headerItemCount = 1))
+        assertNull(threadOpenScrollIndex(listOf(message("m1", unread = true), message("m2")), hasLoadOlderRow = false))
+        assertNull(threadOpenScrollIndex(listOf(message("m1")), hasLoadOlderRow = false))
+        assertNull(threadOpenScrollIndex(emptyList(), hasLoadOlderRow = true))
     }
 
     @Test
     fun firstUnreadStillNeedsScrollPastHeaderRow() {
         val messages = listOf(message("m1", unread = true), message("m2"))
 
-        assertEquals(1, threadOpenScrollIndex(messages, headerItemCount = 1))
+        // Landing on the load-older row would auto-load the older page, so the
+        // subject header scrolls away instead.
+        assertEquals(2, threadOpenScrollIndex(messages, hasLoadOlderRow = true))
     }
 
     private fun message(
