@@ -272,6 +272,7 @@ fun parseThreadListPage(responseJson: String): ThreadListPage {
                 unreadCount =
                     item.findJsonLongProperty("unread_count")?.toInt()
                         ?: if (item.findJsonBooleanProperty("unread") == true) 1 else 0,
+                messageCount = item.findJsonLongProperty("message_count")?.toInt() ?: 0,
                 starred = item.findJsonBooleanProperty("starred") ?: false,
                 hasStarredItems = item.findJsonBooleanProperty("has_starred_items") ?: false,
                 hasDraft = item.findJsonBooleanProperty("has_draft") ?: false,

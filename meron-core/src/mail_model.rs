@@ -157,10 +157,34 @@ fn thread_cards_json_keyed(
     messages: Vec<MessageHeader>,
     draft_thread_keys: &HashSet<String>,
 ) -> anyhow::Result<Vec<(String, Value)>> {
-    store::group_thread_cards_with_drafts(messages, folder_id, draft_thread_keys)
+    let cards = store::group_thread_cards_with_drafts(messages, folder_id, draft_thread_keys);
+
+    // The page these cards were grouped from is a filtered, cursor-paged slice
+    // of messages, so its per-card tally is not the thread size. Re-count from
+    // the cached folder, bucketed by the folder each card actually sits in
+    // (starred and search pages span several). The page tally stays as a floor:
+    // a live IMAP page can hold messages the cache has not stored yet.
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    let mut keys_by_folder: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+    for card in &cards {
+        keys_by_folder
+            .entry(card.header.folder.as_str())
+            .or_default()
+            .push(card.thread_key.clone());
+    }
+    for (folder, keys) in keys_by_folder {
+        counts.extend(store::card_message_counts(conn, account_id, folder, &keys)?);
+    }
+
+    cards
         .into_iter()
         .map(|card| {
             let folder = card.header.folder.as_str();
+            let message_count = counts
+                .get(&card.thread_key)
+                .copied()
+                .unwrap_or(0)
+                .max(card.message_count);
             let folder_role = store::folder_role(conn, account_id, folder)?;
             let thread_id = format_thread_id(account_id, folder, &card.thread_key);
             let original_thread_id = card
@@ -185,6 +209,7 @@ fn thread_cards_json_keyed(
                 "date": card.header.date,
                 "unread": card.unread_count > 0,
                 "unread_count": card.unread_count,
+                "message_count": message_count,
                 "starred": card.header.starred,
                 "has_draft": card.has_draft,
                 "has_attachments": false,

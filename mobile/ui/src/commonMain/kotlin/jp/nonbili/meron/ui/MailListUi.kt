@@ -650,15 +650,35 @@ internal fun MailRow(
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    senderLabel.substringBefore('@'),
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+                // The name gives up width before the count does (weight without
+                // fill), so the count stays pinned to the end of the sender
+                // rather than drifting out to the timestamp.
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        senderLabel.substringBefore('@'),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    // Gmail-style thread size, shown only once a thread has a
+                    // reply. It rides beside the sender so it never competes
+                    // with the unread dot in the trailing slot.
+                    if (thread.messageCount > 1) {
+                        Text(
+                            thread.messageCount.toString(),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Normal,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(start = 4.dp),
+                        )
+                    }
+                }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),

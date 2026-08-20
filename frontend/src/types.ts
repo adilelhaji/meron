@@ -151,6 +151,8 @@ export type Message = {
   outgoing?: boolean
   unread: boolean
   unread_count?: number
+  /** Total messages in the thread, read or not; absent when not grouped. */
+  message_count?: number
   starred: boolean
   /** RSS thread only: at least one item in the feed is starred. This does not
    * mean the feed card itself is starred. */

@@ -675,6 +675,145 @@ fn get_starred_all_accounts_keeps_copies_of_admitted_threads_past_the_budget() {
 }
 
 #[test]
+fn card_message_counts_span_the_folder_not_the_page() {
+    use crate::imap::MessageHeader;
+    let conn = test_conn();
+    let insert = |uid: u32, subject: &str, seen: i64| {
+        conn.execute(
+            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr,
+                                  date, seen, thread_key)
+             VALUES('acct', 'INBOX', ?1, ?2, ?3, 'Aki', 'aki@example.com', 1779580800, ?4,
+                    'root@example.com')",
+            params![uid.to_string(), uid, subject, seen],
+        )
+        .unwrap();
+    };
+    insert(1, "Old topic", 1);
+    insert(2, "Re: Old topic", 1);
+    insert(3, "Re: Old topic", 0);
+    insert(4, "New topic", 0);
+
+    let card_key = |uid: u32, subject: &str| {
+        card_thread_key(&MessageHeader {
+            uid,
+            subject: subject.to_string(),
+            thread_key: "root@example.com".to_string(),
+            ..Default::default()
+        })
+    };
+    let old_key = card_key(1, "Old topic");
+    let new_key = card_key(4, "New topic");
+
+    // The unread view hands grouping only the two unread messages, so the cards
+    // it produces tally one message each.
+    let (page, _) = get_recent_page(&conn, "acct", "INBOX", 50, None, true).unwrap();
+    let cards = group_thread_cards(page, "INBOX");
+    let keys = cards
+        .iter()
+        .map(|card| card.thread_key.clone())
+        .collect::<Vec<_>>();
+    assert!(cards.iter().all(|card| card.message_count == 1));
+
+    // The cache knows better: the old branch holds three messages (one unread),
+    // and the drifted subject is counted as its own branch, not folded in.
+    let counts = card_message_counts(&conn, "acct", "INBOX", &keys).unwrap();
+    assert_eq!(counts.get(&old_key).copied(), Some(3));
+    assert_eq!(counts.get(&new_key).copied(), Some(1));
+}
+
+#[test]
+fn card_message_counts_span_folders_and_dedupe_self_sent_copies() {
+    use crate::imap::MessageHeader;
+    let conn = test_conn();
+    let insert = |folder: &str, uid: u32, subject: &str, thread_key: &str, message_id: &str| {
+        conn.execute(
+            "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr,
+                                  date, seen, thread_key, json)
+             VALUES('acct', ?1, ?2, ?3, ?4, 'Aki', 'aki@example.com', 1779580800, 1, ?5,
+                    json_object('message_id', ?6))",
+            params![
+                folder,
+                format!("{folder}-{uid}"),
+                uid,
+                subject,
+                thread_key,
+                message_id
+            ],
+        )
+        .unwrap();
+    };
+    // A received message and the reply the user sent back: one thread, two
+    // folders. The Sent reply is also cached in All Mail, as Gmail serves it.
+    insert(
+        "INBOX",
+        1,
+        "Old topic",
+        "root@example.com",
+        "<a@example.com>",
+    );
+    insert(
+        "Sent",
+        7,
+        "Re: Old topic",
+        "root@example.com",
+        "<b@example.com>",
+    );
+    insert(
+        "All Mail",
+        9,
+        "Re: Old topic",
+        "root@example.com",
+        "<b@example.com>",
+    );
+    insert(
+        "INBOX",
+        10,
+        "Gmail topic",
+        "gmthrid:123",
+        "<gmail-a@example.com>",
+    );
+    insert(
+        "Sent",
+        11,
+        "Different Gmail subject",
+        "gmthrid:123",
+        "<gmail-b@example.com>",
+    );
+    // Same UID, different folder, no threading headers of its own.
+    insert("INBOX", 4, "Standalone", "", "<c@example.com>");
+    insert("Archive", 4, "Unrelated", "", "<d@example.com>");
+
+    let threaded = card_thread_key(&MessageHeader {
+        uid: 1,
+        subject: "Old topic".to_string(),
+        thread_key: "root@example.com".to_string(),
+        ..Default::default()
+    });
+    let gmail_threaded = "gmthrid:123".to_string();
+    let counts = card_message_counts(
+        &conn,
+        "acct",
+        "INBOX",
+        &[
+            threaded.clone(),
+            gmail_threaded.clone(),
+            "uid:4".to_string(),
+        ],
+    )
+    .unwrap();
+
+    // Two bubbles open in the reader, so the row says two: the All Mail copy of
+    // the Sent reply is folded by Message-ID, not counted twice.
+    assert_eq!(counts.get(&threaded).copied(), Some(2));
+    // Gmail's atomic thread key also spans folders even though it does not
+    // branch by subject: only synthetic uid: keys are folder-local.
+    assert_eq!(counts.get(&gmail_threaded).copied(), Some(2));
+    // A synthetic uid: key stays folder-local; the unrelated Archive row that
+    // happens to share UID 4 is not part of this thread.
+    assert_eq!(counts.get("uid:4").copied(), Some(1));
+}
+
+#[test]
 fn get_recent_page_can_return_only_unread_messages() {
     let conn = test_conn();
     insert_message(&conn, 2, "Unread older", "Aki", "aki@example.com", None);
@@ -1088,12 +1227,16 @@ fn group_thread_cards_branches_subject_drift_and_links_to_root() {
     );
     assert_eq!(cards[0].header.subject, "Old topic");
     assert_eq!(cards[0].unread_count, 1);
+    // Counts follow the branch, not the root thread key: the drifted subject
+    // stands alone while the original keeps its reply.
+    assert_eq!(cards[0].message_count, 1);
     assert!(!cards[0].header.seen);
 
     assert_eq!(cards[1].thread_key, "refs-root#Old topic");
     assert_eq!(cards[1].original_thread_key, None);
     assert_eq!(cards[1].header.subject, "Old topic");
     assert_eq!(cards[1].unread_count, 1);
+    assert_eq!(cards[1].message_count, 2);
 }
 
 #[test]
@@ -1118,6 +1261,8 @@ fn group_thread_cards_keeps_uid_and_gmail_threads_atomic() {
     );
     assert_eq!(uid_cards.len(), 1);
     assert_eq!(uid_cards[0].thread_key, "uid:2");
+    // Read messages count too; the badge is thread size, not unread size.
+    assert_eq!(uid_cards[0].message_count, 2);
 
     let gmail_cards = group_thread_cards(
         vec![
@@ -1138,6 +1283,7 @@ fn group_thread_cards_keeps_uid_and_gmail_threads_atomic() {
     );
     assert_eq!(gmail_cards.len(), 1);
     assert_eq!(gmail_cards[0].thread_key, "gmthrid:abc");
+    assert_eq!(gmail_cards[0].message_count, 2);
 }
 
 #[test]

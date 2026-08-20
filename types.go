@@ -77,9 +77,12 @@ type Message struct {
 	// Outgoing is classified by the core (own address or Sent-folder
 	// provenance), so alias-sent mail renders as sent-by-me even when the
 	// alias isn't configured in meron.
-	Outgoing         bool   `json:"outgoing,omitempty"`
-	Unread           bool   `json:"unread"`
-	UnreadCount      uint32 `json:"unread_count,omitempty"`
+	Outgoing    bool   `json:"outgoing,omitempty"`
+	Unread      bool   `json:"unread"`
+	UnreadCount uint32 `json:"unread_count,omitempty"`
+	// MessageCount is every message in the thread, read or not; 0 when the
+	// core did not group (raw message rows, RSS items).
+	MessageCount     uint32 `json:"message_count,omitempty"`
 	Starred          bool   `json:"starred"`
 	HasDraft         bool   `json:"has_draft,omitempty"`
 	HasAttachments   bool   `json:"has_attachments"`

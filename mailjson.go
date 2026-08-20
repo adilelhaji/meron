@@ -98,6 +98,7 @@ func threadsJSON(accountID, folder string, raw any) any {
 			Date:              jsonNumber(card["date"]),
 			Unread:            jsonBool(card["unread"]),
 			UnreadCount:       uint32(jsonNumber(card["unread_count"])),
+			MessageCount:      uint32(jsonNumber(card["message_count"])),
 			Starred:           jsonBool(card["starred"]),
 			HasDraft:          jsonBool(card["has_draft"]),
 			OriginalThreadID:  originalThreadID,

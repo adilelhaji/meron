@@ -35,7 +35,7 @@ pub(crate) fn run_migrations(conn: &Connection) -> Result<()> {
 }
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, params, params_from_iter};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1190,6 +1190,10 @@ pub struct ThreadCard {
     pub original_thread_key: Option<String>,
     pub header: MessageHeader,
     pub unread_count: u32,
+    /// Every message in the card's thread, read or not — the Gmail-style "3"
+    /// beside the sender. Counted per card, so a subject-branched thread counts
+    /// only its own branch.
+    pub message_count: u32,
     pub has_draft: bool,
 }
 
@@ -1265,9 +1269,11 @@ pub fn group_thread_cards_with_drafts(
                 original_thread_key,
                 header,
                 unread_count: 0,
+                message_count: 0,
                 has_draft: draft_thread_keys.contains(&base_key),
             }
         });
+        card.message_count += 1;
         if !message.seen {
             card.unread_count += 1;
             card.header.seen = false;
@@ -1281,6 +1287,116 @@ pub fn group_thread_cards_with_drafts(
         .into_iter()
         .filter_map(|key| groups.remove(&key))
         .collect()
+}
+
+/// Total cached messages behind each of `card_keys`, keyed by card key.
+///
+/// The header page a list request read is not the thread: it is filtered
+/// (unread-only, starred-only, search hits) and cursor-paged by *message*, so
+/// counting the headers handed to [`group_thread_cards_with_drafts`] would
+/// report "1" for a long thread with a single unread message and would split a
+/// thread that straddles a page boundary. The cache holds the whole thread, so
+/// the count is taken from there and the page tally is only a floor for
+/// messages the cache has not seen yet.
+///
+/// The scope matches what opening the row shows, so the badge never contradicts
+/// the reader (see `thread_read`): real threading keys count across every folder
+/// in the account, because a received message and the user's own Sent reply
+/// belong to one thread; synthetic `uid:N` keys stay inside `folder`, because
+/// UIDs are folder-scoped and spanning folders would pull in an unrelated
+/// message that happens to share the UID.
+///
+/// Cross-folder rows are deduplicated by Message-ID exactly as
+/// [`get_thread_headers_all_folders`] does, so a self-sent message cached in
+/// both Sent and Inbox counts once — the reader renders it as one bubble.
+///
+/// Counting re-derives each row's card key rather than grouping on the raw
+/// thread key, so a subject-branched thread counts only the branch its card
+/// stands for — the same split [`card_thread_key`] makes.
+pub fn card_message_counts(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    card_keys: &[String],
+) -> Result<std::collections::HashMap<String, u32>> {
+    use std::collections::HashMap;
+
+    let mut roots: Vec<String> = card_keys
+        .iter()
+        .map(|key| split_thread_key(key).0)
+        .collect();
+    roots.sort();
+    roots.dedup();
+    let (uid_roots, threaded_roots): (Vec<String>, Vec<String>) =
+        roots.into_iter().partition(|root| root.starts_with("uid:"));
+
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    count_card_rows(conn, account, Some(folder), &uid_roots, &mut counts)?;
+    count_card_rows(conn, account, None, &threaded_roots, &mut counts)?;
+    Ok(counts)
+}
+
+/// Tally the cached rows of `roots` into `counts`, one card key at a time.
+/// `folder` scopes the query to a single mailbox; `None` spans the account.
+fn count_card_rows(
+    conn: &Connection,
+    account: &str,
+    folder: Option<&str>,
+    roots: &[String],
+    counts: &mut std::collections::HashMap<String, u32>,
+) -> Result<()> {
+    use std::collections::HashSet;
+
+    // Message-ID duplicates are folded in Rust rather than with the correlated
+    // NOT EXISTS that reading a single thread uses: with a page of keys and no
+    // index on thread_key, that subquery would re-scan the account's messages
+    // once per row, where one pass plus a set of seen ids is linear.
+    let mut seen_ids: HashSet<(String, String)> = HashSet::new();
+    // SQLite caps bound parameters per statement; a page of cards stays well
+    // under it, but chunk anyway so an unpaginated caller cannot overrun it.
+    for chunk in roots.chunks(100) {
+        let first = if folder.is_some() { 3 } else { 2 };
+        let placeholders = (first..first + chunk.len())
+            .map(|index| format!("?{index}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let folder_clause = if folder.is_some() {
+            "folder = ?2 AND "
+        } else {
+            ""
+        };
+        let mut stmt = conn.prepare(&format!(
+            "SELECT COALESCE(NULLIF(thread_key, ''), 'uid:' || uid), subject,
+                    COALESCE(json_extract(json, '$.message_id'), '') FROM messages
+             WHERE account = ?1 AND {folder_clause}uid <> 0
+               AND COALESCE(NULLIF(thread_key, ''), 'uid:' || uid) IN ({placeholders})"
+        ))?;
+        let mut args: Vec<&str> = vec![account];
+        args.extend(folder);
+        args.extend(chunk.iter().map(String::as_str));
+        let rows = stmt.query_map(params_from_iter(args), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (root, subject, message_id) = row?;
+            let key = if should_branch_thread_by_subject(&root) {
+                branch_compound_key(&root, &thread_grouping_subject(&subject))
+            } else {
+                root
+            };
+            // A row with no Message-ID cannot be matched to a copy, so it counts
+            // on its own — same call the thread reader makes.
+            if !message_id.is_empty() && !seen_ids.insert((key.clone(), message_id)) {
+                continue;
+            }
+            *counts.entry(key).or_insert(0) += 1;
+        }
+    }
+    Ok(())
 }
 
 fn effective_thread_key(message: &MessageHeader) -> String {

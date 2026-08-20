@@ -111,6 +111,8 @@ data class ThreadSummary(
     val preview: String = "",
     val unread: Boolean = false,
     val unreadCount: Int = 0,
+    /** Total messages in the thread, read or not; 0 when the core did not group. */
+    val messageCount: Int = 0,
     val starred: Boolean = false,
     val hasStarredItems: Boolean = false,
     val hasDraft: Boolean = false,

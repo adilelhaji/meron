@@ -114,14 +114,24 @@ export function ThreadListItem({
 
         <div className="flex-1 min-w-0 flex flex-col justify-center gap-1">
           <div className="flex items-center gap-2 min-w-0">
-            <span
-              className={clsx('text-[0.8125rem] font-semibold truncate', unread ? 'text-primary' : 'text-primary/85')}
-            >
-              {thread.from_name || thread.from_addr.split('@')[0]}
-              {!!thread.recipient_overflow && (
-                <span className="ml-1 font-normal text-secondary/80">+{thread.recipient_overflow}</span>
+            <div className="flex min-w-0 items-center gap-1">
+              <span
+                className={clsx('text-[0.8125rem] font-semibold truncate', unread ? 'text-primary' : 'text-primary/85')}
+              >
+                {thread.from_name || thread.from_addr.split('@')[0]}
+                {!!thread.recipient_overflow && (
+                  <span className="ml-1 font-normal text-secondary/80">+{thread.recipient_overflow}</span>
+                )}
+              </span>
+              {/* Gmail-style thread size, muted and only once a thread has a
+                  reply. It sits right after the sender rather than in the
+                  trailing badge slot so it never competes with the unread
+                  count, and outside the truncating span so a long sender
+                  ellipsises itself instead of clipping the count. */}
+              {(thread.message_count ?? 0) > 1 && (
+                <span className="shrink-0 text-[0.8125rem] font-normal text-secondary/70">{thread.message_count}</span>
               )}
-            </span>
+            </div>
             <time
               className={clsx(
                 'ml-auto shrink-0 text-[0.6875rem] font-normal',
