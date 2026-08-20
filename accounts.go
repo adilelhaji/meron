@@ -31,8 +31,16 @@ func (a *App) accountAddPassword(payload map[string]any) (any, error) {
 	if a.sidecar == nil || !a.sidecar.Started() {
 		return nil, a.engineUnavailable()
 	}
-	imapTLS, imapStartTLS := tlsMode(req.TLS, req.IMAPPort)
-	smtpTLS, smtpStartTLS := tlsMode(req.TLS, req.SMTPPort)
+	legacyTLS := true
+	if req.TLS != nil {
+		legacyTLS = *req.TLS
+	}
+	var imapExplicitTLS *bool
+	if req.StartTLS != nil {
+		imapExplicitTLS = req.TLS
+	}
+	imapTLS, imapStartTLS := selectedTLSMode(legacyTLS, imapExplicitTLS, req.StartTLS, req.IMAPPort)
+	smtpTLS, smtpStartTLS := selectedTLSMode(legacyTLS, req.SMTPTLS, req.SMTPStartTLS, req.SMTPPort)
 	if _, err := a.sidecar.Call("account.connect", map[string]any{
 		"id":            id,
 		"host":          req.IMAPHost,
@@ -66,9 +74,29 @@ func (a *App) accountAddPassword(payload map[string]any) (any, error) {
 		IMAPPort:          req.IMAPPort,
 		SMTPHost:          req.SMTPHost,
 		SMTPPort:          req.SMTPPort,
-		TLS:               req.TLS,
+		TLS:               imapTLS,
+		StartTLS:          imapStartTLS,
+		SMTPTLS:           smtpTLS,
+		SMTPStartTLS:      smtpStartTLS,
 	}
 	return map[string]any{"account": account}, nil
+}
+
+func selectedTLSMode(legacyTLS bool, explicitTLS, explicitStartTLS *bool, port uint16) (bool, bool) {
+	// A lone false STARTTLS flag does not identify the intended alternative;
+	// retain legacy port inference unless its paired TLS flag is also present.
+	if explicitTLS == nil && (explicitStartTLS == nil || !*explicitStartTLS) {
+		return tlsMode(legacyTLS, port)
+	}
+	tls := legacyTLS
+	if explicitTLS != nil {
+		tls = *explicitTLS
+	}
+	starttls := explicitStartTLS != nil && *explicitStartTLS
+	if starttls {
+		tls = false
+	}
+	return tls, starttls
 }
 
 func (a *App) accountRemove(payload map[string]any) (any, error) {

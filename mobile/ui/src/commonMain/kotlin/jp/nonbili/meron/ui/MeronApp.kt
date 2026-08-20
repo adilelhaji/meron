@@ -1059,13 +1059,37 @@ private fun MeronMobileScreenContent(
                     password = password,
                     onPasswordChange = { password = it },
                     host = host,
-                    onHostChange = { host = it },
+                    onHostChange = {
+                        host = it
+                        hostTouched = it.isNotBlank()
+                    },
                     imapPort = imapPort,
-                    onImapPortChange = { imapPort = it },
+                    onImapPortChange = {
+                        imapPort = it
+                        imapSecurity = mailSecurityAfterPortEdit(imapSecurity, imapSecurityTouched, it)
+                        imapPortTouched = it.isNotBlank()
+                    },
+                    imapSecurity = imapSecurity,
+                    onImapSecurityChange = {
+                        imapSecurity = it
+                        imapSecurityTouched = true
+                    },
                     smtpHost = smtpHost,
-                    onSmtpHostChange = { smtpHost = it },
+                    onSmtpHostChange = {
+                        smtpHost = it
+                        smtpHostTouched = it.isNotBlank()
+                    },
                     smtpPort = smtpPort,
-                    onSmtpPortChange = { smtpPort = it },
+                    onSmtpPortChange = {
+                        smtpPort = it
+                        smtpSecurity = mailSecurityAfterPortEdit(smtpSecurity, smtpSecurityTouched, it)
+                        smtpPortTouched = it.isNotBlank()
+                    },
+                    smtpSecurity = smtpSecurity,
+                    onSmtpSecurityChange = {
+                        smtpSecurity = it
+                        smtpSecurityTouched = true
+                    },
                     serverSettingsOpen = passwordServerSettingsOpen,
                     onServerSettingsOpenChange = { passwordServerSettingsOpen = it },
                     onAutodiscover = ::autodiscoverPasswordAccount,
@@ -1116,14 +1140,14 @@ private fun MeronMobileScreenContent(
                     },
                     onCreateKanbanBoard = ::createKanbanBoard,
                     onAddMailAccount = {
+                        resetPasswordAccountForm()
                         addSection = 0
-                        passwordServerSettingsOpen = false
                         previousTopScreen = Screen.Settings
                         screen = Screen.AddAccount
                     },
                     onAddFeedAccount = {
+                        resetPasswordAccountForm()
                         addSection = 2
-                        passwordServerSettingsOpen = false
                         previousTopScreen = Screen.Settings
                         screen = Screen.AddAccount
                     },

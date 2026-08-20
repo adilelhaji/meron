@@ -98,6 +98,29 @@ class MobileCommandsTest {
     }
 
     @Test
+    fun accountAddPasswordSerializesIndependentSecurityModes() {
+        val params =
+            AddPasswordAccountParams(
+                email = "self-hosted@example.com",
+                imapHost = "mail.example.com",
+                imapPort = 143,
+                smtpHost = "mail.example.com",
+                smtpPort = 2525,
+                username = "self-hosted",
+                password = "secret",
+                tls = false,
+                starttls = true,
+                smtpTls = false,
+                smtpStarttls = false,
+            )
+
+        assertEquals(
+            """{"email":"self-hosted@example.com","display_name":"","sender_name":"","imap_host":"mail.example.com","imap_port":143,"smtp_host":"mail.example.com","smtp_port":2525,"username":"self-hosted","password":"secret","tls":false,"starttls":true,"smtp_tls":false,"smtp_starttls":false}""",
+            params.toJson(),
+        )
+    }
+
+    @Test
     fun accountAutodiscoverClientUsesSharedCoreCommand() {
         val core = FakeMeronCore("""{"imap_host":"imap.example.com"}""")
         val response =

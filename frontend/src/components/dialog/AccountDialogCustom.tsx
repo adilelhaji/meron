@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronRight, Eye, EyeOff, Info, RefreshCw } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { Field } from '../field/Field'
+import { securityAfterPortEdit, type MailSecurity } from './accountSecurity'
 import type { AccountDialogController } from './useAccountDialog'
 import type { DialogClasses } from './accountDialogStyles'
 
@@ -121,43 +122,107 @@ export function AccountDialogCustom({
             <Field
               label={t('accounts.fields.imapHost')}
               value={form.imap_host}
-              onChange={(imap_host) => setForm((f) => ({ ...f, imap_host }))}
+              onChange={(imap_host) => setForm((f) => ({ ...f, imap_host, imap_host_touched: !!imap_host.trim() }))}
               inputClassName={inputClass}
               labelClassName={fieldLabelClass}
             />
             <Field
               label={t('accounts.fields.port')}
               value={form.imap_port}
-              onChange={(imap_port) => setForm((f) => ({ ...f, imap_port }))}
+              onChange={(imap_port) =>
+                setForm((f) => ({
+                  ...f,
+                  imap_port,
+                  imap_port_touched: !!imap_port.trim(),
+                  imap_security: securityAfterPortEdit(f.imap_security, f.imap_security_touched, imap_port),
+                }))
+              }
               inputClassName={inputClass}
               labelClassName={fieldLabelClass}
             />
           </div>
+          <SecurityField
+            label={t('accounts.fields.imapSecurity')}
+            value={form.imap_security}
+            onChange={(imap_security) => setForm((f) => ({ ...f, imap_security, imap_security_touched: true }))}
+            inputClassName={inputClass}
+            labelClassName={fieldLabelClass}
+            noneLabel={t('accounts.security.none')}
+          />
           <div className={serverGridClass}>
             <Field
               label={t('accounts.fields.smtpHost')}
               value={form.smtp_host}
-              onChange={(smtp_host) => setForm((f) => ({ ...f, smtp_host }))}
+              onChange={(smtp_host) => setForm((f) => ({ ...f, smtp_host, smtp_host_touched: !!smtp_host.trim() }))}
               inputClassName={inputClass}
               labelClassName={fieldLabelClass}
             />
             <Field
               label={t('accounts.fields.port')}
               value={form.smtp_port}
-              onChange={(smtp_port) => setForm((f) => ({ ...f, smtp_port }))}
+              onChange={(smtp_port) =>
+                setForm((f) => ({
+                  ...f,
+                  smtp_port,
+                  smtp_port_touched: !!smtp_port.trim(),
+                  smtp_security: securityAfterPortEdit(f.smtp_security, f.smtp_security_touched, smtp_port),
+                }))
+              }
               inputClassName={inputClass}
               labelClassName={fieldLabelClass}
             />
           </div>
+          <SecurityField
+            label={t('accounts.fields.smtpSecurity')}
+            value={form.smtp_security}
+            onChange={(smtp_security) => setForm((f) => ({ ...f, smtp_security, smtp_security_touched: true }))}
+            inputClassName={inputClass}
+            labelClassName={fieldLabelClass}
+            noneLabel={t('accounts.security.none')}
+          />
           <Field
             label={t('accounts.fields.username')}
             value={form.username}
-            onChange={(username) => setForm((f) => ({ ...f, username }))}
+            onChange={(username) => setForm((f) => ({ ...f, username, username_touched: !!username.trim() }))}
             inputClassName={inputClass}
             labelClassName={fieldLabelClass}
           />
         </>
       )}
     </>
+  )
+}
+
+function SecurityField({
+  label,
+  value,
+  onChange,
+  inputClassName,
+  labelClassName,
+  noneLabel,
+}: {
+  label: string
+  value: MailSecurity
+  onChange: (value: MailSecurity) => void
+  inputClassName?: string
+  labelClassName?: string
+  noneLabel: string
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 w-full">
+      <span className={`pl-0.5 ${labelClassName ?? 'text-[0.6875rem] font-semibold text-secondary'}`}>{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value as MailSecurity)}
+        className={
+          inputClassName ??
+          'w-full text-xs py-2 px-3.5 rounded-xl border border-border bg-raised text-primary focus:ring-1 focus:ring-accent focus:border-transparent focus:bg-chats transition-all outline-none'
+        }
+      >
+        <option value="tls">TLS</option>
+        <option value="starttls">STARTTLS</option>
+        <option value="none">{noneLabel}</option>
+      </select>
+    </label>
   )
 }

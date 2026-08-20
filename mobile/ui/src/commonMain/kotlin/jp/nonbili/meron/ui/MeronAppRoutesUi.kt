@@ -149,8 +149,8 @@ internal fun KanbanRouteContent(
                         scope.launch { drawerState.close() }
                     },
                     onAddAccount = {
+                        resetPasswordAccountForm()
                         addSection = 0
-                        passwordServerSettingsOpen = false
                         previousTopScreen = Screen.Kanban
                         screen = Screen.AddAccount
                         scope.launch { drawerState.close() }
@@ -536,8 +536,8 @@ internal fun MailRouteContent(
                         scope.launch { drawerState.close() }
                     },
                     onAddAccount = {
+                        resetPasswordAccountForm()
                         addSection = 0
-                        passwordServerSettingsOpen = false
                         previousTopScreen = screen
                         screen = Screen.AddAccount
                         scope.launch { drawerState.close() }
@@ -1159,8 +1159,8 @@ internal fun MailRouteContent(
                                     text = tr("empty.mailOrRssSetupText"),
                                     actionLabel = tr("accounts.actions.addAccount"),
                                     onAction = {
+                                        resetPasswordAccountForm()
                                         addSection = 0
-                                        passwordServerSettingsOpen = false
                                         screen = Screen.AddAccount
                                     },
                                 )

@@ -64,19 +64,32 @@ internal class MeronMobileState(
     var launchGoogleAccountPicker: () -> Unit = {}
 
     var host by mutableStateOf("")
+
+    // Set once the field holds a server the user owns (typed by hand, or
+    // pre-filled from the account being reconnected), so autodiscovery knows
+    // not to replace it. A host it filled in itself stays replaceable.
+    var hostTouched by mutableStateOf(false)
     var email by mutableStateOf("")
     var username by mutableStateOf("")
     var password by mutableStateOf("")
     var displayName by mutableStateOf("")
     var senderName by mutableStateOf("")
     var imapPort by mutableStateOf("993")
+    var imapPortTouched by mutableStateOf(false)
+    var imapSecurity by mutableStateOf(MailSecurity.TLS)
+    var imapSecurityTouched by mutableStateOf(false)
     var smtpHost by mutableStateOf("")
+    var smtpHostTouched by mutableStateOf(false)
     var smtpPort by mutableStateOf("465")
+    var smtpPortTouched by mutableStateOf(false)
+    var smtpSecurity by mutableStateOf(MailSecurity.TLS)
+    var smtpSecurityTouched by mutableStateOf(false)
     var passwordServerSettingsOpen by mutableStateOf(false)
 
     // Last email we ran autodiscovery for, so the automatic (on-blur) lookup
     // doesn't repeat for an unchanged address.
     var lastAutodiscoverEmail by mutableStateOf("")
+    var passwordAutodiscoverGeneration = 0
 
     // Set to a managed account id when its on-device Google token can no longer
     // be silently refreshed, signalling the user must reconnect it.

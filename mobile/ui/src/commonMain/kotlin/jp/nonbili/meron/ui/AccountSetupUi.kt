@@ -46,6 +46,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SecondaryTabRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -71,6 +74,12 @@ import jp.nonbili.meron.ui.resources.ic_google_g
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.painterResource
 
+internal enum class MailSecurity {
+    TLS,
+    STARTTLS,
+    NONE,
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun AddAccountScreen(
@@ -90,10 +99,14 @@ internal fun AddAccountScreen(
     onHostChange: (String) -> Unit,
     imapPort: String,
     onImapPortChange: (String) -> Unit,
+    imapSecurity: MailSecurity,
+    onImapSecurityChange: (MailSecurity) -> Unit,
     smtpHost: String,
     onSmtpHostChange: (String) -> Unit,
     smtpPort: String,
     onSmtpPortChange: (String) -> Unit,
+    smtpSecurity: MailSecurity,
+    onSmtpSecurityChange: (MailSecurity) -> Unit,
     serverSettingsOpen: Boolean,
     onServerSettingsOpenChange: (Boolean) -> Unit,
     onAutodiscover: () -> Unit,
@@ -229,8 +242,18 @@ internal fun AddAccountScreen(
                                         SetupField(username, onUsernameChange, tr("accounts.fields.username"))
                                         SetupField(host, onHostChange, tr("accounts.fields.imapHost"))
                                         SetupField(imapPort, onImapPortChange, tr("accounts.fields.imapPort"))
+                                        MailSecuritySelector(
+                                            label = tr("accounts.fields.imapSecurity"),
+                                            security = imapSecurity,
+                                            onSecurityChange = onImapSecurityChange,
+                                        )
                                         SetupField(smtpHost, onSmtpHostChange, tr("accounts.fields.smtpHost"))
                                         SetupField(smtpPort, onSmtpPortChange, tr("accounts.fields.smtpPort"))
+                                        MailSecuritySelector(
+                                            label = tr("accounts.fields.smtpSecurity"),
+                                            security = smtpSecurity,
+                                            onSecurityChange = onSmtpSecurityChange,
+                                        )
                                     }
                                     Button(onClick = onAddPassword, modifier = Modifier.fillMaxWidth()) { Text(tr("accounts.actions.addAccount")) }
                                 }
@@ -267,6 +290,37 @@ internal fun AddAccountScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MailSecuritySelector(
+    label: String,
+    security: MailSecurity,
+    onSecurityChange: (MailSecurity) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            MailSecurity.entries.forEachIndexed { index, option ->
+                SegmentedButton(
+                    selected = option == security,
+                    onClick = { onSecurityChange(option) },
+                    shape = SegmentedButtonDefaults.itemShape(index, MailSecurity.entries.size),
+                    icon = {},
+                    label = {
+                        Text(
+                            when (option) {
+                                MailSecurity.TLS -> "TLS"
+                                MailSecurity.STARTTLS -> "STARTTLS"
+                                MailSecurity.NONE -> tr("accounts.security.none")
+                            },
+                        )
+                    },
+                )
             }
         }
     }

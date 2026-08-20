@@ -1586,13 +1586,39 @@ internal fun MeronMobileState.reconnectAccount(account: AccountSummary) {
         }
 
         else -> {
+            resetPasswordAccountForm()
+            displayName = account.displayName
+            senderName = account.senderName
             email = account.email
             username = account.email
             password = ""
+            // The prefilled address is already the account's own; don't let the
+            // on-blur lookup re-run and rewrite the form around it.
+            lastAutodiscoverEmail = account.email
             if (account.imapHost.isNotBlank()) host = account.imapHost
+            hostTouched = host.isNotBlank()
             if (account.imapPort > 0) imapPort = account.imapPort.toString()
+            imapPortTouched = account.imapPort > 0
+            imapSecurity =
+                when {
+                    account.starttls -> MailSecurity.STARTTLS
+                    account.tls -> MailSecurity.TLS
+                    else -> MailSecurity.NONE
+                }
+            imapSecurityTouched =
+                account.imapPort > 0 && imapSecurity != mailSecurityForPort(account.imapPort)
             if (account.smtpHost.isNotBlank()) smtpHost = account.smtpHost
+            smtpHostTouched = smtpHost.isNotBlank()
             if (account.smtpPort > 0) smtpPort = account.smtpPort.toString()
+            smtpPortTouched = account.smtpPort > 0
+            smtpSecurity =
+                when {
+                    account.smtpStarttls -> MailSecurity.STARTTLS
+                    account.smtpTls -> MailSecurity.TLS
+                    else -> MailSecurity.NONE
+                }
+            smtpSecurityTouched =
+                account.smtpPort > 0 && smtpSecurity != mailSecurityForPort(account.smtpPort)
             addSection = 1
             passwordServerSettingsOpen = true
         }

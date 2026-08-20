@@ -24,6 +24,9 @@ export type Account = {
   smtp_host: string
   smtp_port: number
   tls: boolean
+  starttls?: boolean
+  smtp_tls?: boolean
+  smtp_starttls?: boolean
   /** Whether remote (URL-based) inline images render for this account. */
   load_remote_images?: boolean
   /** Whether message views prefer original HTML when available (default true). */

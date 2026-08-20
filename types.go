@@ -13,6 +13,9 @@ type Account struct {
 	SMTPHost          string  `json:"smtp_host"`
 	SMTPPort          uint16  `json:"smtp_port"`
 	TLS               bool    `json:"tls"`
+	StartTLS          bool    `json:"starttls"`
+	SMTPTLS           bool    `json:"smtp_tls"`
+	SMTPStartTLS      bool    `json:"smtp_starttls"`
 	LoadRemoteImages  bool    `json:"load_remote_images"`
 	ConversationHTML  bool    `json:"conversation_html"`
 	SaveSentCopy      *bool   `json:"save_sent_copy"`
@@ -88,16 +91,19 @@ type Message struct {
 }
 
 type AddPasswordAccountRequest struct {
-	Email       string `json:"email"`
-	DisplayName string `json:"display_name"`
-	SenderName  string `json:"sender_name"`
-	IMAPHost    string `json:"imap_host"`
-	IMAPPort    uint16 `json:"imap_port"`
-	SMTPHost    string `json:"smtp_host"`
-	SMTPPort    uint16 `json:"smtp_port"`
-	Username    string `json:"username"`
-	Password    string `json:"password"`
-	TLS         bool   `json:"tls"`
+	Email        string `json:"email"`
+	DisplayName  string `json:"display_name"`
+	SenderName   string `json:"sender_name"`
+	IMAPHost     string `json:"imap_host"`
+	IMAPPort     uint16 `json:"imap_port"`
+	SMTPHost     string `json:"smtp_host"`
+	SMTPPort     uint16 `json:"smtp_port"`
+	Username     string `json:"username"`
+	Password     string `json:"password"`
+	TLS          *bool  `json:"tls"`
+	StartTLS     *bool  `json:"starttls"`
+	SMTPTLS      *bool  `json:"smtp_tls"`
+	SMTPStartTLS *bool  `json:"smtp_starttls"`
 }
 
 type AddGmailOAuthRequest struct {

@@ -91,6 +91,9 @@ data class AddPasswordAccountParams(
     val username: String,
     val password: String,
     val tls: Boolean = true,
+    val starttls: Boolean? = null,
+    val smtpTls: Boolean? = null,
+    val smtpStarttls: Boolean? = null,
 ) {
     fun toJson(): String =
         jsonObject(
@@ -104,6 +107,9 @@ data class AddPasswordAccountParams(
             "username" to username.jsonString(),
             "password" to password.jsonString(),
             "tls" to tls.toString(),
+            "starttls" to starttls?.toString(),
+            "smtp_tls" to smtpTls?.toString(),
+            "smtp_starttls" to smtpStarttls?.toString(),
         )
 }
 

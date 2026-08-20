@@ -91,6 +91,64 @@ fn mobile_protocol_persists_password_account_metadata() {
 }
 
 #[test]
+fn mobile_protocol_honors_explicit_password_account_security_modes() {
+    let data_dir = unique_data_dir("account-security");
+    let unique = unique_test_suffix();
+    let email = format!("self-hosted+{unique}@example.com");
+    let request = format!(
+        r#"{{"id":62,"method":"account.addPassword","params":{{"email":"{email}","imap_host":"mail.example.com","imap_port":143,"smtp_host":"mail.example.com","smtp_port":2525,"username":"{email}","password":"secret","tls":false,"starttls":true,"smtp_tls":false,"smtp_starttls":false}}}}"#
+    );
+
+    let added = invoke_mobile_protocol_json(&request, Some(data_dir.to_str().unwrap()));
+    let account = &added["result"]["account"];
+    assert_eq!(account["tls"], false);
+    assert_eq!(account["starttls"], true);
+    assert_eq!(account["smtp_tls"], false);
+    assert_eq!(account["smtp_starttls"], false);
+
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+#[test]
+fn mobile_protocol_only_overrides_inference_with_unambiguous_security_modes() {
+    let data_dir = unique_data_dir("account-partial-security");
+    let unique = unique_test_suffix();
+    let email = format!("partial-security+{unique}@example.com");
+    let request = format!(
+        r#"{{"id":63,"method":"account.addPassword","params":{{"email":"{email}","imap_host":"mail.example.com","imap_port":143,"smtp_host":"mail.example.com","smtp_port":587,"username":"{email}","password":"secret","tls":true,"starttls":false,"smtp_tls":true}}}}"#
+    );
+
+    let added = invoke_mobile_protocol_json(&request, Some(data_dir.to_str().unwrap()));
+    let account = &added["result"]["account"];
+    assert_eq!(account["tls"], true);
+    assert_eq!(account["starttls"], false);
+    assert_eq!(account["smtp_tls"], true);
+    assert_eq!(account["smtp_starttls"], false);
+
+    let email = format!("partial-starttls+{unique}@example.com");
+    let request = format!(
+        r#"{{"id":64,"method":"account.addPassword","params":{{"email":"{email}","imap_host":"mail.example.com","imap_port":993,"smtp_host":"mail.example.com","smtp_port":587,"username":"{email}","password":"secret","tls":true,"smtp_starttls":false}}}}"#
+    );
+    let added = invoke_mobile_protocol_json(&request, Some(data_dir.to_str().unwrap()));
+    let account = &added["result"]["account"];
+    assert_eq!(account["smtp_tls"], false);
+    assert_eq!(account["smtp_starttls"], true);
+
+    let email = format!("legacy-tls+{unique}@example.com");
+    let request = format!(
+        r#"{{"id":65,"method":"account.addPassword","params":{{"email":"{email}","imap_host":"mail.example.com","imap_port":143,"smtp_host":"mail.example.com","smtp_port":587,"username":"{email}","password":"secret","tls":true}}}}"#
+    );
+    let added = invoke_mobile_protocol_json(&request, Some(data_dir.to_str().unwrap()));
+    let account = &added["result"]["account"];
+    assert_eq!(account["tls"], false);
+    assert_eq!(account["starttls"], true);
+    assert_eq!(account["smtp_tls"], false);
+    assert_eq!(account["smtp_starttls"], true);
+
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
+#[test]
 fn mobile_protocol_updates_account_settings_and_aliases() {
     let data_dir = unique_data_dir("account-settings");
     let unique = unique_test_suffix();

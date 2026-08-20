@@ -573,7 +573,10 @@ internal fun MeronMobileState.addPasswordAccount() {
             smtpPort = smtpPort.trim().toIntOrNull() ?: 465,
             username = username.trim().ifBlank { email.trim() },
             password = password,
-            tls = true,
+            tls = imapSecurity == MailSecurity.TLS,
+            starttls = imapSecurity == MailSecurity.STARTTLS,
+            smtpTls = smtpSecurity == MailSecurity.TLS,
+            smtpStarttls = smtpSecurity == MailSecurity.STARTTLS,
         )
     status = "Adding password account..."
     scope.launch {
@@ -585,6 +588,7 @@ internal fun MeronMobileState.addPasswordAccount() {
             }
         }.onSuccess {
             applyAccounts(it, preferEmail = params.email)
+            resetPasswordAccountForm()
             screen = Screen.Mail
             errorBanner = null
             status = "Added ${params.email}"
@@ -594,6 +598,33 @@ internal fun MeronMobileState.addPasswordAccount() {
             status = "Add account failed: ${it.message}"
         }
     }
+}
+
+// Clear the password setup form when its account is added and whenever a fresh
+// setup starts, so an account never inherits the previous server, ports and
+// security modes -- a sticky "touched" flag would otherwise keep autodiscovery
+// and port edits from correcting a hand-picked mode.
+internal fun MeronMobileState.resetPasswordAccountForm() {
+    email = ""
+    username = ""
+    password = ""
+    displayName = ""
+    senderName = ""
+    host = ""
+    hostTouched = false
+    imapPort = "993"
+    imapPortTouched = false
+    imapSecurity = MailSecurity.TLS
+    imapSecurityTouched = false
+    smtpHost = ""
+    smtpHostTouched = false
+    smtpPort = "465"
+    smtpPortTouched = false
+    smtpSecurity = MailSecurity.TLS
+    smtpSecurityTouched = false
+    lastAutodiscoverEmail = ""
+    passwordAutodiscoverGeneration += 1
+    passwordServerSettingsOpen = false
 }
 
 internal fun MeronMobileState.autodiscoverPasswordAccount(auto: Boolean = false) {
@@ -611,6 +642,8 @@ internal fun MeronMobileState.autodiscoverPasswordAccount(auto: Boolean = false)
         status = coreUnavailableMessage
         return
     }
+    passwordAutodiscoverGeneration += 1
+    val requestGeneration = passwordAutodiscoverGeneration
     status = "Finding mail settings..."
     scope.launch {
         runCatching {
@@ -619,10 +652,54 @@ internal fun MeronMobileState.autodiscoverPasswordAccount(auto: Boolean = false)
                 parseAutodiscoverResponse(client.autodiscoverAccount(AutodiscoverAccountParams(emailValue)))
             }
         }.onSuccess { discovered ->
-            if (discovered.imapHost.isNotBlank()) host = discovered.imapHost
-            if (discovered.imapPort > 0) imapPort = discovered.imapPort.toString()
-            if (discovered.smtpHost.isNotBlank()) smtpHost = discovered.smtpHost
-            if (discovered.smtpPort > 0) smtpPort = discovered.smtpPort.toString()
+            if (
+                requestGeneration != passwordAutodiscoverGeneration ||
+                !email.trim().equals(emailValue, ignoreCase = true)
+            ) {
+                return@onSuccess
+            }
+            val discoveredImapPort = discovered.imapPort.takeIf { discovered.imapHost.isNotBlank() } ?: 0
+            val discoveredSmtpPort = discovered.smtpPort.takeIf { discovered.smtpHost.isNotBlank() } ?: 0
+            val imapSelection =
+                mailServerSelectionAfterDiscovery(
+                    imapPort,
+                    imapSecurity,
+                    imapSecurityTouched,
+                    hostTouched,
+                    imapPortTouched,
+                    discoveredImapPort,
+                    preserveUserSettings = auto,
+                )
+            val smtpSelection =
+                mailServerSelectionAfterDiscovery(
+                    smtpPort,
+                    smtpSecurity,
+                    smtpSecurityTouched,
+                    smtpHostTouched,
+                    smtpPortTouched,
+                    discoveredSmtpPort,
+                    preserveUserSettings = auto,
+                )
+            if ((!auto || !hostTouched) && discovered.imapHost.isNotBlank()) {
+                host = discovered.imapHost
+                if (!auto) hostTouched = false
+            }
+            imapPort = imapSelection.port
+            imapSecurity = imapSelection.security
+            if (!auto && discoveredServerIsComplete(discovered.imapHost, discovered.imapPort)) {
+                imapPortTouched = false
+                imapSecurityTouched = false
+            }
+            if ((!auto || !smtpHostTouched) && discovered.smtpHost.isNotBlank()) {
+                smtpHost = discovered.smtpHost
+                if (!auto) smtpHostTouched = false
+            }
+            smtpPort = smtpSelection.port
+            smtpSecurity = smtpSelection.security
+            if (!auto && discoveredServerIsComplete(discovered.smtpHost, discovered.smtpPort)) {
+                smtpPortTouched = false
+                smtpSecurityTouched = false
+            }
             if (discovered.username.isNotBlank()) username = discovered.username
             status =
                 when {
@@ -642,11 +719,62 @@ internal fun MeronMobileState.autodiscoverPasswordAccount(auto: Boolean = false)
                     }
                 }
         }.onFailure {
+            if (
+                requestGeneration != passwordAutodiscoverGeneration ||
+                !email.trim().equals(emailValue, ignoreCase = true)
+            ) {
+                return@onFailure
+            }
             passwordServerSettingsOpen = true
             status = "Settings lookup failed: ${it.message}"
         }
     }
 }
+
+internal fun mailSecurityForPort(port: Int): MailSecurity =
+    when (port) {
+        25, 143, 587 -> MailSecurity.STARTTLS
+        3143, 3587 -> MailSecurity.NONE
+        else -> MailSecurity.TLS
+    }
+
+internal fun mailSecurityAfterPortEdit(
+    current: MailSecurity,
+    touched: Boolean,
+    portText: String,
+): MailSecurity {
+    if (touched) return current
+    val port = portText.toIntOrNull()?.takeIf { it > 0 } ?: return current
+    return mailSecurityForPort(port)
+}
+
+internal data class MailServerSelection(
+    val port: String,
+    val security: MailSecurity,
+)
+
+internal fun discoveredServerIsComplete(
+    host: String,
+    port: Int,
+): Boolean = host.isNotBlank() && port > 0
+
+internal fun mailServerSelectionAfterDiscovery(
+    currentPort: String,
+    currentSecurity: MailSecurity,
+    securityTouched: Boolean,
+    hostTouched: Boolean,
+    portTouched: Boolean,
+    discoveredPort: Int,
+    preserveUserSettings: Boolean = true,
+): MailServerSelection =
+    if ((preserveUserSettings && (hostTouched || portTouched)) || discoveredPort <= 0) {
+        MailServerSelection(currentPort, currentSecurity)
+    } else {
+        MailServerSelection(
+            discoveredPort.toString(),
+            if (preserveUserSettings && securityTouched) currentSecurity else mailSecurityForPort(discoveredPort),
+        )
+    }
 
 internal fun MeronMobileState.addRssAccount() {
     if (rssAccountAdding) return

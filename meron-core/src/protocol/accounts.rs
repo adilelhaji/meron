@@ -736,9 +736,14 @@ pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Res
 
     let imap_port = req_u16(params, "imap_port").unwrap_or(993);
     let smtp_port = req_u16(params, "smtp_port").unwrap_or(465);
+    // Older clients send one `tls` switch and rely on the port to distinguish
+    // implicit TLS from STARTTLS. Newer clients can choose each transport mode
+    // explicitly; keep the inferred values as a backwards-compatible fallback.
     let tls = params.get("tls").and_then(Value::as_bool).unwrap_or(true);
-    let (imap_tls, imap_starttls) = tls_mode(tls, imap_port);
-    let (smtp_tls, smtp_starttls) = tls_mode(tls, smtp_port);
+    let (imap_tls, imap_starttls) =
+        explicit_or_inferred_tls_mode(params, "imap_tls", "starttls", Some("tls"), tls, imap_port);
+    let (smtp_tls, smtp_starttls) =
+        explicit_or_inferred_tls_mode(params, "smtp_tls", "smtp_starttls", None, tls, smtp_port);
     let id = account_id(&email);
     let password = opt_str(params, "password");
     let creds = Creds {
@@ -789,4 +794,30 @@ pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Res
     })?;
     crate::ffi::evict_engine_account(&id);
     Ok(result)
+}
+
+fn explicit_or_inferred_tls_mode(
+    params: &Value,
+    tls_key: &str,
+    starttls_key: &str,
+    tls_alias: Option<&str>,
+    legacy_tls: bool,
+    port: u16,
+) -> (bool, bool) {
+    let primary_tls = params.get(tls_key).and_then(Value::as_bool);
+    let alias_tls = tls_alias
+        .and_then(|key| params.get(key))
+        .and_then(Value::as_bool);
+    let explicit_starttls = params.get(starttls_key).and_then(Value::as_bool);
+    // The legacy alias becomes an explicit partner only when the STARTTLS key
+    // is present too; by itself it must retain the old port-inference behavior.
+    let explicit_tls = primary_tls.or_else(|| explicit_starttls.and(alias_tls));
+    // A lone false STARTTLS flag does not identify the intended alternative;
+    // retain legacy port inference unless its paired TLS flag is also present.
+    if explicit_tls.is_none() && explicit_starttls != Some(true) {
+        return tls_mode(legacy_tls, port);
+    }
+    let starttls = explicit_starttls.unwrap_or(false);
+    let tls = explicit_tls.unwrap_or(legacy_tls);
+    (tls && !starttls, starttls)
 }

@@ -7,6 +7,7 @@ import { accounts$ } from '../../states/accounts'
 import { openMailAccount } from '../../states/kanban'
 import { nextRssAccountDisplayName } from '../../states/feeds'
 import { errorMessage } from '../../lib/errors'
+import { securityForPort, serverSelectionAfterDiscovery, type MailSecurity } from './accountSecurity'
 
 type AddAccountResult = { account?: { id?: string } }
 
@@ -33,10 +34,19 @@ export function useAccountDialog() {
     display_name: '',
     sender_name: '',
     imap_host: '',
+    imap_host_touched: false,
     imap_port: '993',
+    imap_port_touched: false,
+    imap_security: 'tls' as MailSecurity,
+    imap_security_touched: false,
     smtp_host: '',
+    smtp_host_touched: false,
     smtp_port: '465',
+    smtp_port_touched: false,
+    smtp_security: 'tls' as MailSecurity,
+    smtp_security_touched: false,
     username: '',
+    username_touched: false,
     password: '',
     auth_code: '',
     feed_url: '',
@@ -50,6 +60,9 @@ export function useAccountDialog() {
   const [waitingForGoogle, setWaitingForGoogle] = useState(false)
   const autoBeginOAuthKeyRef = useRef('')
   const rssAutoNameRef = useRef('')
+  const discoveryGenerationRef = useRef(0)
+  const formRef = useRef(form)
+  formRef.current = form
   const [exchangedTokens, setExchangedTokens] = useState<null | {
     access_token: string
     refresh_token: string
@@ -77,15 +90,32 @@ export function useAccountDialog() {
 
   useEffect(() => {
     if (!reconnectAccount) return
+    const imapPort = reconnectAccount.imap_port || 993
+    const imapSecurity: MailSecurity = reconnectAccount.starttls ? 'starttls' : reconnectAccount.tls ? 'tls' : 'none'
+    const smtpPort = reconnectAccount.smtp_port || 465
+    const smtpSecurity: MailSecurity = reconnectAccount.smtp_starttls
+      ? 'starttls'
+      : reconnectAccount.smtp_tls === false
+        ? 'none'
+        : 'tls'
     setForm({
       email: reconnectAccount.email,
       display_name: reconnectAccount.display_name || '',
       sender_name: reconnectAccount.sender_name || '',
       imap_host: reconnectAccount.imap_host || '',
-      imap_port: String(reconnectAccount.imap_port || 993),
+      imap_host_touched: !!reconnectAccount.imap_host,
+      imap_port: String(imapPort),
+      imap_port_touched: reconnectAccount.imap_port > 0,
+      imap_security: imapSecurity,
+      imap_security_touched: imapSecurity !== securityForPort(imapPort),
       smtp_host: reconnectAccount.smtp_host || '',
-      smtp_port: String(reconnectAccount.smtp_port || 465),
+      smtp_host_touched: !!reconnectAccount.smtp_host,
+      smtp_port: String(smtpPort),
+      smtp_port_touched: reconnectAccount.smtp_port > 0,
+      smtp_security: smtpSecurity,
+      smtp_security_touched: smtpSecurity !== securityForPort(smtpPort),
       username: reconnectAccount.email,
+      username_touched: true,
       password: '',
       auth_code: '',
       feed_url: reconnectAccount.feed_url || '',
@@ -215,6 +245,7 @@ export function useAccountDialog() {
 
   async function runDiscovery(email: string) {
     if (!email.includes('@') || email.endsWith('@')) return
+    const requestGeneration = ++discoveryGenerationRef.current
     setDiscoverNote('')
     setAppPasswordHint(null)
     setDiscovering(true)
@@ -229,15 +260,40 @@ export function useAccountDialog() {
         source: string
         app_password_hint?: { provider: string; url: string }
       }>('account.autodiscover', { email })
-      setForm((f) => ({
-        ...f,
-        // Don't clobber anything the user already typed.
-        imap_host: f.imap_host || cfg.imap_host,
-        imap_port: f.imap_host ? f.imap_port : String(cfg.imap_port),
-        smtp_host: f.smtp_host || cfg.smtp_host,
-        smtp_port: f.smtp_host ? f.smtp_port : String(cfg.smtp_port),
-        username: f.username || cfg.username,
-      }))
+      if (
+        requestGeneration !== discoveryGenerationRef.current ||
+        formRef.current.email.trim().toLowerCase() !== email.trim().toLowerCase()
+      ) {
+        return
+      }
+      setForm((f) => {
+        const imap = serverSelectionAfterDiscovery(
+          f.imap_port,
+          f.imap_security,
+          f.imap_security_touched,
+          f.imap_host_touched,
+          f.imap_port_touched,
+          cfg.imap_host ? cfg.imap_port : 0,
+        )
+        const smtp = serverSelectionAfterDiscovery(
+          f.smtp_port,
+          f.smtp_security,
+          f.smtp_security_touched,
+          f.smtp_host_touched,
+          f.smtp_port_touched,
+          cfg.smtp_host ? cfg.smtp_port : 0,
+        )
+        return {
+          ...f,
+          imap_host: f.imap_host_touched || !cfg.imap_host ? f.imap_host : cfg.imap_host,
+          imap_port: imap.port,
+          imap_security: imap.security,
+          smtp_host: f.smtp_host_touched || !cfg.smtp_host ? f.smtp_host : cfg.smtp_host,
+          smtp_port: smtp.port,
+          smtp_security: smtp.security,
+          username: f.username_touched || !cfg.username ? f.username : cfg.username,
+        }
+      })
       setAppPasswordHint(cfg.app_password_hint ?? null)
       if (cfg.source === 'guess') {
         setAdvancedOpen(true)
@@ -246,9 +302,9 @@ export function useAccountDialog() {
         setDiscoverNote(`Settings found${cfg.provider_name ? ` for ${cfg.provider_name}` : ''}.`)
       }
     } catch {
-      setDiscoverNote('')
+      if (requestGeneration === discoveryGenerationRef.current) setDiscoverNote('')
     } finally {
-      setDiscovering(false)
+      if (requestGeneration === discoveryGenerationRef.current) setDiscovering(false)
     }
   }
 
@@ -290,7 +346,10 @@ export function useAccountDialog() {
           smtp_port: Number(form.smtp_port),
           username: form.username || form.email,
           password: form.password,
-          tls: true,
+          tls: form.imap_security === 'tls',
+          starttls: form.imap_security === 'starttls',
+          smtp_tls: form.smtp_security === 'tls',
+          smtp_starttls: form.smtp_security === 'starttls',
         })
         createdId = added.account?.id ?? ''
       }
