@@ -542,7 +542,15 @@ internal fun HtmlMessageBody(
         remember(html, fitWideContent, bodyFontSize) {
             """
             <!doctype html>
-            <html>
+            <!-- The self-sizing WebView needs its document boxes to follow the
+                 message. Newsletter resets commonly force html/body to
+                 height:100%, pinning them to the empty initial viewport. The
+                 override goes inline rather than into the head stylesheet:
+                 sender styles are parsed later, and between two equally
+                 specific !important rules the later one wins, while an inline
+                 declaration outranks every stylesheet rule of the same
+                 importance wherever the sender's <style> sits. -->
+            <html style="height: auto !important; min-height: 0 !important;">
             <head>
               <meta id="meron-viewport" name="viewport" content="width=device-width, initial-scale=1.0">
               <style>
@@ -627,7 +635,7 @@ internal fun HtmlMessageBody(
                 }
               </style>
             </head>
-            <body>$html
+            <body style="height: auto !important; min-height: 0 !important;">$html
               <script>
                 (function () {
                   // Feed/newsletter HTML often lists photos as a bare run of

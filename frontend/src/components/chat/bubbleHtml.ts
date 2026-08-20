@@ -156,6 +156,20 @@ export function prepareBubbleHtml(html: string, font: MessageFrameFont = DEFAULT
       }
     `
     doc.head.appendChild(style)
+
+    // A self-sizing frame needs its document boxes to follow the message.
+    // Newsletter resets commonly force both boxes to height:100%, which pins
+    // them to the placeholder viewport; with overflow hidden that also hides
+    // the real scroll extent and leaves only the preheader. The override can't
+    // live in our head stylesheet: a sender `<style>` inside `<body>` stays in
+    // the body when parsed, and between two equally specific `!important`
+    // rules the later one wins. Inline declarations outrank every stylesheet
+    // rule of the same importance, so they win wherever the reset sits — and
+    // unlike an appended `<style>` they leave `:last-child` and friends alone.
+    for (const el of [doc.documentElement, doc.body]) {
+      el.style.setProperty('height', 'auto', 'important')
+      el.style.setProperty('min-height', '0', 'important')
+    }
     return doc.documentElement.outerHTML
   } catch {
     return html
