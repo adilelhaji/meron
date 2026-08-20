@@ -257,6 +257,20 @@ class MobileResponseParsersTest {
     }
 
     @Test
+    fun readsTheMailboxOutOfAMailThreadId() {
+        assertEquals("INBOX", mailThreadIdFolder("acc#INBOX#42"))
+        assertEquals("[Gmail]/Sent Mail", mailThreadIdFolder("acc#[Gmail]/Sent Mail#t.a2V5"))
+        // The key is a UID or base64, so a "#" past the first belongs to the
+        // mailbox name — some servers really do have one.
+        assertEquals("#shared/Team", mailThreadIdFolder("acc##shared/Team#t.a2V5"))
+        // Ids that name no mailbox report none rather than guessing one.
+        assertEquals("", mailThreadIdFolder("rss-1#rss#feed-1"))
+        assertEquals("", mailThreadIdFolder("acc#INBOX"))
+        assertEquals("", mailThreadIdFolder("#INBOX#k1"))
+        assertEquals("", mailThreadIdFolder(""))
+    }
+
+    @Test
     fun parsesFolderListEnvelopeAndRssFolderShape() {
         val folders =
             parseFolderListResponse(
@@ -446,6 +460,17 @@ class MobileResponseParsersTest {
         assertEquals(2, page.messages.size)
         assertEquals("INBOX", page.messages[0].folderId)
         assertEquals("sent", page.messages[1].folderId)
+    }
+
+    @Test
+    fun keepsEqualImapUidsFromDifferentFolders() {
+        val page =
+            parseThreadReadPage(
+                """{"messages":[{"id":"acc#Sent#7","folder_id":"Sent","body":"outgoing"},{"id":"acc#INBOX#7","folder_id":"INBOX","body":"reply"}]}""",
+            )
+
+        assertEquals(2, page.messages.size)
+        assertEquals(listOf("outgoing", "reply"), page.messages.map { it.body })
     }
 
     @Test

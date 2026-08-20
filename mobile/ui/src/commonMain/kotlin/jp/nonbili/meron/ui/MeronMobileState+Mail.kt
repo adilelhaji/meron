@@ -205,6 +205,7 @@ import jp.nonbili.meron.shared.forwardedHtmlQuote
 import jp.nonbili.meron.shared.inlineImageToDraftAttachment
 import jp.nonbili.meron.shared.isOAuthCallbackUrl
 import jp.nonbili.meron.shared.isPotentialOAuthCallbackUrl
+import jp.nonbili.meron.shared.mailThreadIdFolder
 import jp.nonbili.meron.shared.messageEditAsNewDraft
 import jp.nonbili.meron.shared.messageForwardDraft
 import jp.nonbili.meron.shared.newDraftMessageId
@@ -1475,7 +1476,12 @@ internal fun MeronMobileState.toggleMessageRead(message: MessageBody) {
                     } else {
                         withManagedGoogleAuth(client, thread.accountId) {
                             client.markRead(
-                                MarkReadParams(threadId = backendThreadId, seen = seen, messageIds = listOf(message.id)),
+                                MarkReadParams(
+                                    threadId = backendThreadId,
+                                    seen = seen,
+                                    messageIds = listOf(message.id),
+                                    folderId = message.folderId,
+                                ),
                             )
                         }
                     }
@@ -1504,27 +1510,60 @@ internal fun MeronMobileState.markMessagesReadOnScroll(messageIds: List<String>)
     val backendThreadId = thread.backendThreadId()
     val ids = messageIds.distinct().filter { id -> messages.any { it.id == id && it.unread } }
     if (ids.isEmpty()) return
+    // Group by folder here, not inside the coroutine: a thread can span folders
+    // and `messages` may be replaced (thread switch, page reload, a rollback from
+    // a concurrent action) before the IO block runs, which would silently drop
+    // the mark instead of sending it.
+    val idsByFolder = messages.filter { it.id in ids }.groupBy { it.folderId }
+    // A card's unread count is mailbox-scoped, so only the messages in the card's
+    // own folder come off it — reading a Sent reply must not clear the INBOX
+    // card's remaining unread state. That folder comes from the thread id, since
+    // `thread.folder` holds the Kanban column id when the thread was opened from
+    // a column: a role for the unified columns, no mailbox at all for starred.
+    val cardFolder = mailThreadIdFolder(backendThreadId).ifBlank { thread.folder }
+    val cardFolders = foldersByAccount[thread.accountId].orEmpty()
+    val readInThreadFolder =
+        idsByFolder.entries.sumOf { (folder, folderMessages) ->
+            if (threadCardCoversFolder(cardFolder, cardFolders, folder)) folderMessages.size else 0
+        }
     messages = messages.map { if (it.id in ids) it.copy(unread = false) else it }
-    updateThreadEverywhere(thread) { threadAfterMessagesRead(it, ids.size) }
+    updateThreadEverywhere(thread) { threadAfterMessagesRead(it, readInThreadFolder) }
     scope.launch {
+        // One response per folder, each carrying only that folder's unread counts.
+        val responses = mutableListOf<String>()
         runCatching {
-            requireCoreOk(
-                withContext(ioDispatcher) {
-                    val client = MobileMailCommandClient(core)
-                    if (threadIdIsRss(backendThreadId)) {
-                        client.markRssRead(RssMarkReadParams(threadId = backendThreadId, seen = true, itemKeys = ids))
-                    } else {
-                        withManagedGoogleAuth(client, thread.accountId) {
-                            client.markRead(MarkReadParams(threadId = backendThreadId, seen = true, messageIds = ids))
+            withContext(ioDispatcher) {
+                val client = MobileMailCommandClient(core)
+                if (threadIdIsRss(backendThreadId)) {
+                    responses +=
+                        requireCoreOk(
+                            client.markRssRead(RssMarkReadParams(threadId = backendThreadId, seen = true, itemKeys = ids)),
+                        )
+                } else {
+                    withManagedGoogleAuth(client, thread.accountId) {
+                        idsByFolder.forEach { (folder, folderMessages) ->
+                            responses +=
+                                requireCoreOk(
+                                    client.markRead(
+                                        MarkReadParams(
+                                            threadId = backendThreadId,
+                                            seen = true,
+                                            messageIds = folderMessages.map { it.id },
+                                            folderId = folder,
+                                        ),
+                                    ),
+                                )
                         }
+                        ""
                     }
-                },
-            )
-        }.onSuccess { response ->
-            applyCoreFolderUnreadChanges(response)
+                }
+            }
         }.onFailure {
             Log.w("Mail", "scroll mark read failed", it)
         }
+        // Apply whatever came back, so a later folder failing does not discard the
+        // unread counts of the folders that succeeded.
+        responses.forEach(::applyCoreFolderUnreadChanges)
     }
 }
 
@@ -1574,7 +1613,12 @@ internal fun MeronMobileState.toggleMessageStarred(message: MessageBody) {
                 } else {
                     withManagedGoogleAuth(client, thread.accountId) {
                         client.markStarred(
-                            MarkStarredParams(threadId = backendThreadId, starred = starred, messageIds = listOf(message.id)),
+                            MarkStarredParams(
+                                threadId = backendThreadId,
+                                starred = starred,
+                                messageIds = listOf(message.id),
+                                folderId = message.folderId,
+                            ),
                         )
                     }
                 }

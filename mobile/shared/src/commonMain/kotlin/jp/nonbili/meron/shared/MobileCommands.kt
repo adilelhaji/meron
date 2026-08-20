@@ -871,12 +871,14 @@ data class MarkReadParams(
     val threadId: String,
     val seen: Boolean = true,
     val messageIds: List<String> = emptyList(),
+    val folderId: String? = null,
 ) {
     fun toJson(): String =
         jsonObject(
             "thread_id" to threadId.jsonString(),
             "seen" to seen.toString(),
             "message_ids" to messageIds.takeUnless { it.isEmpty() }?.jsonStringArray(),
+            "folder" to folderId?.jsonString(),
         )
 }
 
@@ -907,12 +909,14 @@ data class MarkStarredParams(
     val threadId: String,
     val starred: Boolean,
     val messageIds: List<String> = emptyList(),
+    val folderId: String? = null,
 ) {
     fun toJson(): String =
         jsonObject(
             "thread_id" to threadId.jsonString(),
             "starred" to starred.toString(),
             "message_ids" to messageIds.takeUnless { it.isEmpty() }?.jsonStringArray(),
+            "folder" to folderId?.jsonString(),
         )
 }
 

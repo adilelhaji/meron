@@ -475,17 +475,18 @@ func (a *App) markRead(payload map[string]any) (any, error) {
 		return a.sidecar.Call("rss.markRead", map[string]any{"thread_id": threadID, "seen": seen})
 	}
 	if ids, ok := parseImapThreadID(threadID); ok {
+		operationFolder := deleteFolder(payload, ids.Folder)
 		// Branch-compound thread keys pass through untouched; the sidecar
 		// splits them and marks only the subject branch (both on the server
 		// and in the local store).
-		params := map[string]any{"account": ids.Account, "folder": ids.Folder, "thread_key": ids.ThreadKey, "seen": seen}
+		params := map[string]any{"account": ids.Account, "folder": operationFolder, "thread_key": ids.ThreadKey, "seen": seen}
 		if uids := imapUIDsFromPayload(threadID, payload); len(uids) > 0 {
 			params["uids"] = uids
 			delete(params, "thread_key")
 			return a.sidecar.Call("messages.markRead", params)
 		}
 		if ids.ThreadKey == "" && ids.UID > 0 {
-			params = map[string]any{"account": ids.Account, "folder": ids.Folder, "uid": ids.UID, "seen": seen}
+			params = map[string]any{"account": ids.Account, "folder": operationFolder, "uid": ids.UID, "seen": seen}
 		}
 		return a.sidecar.Call("messages.markRead", params)
 	}
@@ -511,17 +512,18 @@ func (a *App) markStarred(payload map[string]any) (any, error) {
 		return a.sidecar.Call("rss.markStarred", map[string]any{"thread_id": threadID, "starred": starred})
 	}
 	if ids, ok := parseImapThreadID(threadID); ok {
+		operationFolder := deleteFolder(payload, ids.Folder)
 		// Branch-compound thread keys pass through untouched; the sidecar
 		// splits them and stars only the subject branch (both on the server
 		// and in the local store).
-		params := map[string]any{"account": ids.Account, "folder": ids.Folder, "thread_key": ids.ThreadKey, "starred": starred}
+		params := map[string]any{"account": ids.Account, "folder": operationFolder, "thread_key": ids.ThreadKey, "starred": starred}
 		if uids := imapUIDsFromPayload(threadID, payload); len(uids) > 0 {
 			params["uids"] = uids
 			delete(params, "thread_key")
 			return a.sidecar.Call("messages.markStarred", params)
 		}
 		if ids.ThreadKey == "" && ids.UID > 0 {
-			params = map[string]any{"account": ids.Account, "folder": ids.Folder, "uid": ids.UID, "starred": starred}
+			params = map[string]any{"account": ids.Account, "folder": operationFolder, "uid": ids.UID, "starred": starred}
 		}
 		return a.sidecar.Call("messages.markStarred", params)
 	}

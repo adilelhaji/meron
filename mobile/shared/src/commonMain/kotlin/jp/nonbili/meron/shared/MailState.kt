@@ -295,6 +295,25 @@ fun accountSummaryIsRss(account: AccountSummary): Boolean = account.engine == "r
 
 fun threadIdIsRss(threadId: String): Boolean = threadId.contains("#rss#")
 
+/**
+ * The mailbox a mail thread id names, or "" when [threadId] carries none (an
+ * RSS thread, or an id the core did not mint). Mail ids are
+ * `account#folder#key`, where the key is a UID or base64 and so never contains
+ * "#" while a mailbox name can, which makes the folder everything between the
+ * first and last separator — the same split the core's `parse_thread_id` does.
+ *
+ * The card's own folder has to come from here rather than from a `folder`
+ * field, which the UI overwrites with a Kanban column id when a thread is
+ * opened from a column.
+ */
+fun mailThreadIdFolder(threadId: String): String {
+    if (threadIdIsRss(threadId)) return ""
+    val first = threadId.indexOf('#')
+    val last = threadId.lastIndexOf('#')
+    if (first <= 0 || last <= first) return ""
+    return threadId.substring(first + 1, last)
+}
+
 // Display names carrying recipient-list specials must be quoted (RFC 5322
 // quoted-string), otherwise a "Doe, Jane <j@x>" entry splits into two bogus
 // recipients everywhere the list is comma-parsed.

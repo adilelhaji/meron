@@ -279,6 +279,21 @@ func TestMarkReadPassesBranchKeyThrough(t *testing.T) {
 	})
 }
 
+func TestMarkReadUsesExplicitMessageFolder(t *testing.T) {
+	threadID := formatImapThreadID("acc", "INBOX", "topic")
+	messageID := "acc#Sent#7"
+	app, writer := newMailHandlerTestApp(t, sidecarResponsePlan{Result: map[string]any{"ok": true}})
+
+	if _, err := app.markRead(map[string]any{
+		"thread_id": threadID, "folder": "Sent", "message_ids": []any{messageID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertCall(t, writer.calls[0], "messages.markRead", map[string]any{
+		"account": "acc", "folder": "Sent", "uids": []any{float64(7)}, "seen": true,
+	})
+}
+
 func TestMarkStarredPassesBranchKeyThrough(t *testing.T) {
 	threadID := formatImapThreadID("acc", "INBOX", "k1#Todo")
 	app, writer := newMailHandlerTestApp(t,
@@ -296,6 +311,21 @@ func TestMarkStarredPassesBranchKeyThrough(t *testing.T) {
 		"folder":     "INBOX",
 		"thread_key": "k1#Todo",
 		"starred":    true,
+	})
+}
+
+func TestMarkStarredUsesExplicitMessageFolder(t *testing.T) {
+	threadID := formatImapThreadID("acc", "INBOX", "topic")
+	messageID := "acc#Sent#7"
+	app, writer := newMailHandlerTestApp(t, sidecarResponsePlan{Result: map[string]any{"ok": true}})
+
+	if _, err := app.markStarred(map[string]any{
+		"thread_id": threadID, "folder": "Sent", "message_ids": []any{messageID},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	assertCall(t, writer.calls[0], "messages.markStarred", map[string]any{
+		"account": "acc", "folder": "Sent", "uids": []any{float64(7)}, "starred": true,
 	})
 }
 

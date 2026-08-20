@@ -94,6 +94,48 @@ private val UNIFIED_COLUMN_LABEL_KEYS =
 @Composable
 internal fun unifiedColumnLabel(folderId: String): String = tr(UNIFIED_COLUMN_LABEL_KEYS.getValue(if (isUnifiedStarredFolder(folderId)) STARRED_FOLDER else unifiedFolderRole(folderId)))
 
+/**
+ * Whether a message stored in [messageFolder] is counted by the thread card
+ * shown for [cardFolder].
+ *
+ * A card's unread count is mailbox-scoped, so a thread that spans folders (an
+ * INBOX message and its reply in Sent) must only take its own folder's reads
+ * off each card. Callers pass the mailbox read off the card's thread id; the
+ * role handling below is the fallback for ids that carry none, since a card
+ * opened from a Kanban column has its `folder` replaced by the column id — a
+ * role ("inbox", "sent") for a unified column, resolving to a different
+ * mailbox per account.
+ */
+internal fun threadCardCoversFolder(
+    cardFolder: String,
+    accountFolders: List<FolderSummary>,
+    messageFolder: String,
+): Boolean =
+    when {
+        // The core leaves the folder blank for RSS items and for messages it
+        // read out of the thread's own mailbox.
+        messageFolder.isBlank() -> {
+            true
+        }
+
+        kanbanFolderIdsEqual(cardFolder, messageFolder) -> {
+            true
+        }
+
+        // Only reached when the card's own mailbox could not be read off its
+        // thread id: a role resolves to this account's mailbox, and anything
+        // else (a starred column id, say) covers nothing — leaving the count
+        // untouched until the next sync beats clearing a card whose own
+        // message is still unread.
+        UNIFIED_FOLDER_ROLES.any { it.equals(cardFolder, ignoreCase = true) } -> {
+            unifiedColumnMatchesFolder(cardFolder, accountFolders, messageFolder)
+        }
+
+        else -> {
+            false
+        }
+    }
+
 internal fun unifiedColumnMatchesFolder(
     columnFolderId: String,
     accountFolders: List<FolderSummary>,

@@ -1686,7 +1686,9 @@ fn mobile_protocol_inherits_parent_thread_key_for_sent_reply_chain() {
                 ..Default::default()
             },
             MessageHeader {
-                uid: 8,
+                // Deliberately collides with the root's INBOX UID. IMAP UIDs
+                // are mailbox-local, so both messages must keep distinct ids.
+                uid: 7,
                 subject: "Re: test mailo2".to_string(),
                 from_name: "Me".to_string(),
                 from_addr: "me@example.com".to_string(),
@@ -1704,7 +1706,7 @@ fn mobile_protocol_inherits_parent_thread_key_for_sent_reply_chain() {
         &conn,
         "me@example.com",
         "Sent",
-        8,
+        7,
         &Message {
             subject: "Re: test mailo2".to_string(),
             from_name: "Me".to_string(),
@@ -1755,6 +1757,8 @@ fn mobile_protocol_inherits_parent_thread_key_for_sent_reply_chain() {
     );
     let messages = read["result"]["messages"].as_array().unwrap();
     assert_eq!(messages.len(), 3, "{read}");
+    assert_eq!(messages[0]["id"], "me@example.com#INBOX#7");
+    assert_eq!(messages[1]["id"], "me@example.com#Sent#7");
     assert_eq!(messages[0]["message_id"], "root@mail.gmail.com");
     assert_eq!(messages[1]["message_id"], "first-reply@mailo.com");
     assert_eq!(messages[2]["message_id"], "second-reply@mailo.com");
@@ -1816,7 +1820,7 @@ fn mobile_protocol_reads_cached_thread_messages_from_store() {
     );
     assert_eq!(value["id"], 66);
     let first = &value["result"]["messages"][0];
-    assert_eq!(first["id"], "me@example.com#INBOX#t.dG9waWM#9");
+    assert_eq!(first["id"], "me@example.com#INBOX#9");
     assert_eq!(first["account_id"], "me@example.com");
     assert_eq!(first["folder_id"], "INBOX");
     assert_eq!(first["thread_id"], "me@example.com#INBOX#t.dG9waWM");

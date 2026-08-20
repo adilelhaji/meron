@@ -47,11 +47,12 @@ func TestImapUIDsFromPayload(t *testing.T) {
 			"77",          // bare UID
 			tid,           // full thread id resolving to no UID -> dropped
 			"acc#INBOX#7", // standalone thread id with UID
+			"acc#Sent#9",  // cross-folder member: UID parsed, folder dropped here
 			"not-a-uid",   // garbage -> dropped
 		},
 	}
 	got := imapUIDsFromPayload(tid, payload)
-	want := []uint32{42, 77, 7}
+	want := []uint32{42, 77, 7, 9}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("imapUIDsFromPayload = %v, want %v", got, want)
 	}

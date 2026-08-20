@@ -1844,33 +1844,47 @@ export async function markMessagesRead(threadId: string, messageIds: string[]) {
   const previousKanbanThreads = captureKeys(kanban$.threads.get(), kanbanKeys)
   const previousKanbanUnreadCounts = captureKeys(kanban$.unreadCounts.get(), kanbanKeys)
 
-  mail$.messages.set(
-    previousMessages.map((message) => (unreadIds.has(message.id) ? { ...message, unread: false } : message)),
-  )
-  mail$.threads.set(
-    previousThreads.map((thread) => {
-      if (thread.thread_id !== threadId) return thread
-      const unreadCount = Math.max(0, (thread.unread_count ?? (thread.unread ? 1 : 0)) - unreadIds.size)
+  // Re-runs the optimistic update from the pre-change snapshots for an arbitrary
+  // subset of ids, so a partial failure can keep the folders that succeeded.
+  const applyOptimisticRead = (readIds: Set<string>) => {
+    // A thread can span folders (an INBOX message and its reply in Sent), and
+    // both a card's unread_count and a folder badge count only their own
+    // mailbox, so every decrement below is tallied per folder.
+    const fallbackFolder = localThread?.folder_id || localMessage?.folder_id
+    const readByFolder = new Map<string, number>()
+    for (const message of previousMessages) {
+      if (!readIds.has(message.id)) continue
+      const folderId = message.folder_id || fallbackFolder
+      if (!folderId) continue
+      readByFolder.set(folderId, (readByFolder.get(folderId) ?? 0) + 1)
+    }
+    // A card with no folder of its own falls back to the whole batch.
+    const readInFolder = (folderId: string | undefined) => (folderId ? (readByFolder.get(folderId) ?? 0) : readIds.size)
+    const cardAfterRead = (thread: Message) => {
+      const read = readInFolder(thread.folder_id)
+      if (read <= 0) return thread
+      const unreadCount = Math.max(0, (thread.unread_count ?? (thread.unread ? 1 : 0)) - read)
       return { ...thread, unread: unreadCount > 0, unread_count: unreadCount }
-    }),
-  )
-  updateKanbanThread(threadId, (thread) => {
-    const unreadCount = Math.max(0, (thread.unread_count ?? (thread.unread ? 1 : 0)) - unreadIds.size)
-    return { ...thread, unread: unreadCount > 0, unread_count: unreadCount }
-  })
-  const stillUnread =
-    mail$.threads.get().some((thread) => thread.thread_id === threadId && thread.unread) ||
-    mail$.messages.get().some((message) => message.thread_id === threadId && message.unread) ||
-    Object.values(kanban$.threads.get()).some((threads) =>
-      threads.some((thread) => thread.thread_id === threadId && thread.unread),
-    )
-  if (!stillUnread) mail$.readThreads[threadId].set(true)
-  decrementFolderUnread(unreadAccountId, localThread?.folder_id || localMessage?.folder_id, unreadIds.size)
+    }
 
-  const accountId = findLocalThread(threadId)?.account_id
-  try {
-    await invoke('mail.markRead', { thread_id: threadId, message_ids: Array.from(unreadIds) })
-  } catch (error) {
+    mail$.messages.set(
+      previousMessages.map((message) => (readIds.has(message.id) ? { ...message, unread: false } : message)),
+    )
+    mail$.threads.set(previousThreads.map((thread) => (thread.thread_id === threadId ? cardAfterRead(thread) : thread)))
+    updateKanbanThread(threadId, cardAfterRead)
+    const stillUnread =
+      mail$.threads.get().some((thread) => thread.thread_id === threadId && thread.unread) ||
+      mail$.messages.get().some((message) => message.thread_id === threadId && message.unread) ||
+      Object.values(kanban$.threads.get()).some((threads) =>
+        threads.some((thread) => thread.thread_id === threadId && thread.unread),
+      )
+    if (!stillUnread) mail$.readThreads[threadId].set(true)
+    // The account stays the thread's: `previousAccountFolders` snapshots only
+    // that one, so a rollback can still undo every decrement made here.
+    for (const [folderId, count] of readByFolder) decrementFolderUnread(unreadAccountId, folderId, count)
+  }
+  // Restores every snapshot taken above, undoing an applyOptimisticRead call.
+  const restoreSnapshots = () => {
     mail$.threads.set(previousThreads)
     mail$.messages.set(previousMessages)
     mail$.folders.set(previousFolders)
@@ -1881,7 +1895,33 @@ export async function markMessagesRead(threadId: string, messageIds: string[]) {
     } else {
       mail$.readThreads[threadId].set(previousReadThread)
     }
-    throw error
+  }
+
+  applyOptimisticRead(unreadIds)
+
+  const accountId = findLocalThread(threadId)?.account_id
+  try {
+    // A thread can span folders, and IMAP UIDs are mailbox-local, so each folder
+    // gets its own call.
+    const messagesByFolder = new Map<string, string[]>()
+    for (const message of previousMessages.filter((item) => unreadIds.has(item.id))) {
+      const ids = messagesByFolder.get(message.folder_id) ?? []
+      ids.push(message.id)
+      messagesByFolder.set(message.folder_id, ids)
+    }
+    const folders = Array.from(messagesByFolder)
+    const results = await Promise.allSettled(
+      folders.map(([folder, message_ids]) => invoke('mail.markRead', { thread_id: threadId, folder, message_ids })),
+    )
+    const failed = results.flatMap((result, index) => (result.status === 'rejected' ? [index] : []))
+    if (failed.length > 0) {
+      const failedIds = new Set(failed.flatMap((index) => folders[index][1]))
+      restoreSnapshots()
+      // Only the folders that failed go back to unread.
+      const readIds = new Set(Array.from(unreadIds).filter((id) => !failedIds.has(id)))
+      if (readIds.size > 0) applyOptimisticRead(readIds)
+      throw (results[failed[0]] as PromiseRejectedResult).reason
+    }
   } finally {
     refreshFoldersAfterFlagChange(accountId)
   }
@@ -1912,7 +1952,12 @@ export async function markMessageReadState(message: Message, seen: boolean) {
   })
 
   try {
-    await invoke('mail.markRead', { thread_id: message.thread_id, message_ids: [message.id], seen })
+    await invoke('mail.markRead', {
+      thread_id: message.thread_id,
+      folder: message.folder_id,
+      message_ids: [message.id],
+      seen,
+    })
   } catch (error) {
     mail$.threads.set(previousThreads)
     mail$.messages.set(previousMessages)
@@ -1957,6 +2002,7 @@ export async function starMessage(message: Message, starred: boolean) {
 
   await invoke('mail.markStarred', {
     thread_id: message.thread_id,
+    folder: message.folder_id,
     message_ids: [message.id],
     starred,
   })

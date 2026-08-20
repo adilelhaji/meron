@@ -1258,7 +1258,8 @@ pub(crate) fn mark_mobile_thread_read(data_dir: &str, params: &Value) -> Result<
     if is_rss_thread_id(&thread_id) {
         return mark_mobile_rss_thread_read(data_dir, params);
     }
-    let parsed = parse_thread_id(&thread_id).ok_or_else(|| "invalid thread_id".to_string())?;
+    let parsed = parse_thread_id_with_request_folder(&thread_id, params)
+        .ok_or_else(|| "invalid thread_id".to_string())?;
     let engine = crate::ffi::engine_for(data_dir)?;
     with_mobile_db(data_dir, |conn| {
         let uids = if !seen && !has_requested_mobile_message_ids(params) && parsed.uid.is_none() {
@@ -1511,7 +1512,8 @@ pub(crate) fn mark_mobile_thread_starred(data_dir: &str, params: &Value) -> Resu
     if is_rss_thread_id(&thread_id) {
         return mark_mobile_rss_thread_starred(data_dir, params);
     }
-    let parsed = parse_thread_id(&thread_id).ok_or_else(|| "invalid thread_id".to_string())?;
+    let parsed = parse_thread_id_with_request_folder(&thread_id, params)
+        .ok_or_else(|| "invalid thread_id".to_string())?;
     let engine = crate::ffi::engine_for(data_dir)?;
     with_mobile_db(data_dir, |conn| {
         let uids = requested_mobile_uids(&conn, &parsed, params)?;
@@ -1737,7 +1739,10 @@ pub(crate) fn parse_thread_id_with_request_folder(
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
-        parsed.folder = folder.to_string();
+        // Canonicalize like `format_thread_id` does: clients spell the folder
+        // however their UI keys it (the desktop sends "inbox"), and the store /
+        // IMAP SELECT paths downstream need the canonical name.
+        parsed.folder = canon_folder(folder);
     }
     Some(parsed)
 }

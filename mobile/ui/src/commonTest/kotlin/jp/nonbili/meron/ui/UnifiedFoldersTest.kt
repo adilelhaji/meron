@@ -42,4 +42,25 @@ class UnifiedFoldersTest {
         assertFalse(unifiedColumnMatchesFolder("sent", folders, "INBOX"))
         assertTrue(unifiedColumnMatchesFolder(STARRED_FOLDER, folders, "INBOX"))
     }
+
+    // A thread spanning INBOX and Sent must only take its own folder's reads
+    // off each card, however the card names its folder.
+    @Test
+    fun threadCardCountsOnlyItsOwnFolder() {
+        assertTrue(threadCardCoversFolder("INBOX", folders, "INBOX"))
+        assertFalse(threadCardCoversFolder("INBOX", folders, "Postausgang"))
+        assertFalse(threadCardCoversFolder("Postausgang", folders, "INBOX"))
+        // Opened from a unified Kanban column the card carries the column's
+        // role, which resolves to this account's own mailbox.
+        assertTrue(threadCardCoversFolder("sent", folders, "Postausgang"))
+        assertFalse(threadCardCoversFolder("sent", folders, "INBOX"))
+        assertTrue(threadCardCoversFolder("inbox", folders, "INBOX"))
+        // An unresolvable role must not fall back to the inbox and count it.
+        assertFalse(threadCardCoversFolder("archive", folders, "INBOX"))
+        // A starred column id is no mailbox: it must not cover other folders,
+        // or reading a Sent reply would clear a starred INBOX card.
+        assertFalse(threadCardCoversFolder(STARRED_FOLDER, folders, "Postausgang"))
+        // A blank message folder is the thread's own.
+        assertTrue(threadCardCoversFolder("INBOX", folders, ""))
+    }
 }

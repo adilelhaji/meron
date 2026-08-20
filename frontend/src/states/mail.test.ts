@@ -415,8 +415,35 @@ describe('thread read state', () => {
     expect(mail$.messages.get().map((message) => message.unread)).toEqual([false, true])
     expect(mail$.folders.get()[0].unread).toBe(1)
     expect(calls.filter((call) => call.command === 'mail.markRead').map((call) => call.payload)).toEqual([
-      { thread_id: 'acc:inbox:thread:1', message_ids: ['acc:inbox:thread:1#101'] },
+      { thread_id: 'acc:inbox:thread:1', folder: 'inbox', message_ids: ['acc:inbox:thread:1#101'] },
     ])
+  })
+
+  it('marks a cross-folder thread read per folder without touching the other mailbox', async () => {
+    mail$.folders.set([
+      { id: 'inbox', account_id: 'acc', name: 'Inbox', role: 'inbox', unread: 2 },
+      { id: 'sent', account_id: 'acc', name: 'Sent', role: 'sent', unread: 1 },
+    ])
+    mail$.threads.set([thread({ unread: true, unread_count: 2 })])
+    mail$.messages.set([
+      thread({ id: 'acc:inbox:thread:1#101', unread: true }),
+      thread({ id: 'acc:inbox:thread:1#102', unread: true }),
+      thread({ id: 'acc:sent:thread:1#7', folder_id: 'sent', unread: true }),
+    ])
+
+    await markMessagesRead('acc:inbox:thread:1', ['acc:inbox:thread:1#101', 'acc:sent:thread:1#7'])
+
+    // Each folder gets its own call, since IMAP UIDs are mailbox-local.
+    expect(calls.filter((call) => call.command === 'mail.markRead').map((call) => call.payload)).toEqual([
+      { thread_id: 'acc:inbox:thread:1', folder: 'inbox', message_ids: ['acc:inbox:thread:1#101'] },
+      { thread_id: 'acc:inbox:thread:1', folder: 'sent', message_ids: ['acc:sent:thread:1#7'] },
+    ])
+    // Only the Inbox message came off the Inbox card and badge; the Sent read
+    // lands on the Sent badge.
+    expect(mail$.threads.get()[0].unread_count).toBe(1)
+    expect(mail$.threads.get()[0].unread).toBe(true)
+    expect(mail$.folders.get()[0].unread).toBe(1)
+    expect(mail$.folders.get()[1].unread).toBe(0)
   })
 
   it('updates kanban card and column unread state immediately', async () => {

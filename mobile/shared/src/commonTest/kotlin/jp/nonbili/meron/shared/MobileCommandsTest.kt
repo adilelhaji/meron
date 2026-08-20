@@ -1199,12 +1199,25 @@ class MobileCommandsTest {
             MarkReadParams(threadId = "t1", seen = false, messageIds = listOf("m1")).toJson(),
         )
         assertEquals(
+            """{"thread_id":"t1","seen":true,"message_ids":["acc#Sent#7"],"folder":"Sent"}""",
+            MarkReadParams(threadId = "t1", messageIds = listOf("acc#Sent#7"), folderId = "Sent").toJson(),
+        )
+        assertEquals(
             """{"account_id":"acc1","folder_id":"INBOX"}""",
             MarkAllReadParams(accountId = "acc1", folderId = "INBOX").toJson(),
         )
         assertEquals(
             """{"thread_id":"t1","starred":true,"message_ids":["m1"]}""",
             MarkStarredParams(threadId = "t1", starred = true, messageIds = listOf("m1")).toJson(),
+        )
+        assertEquals(
+            """{"thread_id":"t1","starred":true,"message_ids":["acc#Sent#7"],"folder":"Sent"}""",
+            MarkStarredParams(
+                threadId = "t1",
+                starred = true,
+                messageIds = listOf("acc#Sent#7"),
+                folderId = "Sent",
+            ).toJson(),
         )
         assertEquals(
             """{"id":20,"method":"mail.archive","params":{"thread_id":"t1"}}""",

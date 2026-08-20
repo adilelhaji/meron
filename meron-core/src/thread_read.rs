@@ -10,10 +10,11 @@ use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde_json::{Value, json};
 
 use crate::engine::{Engine, attach_html};
-use crate::{imap, parse, store};
+use crate::{imap, mail_model, parse, store};
 
 /// Called after a background body fetch stored at least one new message, so
 /// the platform can tell its UI to re-read the open thread.
@@ -33,7 +34,11 @@ pub struct ThreadReadArgs<'a> {
     /// Present for UI reads (page size); absent for full-scan reads (markRead,
     /// compose threading), which fetch every missing body synchronously.
     pub limit: Option<u32>,
-    /// Opaque `uid:N` cursor from a previous page's `next_cursor`.
+    /// Opaque cursor from a previous page's `next_cursor`: `message:<base64
+    /// folder>:<uid>`, since UIDs are only unique within one mailbox. Legacy
+    /// `uid:N` cursors are still accepted, but match on UID alone and so can
+    /// resolve to the wrong message in a cross-folder thread — never hand-build
+    /// one.
     pub before_cursor: Option<&'a str>,
     /// Attachment/media directory (env-derived on desktop, `data_dir` on mobile).
     pub media_root: PathBuf,
@@ -114,15 +119,14 @@ pub async fn read_thread_page(
 
     // `before_cursor` / `limit` are honored as a date-ordered slice so the
     // cross-folder query stays consistent with the old per-folder pagination
-    // contract. The cursor format ("uid:N") indexes into the cross-folder
-    // result list rather than a per-folder UID space.
-    let before_uid = before_cursor
-        .and_then(|s| s.strip_prefix("uid:"))
-        .and_then(|s| s.parse::<u32>().ok());
+    // contract. New cursors name both the source folder and UID because UIDs
+    // are only unique within one mailbox. Legacy uid-only cursors remain
+    // readable for pagination requests minted by an older app process.
+    let before_location = before_cursor.and_then(parse_thread_cursor);
     let (headers, next_cursor) = if let Some(limit) = limit {
         let mut headers = headers;
-        if let Some(cursor) = before_uid
-            && let Some(idx) = headers.iter().position(|h| h.uid == cursor)
+        if let Some(cursor) = before_location
+            && let Some(idx) = thread_cursor_position(&headers, &cursor)
         {
             headers.truncate(idx);
         }
@@ -130,7 +134,7 @@ pub async fn read_thread_page(
         let start = total.saturating_sub(limit as usize);
         let page = headers[start..].to_vec();
         let next_cursor = if start > 0 {
-            page.first().map(|h| format!("uid:{}", h.uid))
+            page.first().map(thread_cursor)
         } else {
             None
         };
@@ -291,6 +295,34 @@ pub async fn read_thread_page(
     Ok(out)
 }
 
+fn thread_cursor(header: &imap::MessageHeader) -> String {
+    format!(
+        "message:{}:{}",
+        URL_SAFE_NO_PAD.encode(header.folder.as_bytes()),
+        header.uid
+    )
+}
+
+fn parse_thread_cursor(cursor: &str) -> Option<(Option<String>, u32)> {
+    if let Some(rest) = cursor.strip_prefix("message:") {
+        let (folder, uid) = rest.split_once(':')?;
+        let folder = String::from_utf8(URL_SAFE_NO_PAD.decode(folder).ok()?).ok()?;
+        return Some((Some(folder), uid.parse().ok()?));
+    }
+    let uid = cursor.strip_prefix("uid:")?.parse().ok()?;
+    Some((None, uid))
+}
+
+fn thread_cursor_position(
+    headers: &[imap::MessageHeader],
+    cursor: &(Option<String>, u32),
+) -> Option<usize> {
+    let (folder, uid) = cursor;
+    headers.iter().position(|header| {
+        header.uid == *uid && folder.as_deref().is_none_or(|f| header.folder == f)
+    })
+}
+
 /// Fetch the bodies for `indices` from IMAP (grouped by folder so each mailbox
 /// is SELECTed once), cache them, and mark their slots complete.
 async fn fetch_into_slots(
@@ -410,7 +442,13 @@ pub fn thread_message_json(
     cached: Option<&parse::Message>,
     mine: &HashSet<String>,
 ) -> Value {
-    let id = format!("{thread_id}#{}", header.uid);
+    // A conversation spans folders, but IMAP UIDs do not: INBOX/42 and
+    // Sent/42 are two different messages. Key the message by its own mailbox
+    // location rather than by the conversation's nominal folder so clients
+    // do not collapse equal numeric UIDs from different folders. The ordinary
+    // uid-style thread-id format also keeps the id understood by the existing
+    // per-message action parsers.
+    let id = mail_model::format_thread_id(account_id, folder, &format!("uid:{}", header.uid));
     let from_addr = cached
         .map(|message| message.from_addr.as_str())
         .unwrap_or(header.from_addr.as_str());
@@ -452,7 +490,7 @@ pub fn thread_message_json(
 
 #[cfg(test)]
 mod tests {
-    use super::thread_message_json;
+    use super::{parse_thread_cursor, thread_cursor, thread_cursor_position, thread_message_json};
     use crate::imap::MessageHeader;
     use std::collections::HashSet;
 
@@ -476,7 +514,7 @@ mod tests {
             None,
             &HashSet::new(),
         );
-        assert_eq!(value["id"], "tid#10");
+        assert_eq!(value["id"], "acc#INBOX#10");
         assert_eq!(value["thread_id"], "tid");
         assert_eq!(value["folder_id"], "INBOX");
         assert_eq!(value["unread"], true);
@@ -496,5 +534,63 @@ mod tests {
         assert_eq!(value["body_missing"], true);
         assert_eq!(value["body"], "");
         assert_eq!(value["unread"], false);
+    }
+
+    #[test]
+    fn equal_uids_in_different_folders_have_distinct_ids() {
+        let inbox = thread_message_json(
+            "acc",
+            "tid",
+            "INBOX",
+            &header(10, false),
+            None,
+            &HashSet::new(),
+        );
+        let sent = thread_message_json(
+            "acc",
+            "tid",
+            "Sent",
+            &header(10, true),
+            None,
+            &HashSet::new(),
+        );
+
+        assert_eq!(inbox["id"], "acc#INBOX#10");
+        assert_eq!(sent["id"], "acc#Sent#10");
+        assert_ne!(inbox["id"], sent["id"]);
+        assert_eq!(inbox["thread_id"], sent["thread_id"]);
+    }
+
+    #[test]
+    fn cursor_distinguishes_equal_uids_in_different_folders() {
+        let inbox = MessageHeader {
+            uid: 7,
+            folder: "INBOX".into(),
+            ..Default::default()
+        };
+        let sent = MessageHeader {
+            uid: 7,
+            folder: "Sent".into(),
+            ..Default::default()
+        };
+
+        assert_ne!(thread_cursor(&inbox), thread_cursor(&sent));
+        assert_eq!(
+            parse_thread_cursor(&thread_cursor(&sent)),
+            Some((Some("Sent".into()), 7))
+        );
+        assert_eq!(parse_thread_cursor("uid:7"), Some((None, 7)));
+
+        let headers = vec![
+            inbox,
+            MessageHeader {
+                uid: 9,
+                folder: "Archive".into(),
+                ..Default::default()
+            },
+            sent,
+        ];
+        let cursor = parse_thread_cursor(&thread_cursor(&headers[2])).unwrap();
+        assert_eq!(thread_cursor_position(&headers, &cursor), Some(2));
     }
 }
