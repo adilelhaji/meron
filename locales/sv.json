@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "Inga meddelanden matchar den aktuella sökningen och filtret.",
   "mobile.mail.notificationsBannerEnable": "Aktivera",
   "mobile.mail.notificationsBannerText": "Få aviseringar när ny e-post kommer.",
-  "mobile.mail.searchCachedMail": "Sök i cachad e-post",
+  "mobile.mail.searchMail": "Sök i e-post",
   "mobile.mail.syncMailbox": "Synkronisera brevlåda",
   "mobile.tabs.compose": "Komponera",
   "mobile.tabs.kanban": "Kanban",

@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "Κανένα μήνυμα δεν αντιστοιχεί στην τρέχουσα αναζήτηση και φίλτρο.",
   "mobile.mail.notificationsBannerEnable": "Ενεργοποίηση",
   "mobile.mail.notificationsBannerText": "Λάβετε ειδοποίηση όταν φτάνει νέα αλληλογραφία.",
-  "mobile.mail.searchCachedMail": "Αναζήτηση αποθηκευμένης αλληλογραφίας",
+  "mobile.mail.searchMail": "Αναζήτηση αλληλογραφίας",
   "mobile.mail.syncMailbox": "Συγχρονισμός γραμματοκιβωτίου",
   "mobile.tabs.compose": "Συνθέτω",
   "mobile.tabs.kanban": "Kanban",

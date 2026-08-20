@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "Không có tin nhắn nào phù hợp với tìm kiếm và bộ lọc hiện tại.",
   "mobile.mail.notificationsBannerEnable": "Bật",
   "mobile.mail.notificationsBannerText": "Nhận thông báo khi có thư mới.",
-  "mobile.mail.searchCachedMail": "Tìm kiếm thư được lưu trong bộ nhớ đệm",
+  "mobile.mail.searchMail": "Tìm kiếm thư",
   "mobile.mail.syncMailbox": "Đồng bộ hộp thư",
   "mobile.tabs.compose": "Soạn",
   "mobile.tabs.kanban": "Kanban",

@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "現在の検索とフィルターに一致するメッセージはありません。",
   "mobile.mail.notificationsBannerEnable": "有効にする",
   "mobile.mail.notificationsBannerText": "新着メールが届いたら通知を受け取ります。",
-  "mobile.mail.searchCachedMail": "キャッシュされたメールを検索する",
+  "mobile.mail.searchMail": "メールを検索",
   "mobile.mail.syncMailbox": "メールボックスを同期する",
   "mobile.tabs.compose": "作成",
   "mobile.tabs.kanban": "カンバン",

@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "Nenhuma mensagem corresponde à pesquisa e ao filtro atuais.",
   "mobile.mail.notificationsBannerEnable": "Habilitar",
   "mobile.mail.notificationsBannerText": "Receba notificações quando chegar um novo e-mail.",
-  "mobile.mail.searchCachedMail": "Pesquisar e-mails em cache",
+  "mobile.mail.searchMail": "Pesquisar e-mails",
   "mobile.mail.syncMailbox": "Sincronizar caixa de correio",
   "mobile.tabs.compose": "Compor",
   "mobile.tabs.kanban": "Kanban",

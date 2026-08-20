@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "현재 검색 및 필터와 일치하는 메시지가 없습니다.",
   "mobile.mail.notificationsBannerEnable": "활성화",
   "mobile.mail.notificationsBannerText": "새 메일이 도착하면 알림을 받습니다.",
-  "mobile.mail.searchCachedMail": "캐시된 메일 검색",
+  "mobile.mail.searchMail": "메일 검색",
   "mobile.mail.syncMailbox": "사서함 동기화",
   "mobile.tabs.compose": "구성하다",
   "mobile.tabs.kanban": "칸반",

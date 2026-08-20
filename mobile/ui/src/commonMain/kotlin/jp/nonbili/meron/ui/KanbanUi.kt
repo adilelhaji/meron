@@ -259,7 +259,7 @@ internal fun MailSearchFilterBar(
             onValueChange = onSearchChange,
             modifier = Modifier.fillMaxWidth().height(44.dp),
             textStyle = MaterialTheme.typography.bodyMedium,
-            placeholder = { Text(tr("mobile.mail.searchCachedMail"), style = MaterialTheme.typography.bodyMedium) },
+            placeholder = { Text(tr("mobile.mail.searchMail"), style = MaterialTheme.typography.bodyMedium) },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, modifier = Modifier.size(19.dp)) },
             trailingIcon = {
                 if (search.isNotBlank()) {

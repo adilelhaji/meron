@@ -517,7 +517,7 @@ internal fun MailHeaderSearchField(
     onSearchChange: (String) -> Unit,
     onSearchSubmit: () -> Unit,
 ) {
-    val effectivePlaceholder = placeholder ?: tr("mobile.mail.searchCachedMail")
+    val effectivePlaceholder = placeholder ?: tr("mobile.mail.searchMail")
     Surface(
         modifier = Modifier.fillMaxWidth().height(44.dp),
         shape = RoundedCornerShape(8.dp),

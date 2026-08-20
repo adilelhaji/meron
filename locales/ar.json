@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "لا توجد رسائل تطابق البحث والتصفية الحالية.",
   "mobile.mail.notificationsBannerEnable": "تمكين",
   "mobile.mail.notificationsBannerText": "احصل على إشعار عند وصول بريد جديد.",
-  "mobile.mail.searchCachedMail": "البحث في البريد المخزن مؤقتًا",
+  "mobile.mail.searchMail": "البحث في البريد",
   "mobile.mail.syncMailbox": "مزامنة صندوق البريد",
   "mobile.tabs.compose": "يؤلف",
   "mobile.tabs.kanban": "كانبان",

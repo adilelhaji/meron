@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "沒有訊息與當前搜尋和過濾器相符。",
   "mobile.mail.notificationsBannerEnable": "啟用",
   "mobile.mail.notificationsBannerText": "新郵件送達時接收通知。",
-  "mobile.mail.searchCachedMail": "搜尋快取的郵件",
+  "mobile.mail.searchMail": "搜尋郵件",
   "mobile.mail.syncMailbox": "同步信箱",
   "mobile.tabs.compose": "撰寫",
   "mobile.tabs.kanban": "看板",

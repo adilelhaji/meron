@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.ViewKanban
 import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +54,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -692,7 +694,6 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.Filled.Visibility,
                 title = tr("common.theme"),
-                subtitle = tr("settings.generalThemeHint"),
                 onClick = onOpenTheme,
                 trailing = {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -713,7 +714,7 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.AutoMirrored.Filled.Chat,
                 title = tr("settings.appearance.conversationLayout"),
-                subtitle = tr("settings.appearance.conversationLayoutHint"),
+                hint = tr("settings.appearance.conversationLayoutHint"),
                 onClick = onToggleConversationLayout,
                 trailing = { Text(conversationLayout.label(), color = MaterialTheme.colorScheme.primary) },
             )
@@ -722,7 +723,6 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.Filled.Settings,
                 title = tr("settings.language.label"),
-                subtitle = tr("settings.language.hint"),
                 onClick = onOpenLanguage,
                 trailing = {
                     Text(
@@ -740,7 +740,7 @@ internal fun SettingsGeneralPage(
             SettingsToggleRow(
                 icon = Icons.Filled.Visibility,
                 title = tr("settings.appearance.showSenderImages"),
-                subtitle = tr("settings.appearance.showSenderImagesHint"),
+                hint = tr("settings.appearance.showSenderImagesHint"),
                 checked = showSenderImages,
                 onToggle = onToggleSenderImages,
             )
@@ -749,7 +749,6 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.Filled.FormatSize,
                 title = tr("settings.appearance.messageTextSize"),
-                subtitle = tr("settings.appearance.messageTextSizeSystemHint"),
                 onClick = onOpenMessageTextSize,
                 trailing = {
                     Text(
@@ -763,7 +762,7 @@ internal fun SettingsGeneralPage(
             SettingsToggleRow(
                 icon = Icons.Filled.Inbox,
                 title = tr("settings.appearance.showUnreadAccountBadge"),
-                subtitle = tr("settings.appearance.showUnreadAccountBadgeHint"),
+                hint = tr("settings.appearance.showUnreadAccountBadgeHint"),
                 checked = showUnreadBadges,
                 onToggle = onToggleUnreadBadges,
             )
@@ -774,7 +773,6 @@ internal fun SettingsGeneralPage(
             SettingsToggleRow(
                 icon = Icons.Filled.Inbox,
                 title = tr("settings.sideNav.showUnifiedInbox"),
-                subtitle = tr("settings.navigationDrawerHint"),
                 checked = showUnifiedInboxNav,
                 onToggle = onToggleUnifiedInboxNav,
             )
@@ -785,7 +783,6 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.Filled.ViewKanban,
                 title = tr("settings.kanban.columnWidth"),
-                subtitle = tr("settings.kanban.columnWidthHint"),
                 onClick = onCycleKanbanColumnWidth,
                 trailing = { Text(trf("settings.kanban.columnWidthValue", kanbanColumnWidth), color = MaterialTheme.colorScheme.primary) },
             )
@@ -796,7 +793,6 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.AutoMirrored.Filled.Send,
                 title = tr("settings.composer.sendMessageWith"),
-                subtitle = tr("settings.composer.sendShortcutHint"),
                 onClick = onToggleSendShortcut,
                 trailing = { Text(sendShortcutMode.label(), color = MaterialTheme.colorScheme.primary) },
             )
@@ -824,7 +820,7 @@ internal fun SettingsGeneralPage(
             SettingsToggleRow(
                 icon = Icons.Filled.Refresh,
                 title = tr("settings.backgroundSync"),
-                subtitle = tr("settings.backgroundSyncHint"),
+                hint = tr("settings.backgroundSyncHint"),
                 checked = backgroundSyncEnabled,
                 onToggle = onToggleBackgroundSync,
             )
@@ -835,7 +831,7 @@ internal fun SettingsGeneralPage(
                 SettingsToggleRow(
                     icon = Icons.Filled.MarkEmailUnread,
                     title = tr("settings.liveMailPush"),
-                    subtitle = tr("settings.liveMailPushHint"),
+                    hint = tr("settings.liveMailPushHint"),
                     checked = liveMailPushEnabled,
                     onToggle = onToggleLiveMailPush,
                 )
@@ -844,7 +840,6 @@ internal fun SettingsGeneralPage(
                 SettingsRow(
                     icon = Icons.Filled.Refresh,
                     title = tr("settings.refreshBackground"),
-                    subtitle = tr("settings.refreshBackgroundHint"),
                     onClick = onRefreshBackground,
                 )
             }
@@ -855,7 +850,7 @@ internal fun SettingsGeneralPage(
                 SettingsRow(
                     icon = Icons.Filled.Refresh,
                     title = tr("settings.pollInterval"),
-                    subtitle = tr("settings.pollIntervalHint"),
+                    hint = tr("settings.pollIntervalHint"),
                     onClick = onCyclePollInterval,
                     trailing = {
                         Text(
@@ -875,7 +870,6 @@ internal fun SettingsGeneralPage(
                 SettingsRow(
                     icon = Icons.Filled.MarkEmailUnread,
                     title = tr("mobile.accounts.enableNotifications"),
-                    subtitle = tr("settings.notificationsEnableHint"),
                     onClick = onEnableNotifications,
                 )
             }
@@ -884,7 +878,7 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.Filled.BugReport,
                 title = tr("settings.viewSyncLog"),
-                subtitle = tr("settings.syncDiagnosticLogHint"),
+                hint = tr("settings.syncDiagnosticLogHint"),
                 onClick = onOpenSyncLog,
             )
         }
@@ -894,7 +888,7 @@ internal fun SettingsGeneralPage(
             SettingsRow(
                 icon = Icons.Filled.Save,
                 title = tr("settings.backup.exportTitle"),
-                subtitle = tr("settings.backup.fileHint"),
+                hint = tr("settings.backup.fileHint"),
                 onClick = { if (!backupBusy) onExportBackup() },
             )
         }
@@ -1000,7 +994,8 @@ internal fun SettingsAccountRow(
 internal fun SettingsRow(
     icon: ImageVector,
     title: String,
-    subtitle: String?,
+    subtitle: String? = null,
+    hint: String? = null,
     onClick: () -> Unit,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
@@ -1008,7 +1003,7 @@ internal fun SettingsRow(
 ) {
     val accent = if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
     ListItem(
-        headlineContent = { Text(title, color = accent, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { SettingsHeadline(title = title, hint = hint, color = accent) },
         supportingContent = subtitle?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
         leadingContent =
             leading ?: {
@@ -1059,12 +1054,13 @@ internal fun SettingsTextRow(
 internal fun SettingsToggleRow(
     icon: ImageVector,
     title: String,
-    subtitle: String?,
+    subtitle: String? = null,
+    hint: String? = null,
     checked: Boolean,
     onToggle: () -> Unit,
 ) {
     ListItem(
-        headlineContent = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+        headlineContent = { SettingsHeadline(title = title, hint = hint) },
         supportingContent = subtitle?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
         leadingContent = { Icon(icon, contentDescription = null) },
         trailingContent = {
@@ -1076,6 +1072,44 @@ internal fun SettingsToggleRow(
         },
         modifier = Modifier.clickable(onClick = onToggle),
     )
+}
+
+@Composable
+private fun SettingsHeadline(
+    title: String,
+    hint: String?,
+    color: Color = MaterialTheme.colorScheme.onSurface,
+) {
+    var showHint by remember { mutableStateOf(false) }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        if (hint != null) {
+            IconButton(onClick = { showHint = true }, modifier = Modifier.size(32.dp)) {
+                Icon(
+                    Icons.Filled.Info,
+                    contentDescription = hint,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+    if (showHint && hint != null) {
+        AlertDialog(
+            onDismissRequest = { showHint = false },
+            title = { Text(title) },
+            text = { Text(hint) },
+            confirmButton = {
+                TextButton(onClick = { showHint = false }) { Text(tr("common.close")) }
+            },
+        )
+    }
 }
 
 @Composable

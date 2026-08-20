@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "Mevcut arama ve filtreyle eşleşen mesaj yok.",
   "mobile.mail.notificationsBannerEnable": "Etkinleştir",
   "mobile.mail.notificationsBannerText": "Yeni posta geldiğinde bildirim alın.",
-  "mobile.mail.searchCachedMail": "Önbelleğe alınmış postada ara",
+  "mobile.mail.searchMail": "Postada ara",
   "mobile.mail.syncMailbox": "Posta kutusunu senkronize et",
   "mobile.tabs.compose": "Oluştur",
   "mobile.tabs.kanban": "Kanban",

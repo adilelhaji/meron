@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "Praegusele otsingule ja filtrile ei vasta ükski sõnum.",
   "mobile.mail.notificationsBannerEnable": "Luba",
   "mobile.mail.notificationsBannerText": "Saa märguanne, kui saabub uus kiri.",
-  "mobile.mail.searchCachedMail": "Otsige vahemällu salvestatud kirju",
+  "mobile.mail.searchMail": "Otsi kirju",
   "mobile.mail.syncMailbox": "Sünkrooni postkast",
   "mobile.tabs.compose": "Koosta",
   "mobile.tabs.kanban": "Kanban",

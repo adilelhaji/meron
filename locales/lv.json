@@ -485,7 +485,7 @@
   "mobile.mail.noSearchMatches": "Neviens ziņojums neatbilst pašreizējai meklēšanai un filtram.",
   "mobile.mail.notificationsBannerEnable": "Iespējot",
   "mobile.mail.notificationsBannerText": "Saņemiet paziņojumu, kad pienāk jauns pasts.",
-  "mobile.mail.searchCachedMail": "Meklēt kešatmiņā saglabātos pastu",
+  "mobile.mail.searchMail": "Meklēt pastā",
   "mobile.mail.syncMailbox": "Sinhronizēt pastkasti",
   "mobile.tabs.compose": "Rakstīt",
   "mobile.tabs.kanban": "Kanban",
