@@ -1,0 +1,6 @@
+- Show message count on thread list rows
+- Support mail server security choices in account settings
+- Add scrollbars to lists, dialogs, and message bubbles
+- Show full thread subject and give HTML message bubbles more room
+- Fall back to sender address when display name is empty
+- Fix stale draft marker remaining after sending
