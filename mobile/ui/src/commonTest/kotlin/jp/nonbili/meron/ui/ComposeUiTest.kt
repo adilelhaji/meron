@@ -8,7 +8,10 @@ import jp.nonbili.meron.shared.CoreEventStream
 import jp.nonbili.meron.shared.DraftAttachment
 import jp.nonbili.meron.shared.MeronCore
 import jp.nonbili.meron.shared.MessageBody
+import jp.nonbili.meron.shared.SignatureMark
+import jp.nonbili.meron.shared.SignaturePlacement
 import jp.nonbili.meron.shared.ThreadSummary
+import jp.nonbili.meron.shared.bodyWithSignature
 import kotlinx.coroutines.CoroutineScope
 import kotlin.coroutines.EmptyCoroutineContext
 import kotlin.test.Test
@@ -155,6 +158,30 @@ class ComposeUiTest {
     }
 
     @Test
+    fun freshComposeClearsAReplyLeftByThePreviouslyOpenedThread() {
+        val state = testState()
+        state.appSignatureLoaded = true
+        state.to = "sender@example.com"
+        state.cc = "copy@example.com"
+        state.subject = "Re: Subject"
+        state.body = "Reply body"
+        state.composeInReplyTo = "message@example.com"
+        state.composeReferences = "root@example.com message@example.com"
+        state.composeDraftId = "reply-draft@example.com"
+        state.composeDraftSaved = true
+
+        state.openCompose()
+
+        assertEquals("", state.to)
+        assertEquals("", state.cc)
+        assertEquals("", state.subject)
+        assertEquals("", state.composeInReplyTo)
+        assertEquals("", state.composeReferences)
+        assertEquals("", state.composeDraftId)
+        assertFalse(state.composeDraftSaved)
+    }
+
+    @Test
     fun threadsWithDraftFlagMarksVisibleThreadListRow() {
         val threads =
             listOf(
@@ -267,8 +294,77 @@ class ComposeUiTest {
     }
 
     @Test
+    fun composeIsBlankIgnoresTheSeededSignature() {
+        val state = testState()
+        state.composeSignature = SignatureMark("-- \nPing", SignaturePlacement.BelowText)
+        state.body = bodyWithSignature("", "-- \nPing")
+
+        assertTrue(state.composeIsBlank())
+    }
+
+    @Test
+    fun composeIsBlankSeesTextWrittenAboveTheSignature() {
+        val state = testState()
+        state.composeSignature = SignatureMark("-- \nPing", SignaturePlacement.BelowText)
+        state.body = bodyWithSignature("Hello", "-- \nPing")
+
+        assertFalse(state.composeIsBlank())
+    }
+
+    @Test
+    fun composeIsBlankIgnoresAReplysPrefilledHeaders() {
+        val state = testState()
+        state.composeSignature = SignatureMark("-- \nPing", SignaturePlacement.BelowText)
+        state.body = bodyWithSignature("", "-- \nPing")
+        state.to = "noreply@example.com"
+        state.subject = "Re: Hello"
+        state.rememberComposeSeed()
+
+        assertTrue(state.composeIsBlank())
+    }
+
+    @Test
+    fun composeIsBlankIgnoresTheChipFieldsTrailingSeparator() {
+        val state = testState()
+        state.to = "Ray Dalio <ray@example.com>"
+        state.subject = "Re: Hello"
+        state.rememberComposeSeed()
+        // What RecipientChipsInput does to a prefilled field on first render.
+        state.to = "Ray Dalio <ray@example.com>, "
+
+        assertTrue(state.composeIsBlank())
+    }
+
+    @Test
+    fun composeIsBlankSeesARecipientTheUserAdded() {
+        val state = testState()
+        state.composeSignature = SignatureMark("-- \nPing", SignaturePlacement.BelowText)
+        state.body = bodyWithSignature("", "-- \nPing")
+        state.to = "noreply@example.com"
+        state.subject = "Re: Hello"
+        state.rememberComposeSeed()
+
+        state.cc = "someone@example.com"
+
+        assertFalse(state.composeIsBlank())
+    }
+
+    @Test
+    fun composeIsBlankSeesAnAttachmentOnItsOwn() {
+        val state = testState()
+        state.composeSignature = SignatureMark("-- \nPing", SignaturePlacement.BelowText)
+        state.body = bodyWithSignature("", "-- \nPing")
+        state.attachments = listOf(DraftAttachment(id = "a1", displayName = "a.txt", mimeType = "text/plain", sizeBytes = 1))
+
+        assertFalse(state.composeIsBlank())
+    }
+
+    @Test
     fun removeDiscardedDraftFromOpenThreadDropsCachedDraftAfterSend() {
         val state = testState()
+        state.selectedCoreThread = threadSummary(id = "t1").copy(hasDraft = true)
+        state.coreThreads = listOf(threadSummary(id = "t1").copy(hasDraft = true))
+        state.locallyDraftedThreadIds = setOf("t1")
         state.messages =
             listOf(
                 messageBody(id = "m1", folderId = "INBOX"),
@@ -276,9 +372,82 @@ class ComposeUiTest {
                 messageBody(id = "local-send-1", folderId = "INBOX"),
             )
 
-        state.removeDiscardedDraftFromOpenThread("draft-1")
+        val cleared = state.removeDiscardedDraftFromOpenThread("draft-1")
 
         assertEquals(listOf("m1", "local-send-1"), state.messages.map { it.id })
+        assertEquals("t1", cleared)
+        assertFalse(state.selectedCoreThread!!.hasDraft)
+        assertFalse(state.coreThreads.single().hasDraft)
+        assertTrue(state.locallyDraftedThreadIds.isEmpty())
+    }
+
+    @Test
+    fun removeDiscardedDraftFromOpenThreadClearsMarkerForAnAutosavedQuickReply() {
+        val state = testState()
+        state.selectedCoreThread = threadSummary(id = "t1").copy(hasDraft = true)
+        state.coreThreads = listOf(threadSummary(id = "t1").copy(hasDraft = true))
+        state.locallyDraftedThreadIds = setOf("t1")
+        // A quick-reply autosave marks the thread without adding a draft message.
+        state.messages = listOf(messageBody(id = "m1", folderId = "INBOX"))
+
+        val cleared = state.removeDiscardedDraftFromOpenThread("draft-1", "t1")
+
+        assertEquals("t1", cleared)
+        assertEquals(listOf("m1"), state.messages.map { it.id })
+        assertFalse(state.selectedCoreThread!!.hasDraft)
+        assertFalse(state.coreThreads.single().hasDraft)
+        assertTrue(state.locallyDraftedThreadIds.isEmpty())
+    }
+
+    @Test
+    fun removeDiscardedDraftFromOpenThreadKeepsMarkerWhenAnotherDraftRemains() {
+        val state = testState()
+        state.selectedCoreThread = threadSummary(id = "t1").copy(hasDraft = true)
+        state.locallyDraftedThreadIds = setOf("t1")
+        state.messages =
+            listOf(
+                messageBody(id = "d0", folderId = "Drafts", messageId = "draft-0"),
+                messageBody(id = "d1", folderId = "Drafts", messageId = "draft-1"),
+            )
+
+        val cleared = state.removeDiscardedDraftFromOpenThread("draft-1", "t1")
+
+        assertNull(cleared)
+        assertEquals(listOf("d0"), state.messages.map { it.id })
+        assertTrue(state.selectedCoreThread!!.hasDraft)
+        assertEquals(setOf("t1"), state.locallyDraftedThreadIds)
+    }
+
+    @Test
+    fun removeDiscardedDraftFromOpenThreadKeepsMarkerWhileMessagesAreStillLoading() {
+        val state = testState()
+        state.selectedCoreThread = threadSummary(id = "t1").copy(hasDraft = true)
+        state.coreThreads = listOf(threadSummary(id = "t1").copy(hasDraft = true))
+        state.locallyDraftedThreadIds = setOf("t1")
+        state.messages = emptyList()
+
+        val cleared = state.removeDiscardedDraftFromOpenThread("draft-1")
+
+        assertNull(cleared)
+        assertTrue(state.selectedCoreThread!!.hasDraft)
+        assertTrue(state.coreThreads.single().hasDraft)
+        assertEquals(setOf("t1"), state.locallyDraftedThreadIds)
+    }
+
+    @Test
+    fun removeDiscardedDraftFromOpenThreadLeavesAnotherThreadsDraftAlone() {
+        val state = testState()
+        state.selectedCoreThread = threadSummary(id = "t1").copy(hasDraft = true)
+        state.coreThreads = listOf(threadSummary(id = "t1").copy(hasDraft = true))
+        state.locallyDraftedThreadIds = setOf("t1")
+        state.messages = listOf(messageBody(id = "d1", folderId = "Drafts", messageId = "draft-1"))
+
+        val cleared = state.removeDiscardedDraftFromOpenThread("draft-elsewhere")
+
+        assertNull(cleared)
+        assertEquals(listOf("d1"), state.messages.map { it.id })
+        assertTrue(state.selectedCoreThread!!.hasDraft)
+        assertEquals(setOf("t1"), state.locallyDraftedThreadIds)
     }
 
     @Test

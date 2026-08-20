@@ -1502,22 +1502,39 @@ pub async fn append_to_drafts(
     message_id: &str,
 ) -> anyhow::Result<()> {
     // replace_draft APPENDs the new draft and expunges the prior copy; mutating,
-    // so it never auto-retries.
+    // so it never auto-retries. Finding the folder is a plain LIST, and a pooled
+    // session the server has dropped fails on it before anything is written, so
+    // it runs as the retryable preflight — an autosave used to surface that dead
+    // socket to the user as "Draft autosave failed: LIST: Broken pipe".
+    let drafts_slot: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
     let (drafts, batch) = engine
-        .with_write_session(account, |session| {
-            let raw = raw.to_vec();
-            let message_id = message_id.to_string();
-            Box::pin(async move {
-                let drafts = imap::find_drafts_folder(session)
-                    .await?
-                    .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
-                imap::replace_draft(session, &drafts, &raw, &message_id).await?;
-                // Refresh local Drafts envelopes so an autosaved reply appears in
-                // the existing cross-folder thread view immediately.
-                let batch = imap::fetch_recent(session, &drafts, 20).await?;
-                anyhow::Ok((drafts, batch))
-            })
-        })
+        .with_preflighted_write_session(
+            account,
+            |session| {
+                let slot = Arc::clone(&drafts_slot);
+                Box::pin(async move {
+                    let drafts = imap::find_drafts_folder(session)
+                        .await?
+                        .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
+                    *slot.lock().unwrap() = Some(drafts);
+                    anyhow::Ok(())
+                })
+            },
+            |session| {
+                let raw = raw.to_vec();
+                let message_id = message_id.to_string();
+                let slot = Arc::clone(&drafts_slot);
+                Box::pin(async move {
+                    let drafts = { slot.lock().unwrap().clone() }
+                        .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
+                    imap::replace_draft(session, &drafts, &raw, &message_id).await?;
+                    // Refresh local Drafts envelopes so an autosaved reply appears in
+                    // the existing cross-folder thread view immediately.
+                    let batch = imap::fetch_recent(session, &drafts, 20).await?;
+                    anyhow::Ok((drafts, batch))
+                })
+            },
+        )
         .await?;
     {
         let db = engine.db.lock().unwrap();

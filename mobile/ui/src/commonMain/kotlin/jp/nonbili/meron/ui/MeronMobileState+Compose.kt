@@ -303,7 +303,7 @@ internal fun MeronMobileState.changeComposeIdentity(
     email: String,
 ) {
     if (accountId != composeDraftAccountId && composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
-        val owner = ComposeDraftOwner(composeDraftAccountId, composeDraftId)
+        val owner = ComposeDraftOwner(composeDraftAccountId, composeDraftId, composeDraftThreadId())
         if (owner !in composeDraftCleanupOwners) composeDraftCleanupOwners = composeDraftCleanupOwners + owner
         composeDraftId = newDraftMessageId(accountId)
         composeDraftSaved = false
@@ -353,8 +353,48 @@ internal fun MeronMobileState.clearComposeDraftState() {
     composeReferences = ""
     composeForwardHtml = ""
     composeForwardInlineAttachments = emptyList()
+    composeSeed = ComposeSeed()
     recipientSuggestionField = ""
     recipientSuggestions = emptyList()
+}
+
+/**
+ * The composer with the signature this app seeded taken back out. A signature
+ * the user has typed into can no longer be identified (see
+ * [bodyWithSwappedSignature]), which is the same answer as "this text is theirs
+ * now". Mirrors the reply bar's [quickReplyIsBlank].
+ */
+private fun MeronMobileState.composeBodyWithoutSignature(): String {
+    val mark = composeSignature ?: return body
+    if (mark.text.isBlank()) return body
+    val swapped = bodyWithSwappedSignature(body, mark, "")
+    return if (swapped.tracking == null) body else swapped.body
+}
+
+/**
+ * Whether the composer holds nothing the user put there. A seeded signature does
+ * not count as content: it is not something they wrote, and saving on it leaves
+ * an empty draft behind for every composer merely opened and closed again.
+ */
+internal fun MeronMobileState.composeIsBlank(): Boolean = composeBodyWithoutSignature().isBlank() && currentComposeSeed() == composeSeed
+
+/** Records what a freshly opened composer holds, so [composeIsBlank] can tell it apart from the user's own writing. */
+internal fun MeronMobileState.rememberComposeSeed() {
+    composeSeed = currentComposeSeed()
+}
+
+private fun MeronMobileState.currentComposeSeed(): ComposeSeed =
+    ComposeSeed(
+        to = recipientEntries(to),
+        cc = recipientEntries(cc),
+        bcc = recipientEntries(bcc),
+        subject = subject.trim(),
+        attachments = attachments,
+    )
+
+private fun recipientEntries(value: String): List<String> {
+    val (completed, active) = parseRecipients(value)
+    return (completed + active).map { it.trim() }.filter { it.isNotEmpty() }
 }
 
 // The draft as the core should receive it: the plain body the composer edits,
@@ -459,10 +499,12 @@ internal fun MeronMobileState.sendMail() {
                 val owners =
                     buildList {
                         if (composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
-                            add(ComposeDraftOwner(composeDraftAccountId, composeDraftId))
+                            add(ComposeDraftOwner(composeDraftAccountId, composeDraftId, composeDraftThreadId()))
                         }
                         addAll(composeDraftCleanupOwners)
-                    }.distinct()
+                        // Same draft, different remembered thread must not be
+                        // discarded twice: the second attempt would report failure.
+                    }.distinctBy { it.accountId to it.draftId }
                 composeDraftCleanupOwners = owners
                 discardComposeDraftOwners(owners)
                 clearComposeDraftState()
@@ -480,8 +522,17 @@ internal fun MeronMobileState.sendMail() {
     }
 }
 
-private suspend fun MeronMobileState.discardComposeDraftOwners(owners: List<ComposeDraftOwner>): Boolean {
-    var allDiscarded = true
+/** The thread a compose draft belongs to, blank unless composing from a thread. */
+private fun MeronMobileState.composeDraftThreadId(): String = selectedCoreThread?.takeIf { composeReturnScreen == Screen.Thread }?.id.orEmpty()
+
+private data class ComposeDraftDiscardOutcome(
+    val clearedThreadIds: Set<String> = emptySet(),
+    val failedOwners: List<ComposeDraftOwner> = emptyList(),
+)
+
+private suspend fun MeronMobileState.discardComposeDraftOwners(owners: List<ComposeDraftOwner>): ComposeDraftDiscardOutcome {
+    val clearedThreadIds = mutableSetOf<String>()
+    val failedOwners = mutableListOf<ComposeDraftOwner>()
     owners.forEach { owner ->
         val discarded =
             runCatching {
@@ -493,11 +544,41 @@ private suspend fun MeronMobileState.discardComposeDraftOwners(owners: List<Comp
             }.isSuccess
         if (discarded) {
             composeDraftCleanupOwners = composeDraftCleanupOwners - owner
+            // A discard can also happen on a later retry from saveComposeDraft, so
+            // the local copy of the draft is dropped here rather than at the send.
+            removeDiscardedDraftFromOpenThread(owner.draftId, owner.threadId)?.let { clearedThreadIds.add(it) }
         } else {
-            allDiscarded = false
+            failedOwners.add(owner)
         }
     }
-    return allDiscarded
+    return ComposeDraftDiscardOutcome(clearedThreadIds, failedOwners)
+}
+
+/**
+ * Delete the server-side draft of a composer the user has emptied out, mirroring
+ * the reply bar's [discardQuickReplyDraftIfEmpty]. Reports whether anything was
+ * deleted.
+ */
+private suspend fun MeronMobileState.discardEmptiedComposeDraft(generation: Int): Boolean {
+    val openDraft =
+        ComposeDraftOwner(composeDraftAccountId, composeDraftId, composeDraftThreadId())
+            .takeIf { composeDraftSaved && it.accountId.isNotBlank() && it.draftId.isNotBlank() }
+    // The composer's own draft is deliberately not queued in
+    // composeDraftCleanupOwners: it keeps its id, so a failed discard followed by
+    // the user typing again would save under that id and then have the cleanup
+    // delete the replacement. A retry comes from the next blank save instead.
+    val owners = (listOfNotNull(openDraft) + composeDraftCleanupOwners).distinctBy { it.accountId to it.draftId }
+    if (owners.isEmpty()) return false
+    val outcome = discardComposeDraftOwners(owners)
+    if (outcome.failedOwners.isNotEmpty()) return false
+    // A newer composer may have opened while the discard was in flight; its draft
+    // id and account are not this session's to clear.
+    if (generation != composeSessionGeneration) return false
+    composeDraftId = ""
+    composeDraftSaved = false
+    composeDraftAccountId = ""
+    syncCoreThreads(syncFirst = false)
+    return true
 }
 
 internal fun MeronMobileState.saveComposeDraft() {
@@ -535,13 +616,20 @@ private suspend fun MeronMobileState.saveComposeDraft(
             return@withLock false
         }
         val draft = currentComposeDraft()
-        if (listOf(draft.to, draft.cc, draft.bcc, draft.subject, draft.body).all { it.isBlank() } && draft.attachments.isEmpty()) {
-            if (showStatus) status = "Nothing to save."
+        if (composeIsBlank()) {
+            // Everything the user wrote is gone. A copy already on the server has
+            // to go with it, or closing and reopening would bring back the text
+            // they deliberately erased.
+            val discarded = discardEmptiedComposeDraft(generation)
+            // Same reason the save path rechecks below: a status line belongs to
+            // whichever composer is open now.
+            if (generation != composeSessionGeneration) return@withLock false
+            if (showStatus) status = if (discarded) "Draft discarded" else "Nothing to save."
             return@withLock false
         }
         val draftId = composeDraftId.ifBlank { newDraftMessageId(accountId) }
         val cleanupOwners = composeDraftCleanupOwners
-        val draftThreadId = selectedCoreThread?.takeIf { composeReturnScreen == Screen.Thread }?.id
+        val draftThreadId = composeDraftThreadId().ifBlank { null }
         val inReplyTo = composeInReplyTo
         val references = composeReferences
         if (showStatus) status = "Saving draft..."
@@ -943,6 +1031,7 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
         // back to is a fresh quick reply — signature and all.
         seedQuickReplySignature()
         composeReturnScreen = Screen.Thread
+        rememberComposeSeed()
         screen = Screen.Compose
         status = ""
     }
@@ -963,9 +1052,9 @@ internal fun MeronMobileState.discardComposeDraft() {
     val draftId = composeDraftId.takeIf { composeDraftSaved }
     val draftOwners =
         buildList {
-            if (!draftId.isNullOrBlank() && accountId.isNotBlank()) add(ComposeDraftOwner(accountId, draftId))
+            if (!draftId.isNullOrBlank() && accountId.isNotBlank()) add(ComposeDraftOwner(accountId, draftId, composeDraftThreadId()))
             addAll(composeDraftCleanupOwners)
-        }.distinct()
+        }.distinctBy { it.accountId to it.draftId }
     composeDraftCleanupOwners = draftOwners
     val returnScreen = composeReturnScreen
     val thread = selectedCoreThread
@@ -978,7 +1067,7 @@ internal fun MeronMobileState.discardComposeDraft() {
     val previousThread = selectedCoreThread
     val previousThreads = coreThreads
     val previousKanbanColumns = kanbanColumns
-    removeDiscardedDraftFromOpenThread(draftId)
+    val optimisticallyClearedThreadId = removeDiscardedDraftFromOpenThread(draftId, composeDraftThreadId())
     if (draftThread != null) {
         removeThreadEverywhere(draftThread.id)
         locallyDiscardedThreadIds = locallyDiscardedThreadIds + draftThread.id
@@ -988,9 +1077,8 @@ internal fun MeronMobileState.discardComposeDraft() {
     status = "Discarding draft..."
     scope.launch(start = CoroutineStart.UNDISPATCHED) {
         composeSaveMutex.withLock {
-            runCatching {
-                check(discardComposeDraftOwners(draftOwners)) { "One or more drafts could not be discarded" }
-            }.onSuccess {
+            val outcome = discardComposeDraftOwners(draftOwners)
+            if (outcome.failedOwners.isEmpty()) {
                 status = "Draft discarded"
                 syncCoreThreads(syncFirst = true)
                 if (thread != null) {
@@ -999,29 +1087,88 @@ internal fun MeronMobileState.discardComposeDraft() {
                 if (draftThread == null) {
                     runCatching { reloadCurrentThreadMessages() }
                 }
-            }.onFailure {
-                messages = previousMessages
-                selectedCoreThread = previousThread
-                coreThreads = previousThreads
-                kanbanColumns = previousKanbanColumns
-                if (draftThread != null) {
-                    locallyDiscardedThreadIds = locallyDiscardedThreadIds - draftThread.id
+            } else {
+                val openDraftFailed = draftOwners.firstOrNull { it.draftId == draftId } in outcome.failedOwners
+                // Roll back only the drafts that survived: one owner failing must not
+                // bring back a draft another owner really did delete. The open
+                // draft's own thread is restored only when its draft is the one that
+                // stayed behind.
+                if (openDraftFailed) {
+                    restoreUndiscardedDraftMessages(previousMessages, outcome.failedOwners)
+                    selectedCoreThread = previousThread
+                    coreThreads = previousThreads
+                    kanbanColumns = previousKanbanColumns
+                    if (draftThread != null) {
+                        locallyDiscardedThreadIds = locallyDiscardedThreadIds - draftThread.id
+                    }
                 }
-                status = "Draft discard failed: ${it.message}"
+                // The snapshots above predate the per-owner clearing, and whole-map
+                // restores would also drop a marker set meanwhile by an autosave for
+                // another thread, so the flags are re-applied one thread at a time.
+                outcome.clearedThreadIds.forEach { clearThreadDraftEverywhere(it) }
+                outcome.failedOwners.forEach { markThreadDraftEverywhere(it.threadId) }
+                if (openDraftFailed) {
+                    optimisticallyClearedThreadId?.let { markThreadDraftEverywhere(it) }
+                }
+                status = "Draft discard failed: one or more drafts could not be discarded"
             }
         }
     }
 }
 
-internal fun MeronMobileState.removeDiscardedDraftFromOpenThread(draftId: String?) {
+/**
+ * Drop a discarded draft from the open thread, returning the id of the thread
+ * whose draft marker was cleared, or null when nothing was cleared.
+ * [draftThreadId] is the thread the caller knows the draft belongs to.
+ */
+internal fun MeronMobileState.removeDiscardedDraftFromOpenThread(
+    draftId: String?,
+    draftThreadId: String = "",
+): String? {
     val normalizedDraftId = draftId?.normalizedComposeDraftId().orEmpty()
-    if (normalizedDraftId.isBlank()) return
-    messages =
+    if (normalizedDraftId.isBlank()) return null
+    val remaining =
         messages.filterNot { message ->
             message.id == "local-draft-$normalizedDraftId" ||
                 message.messageId.normalizedComposeDraftId() == normalizedDraftId
         }
-    selectedCoreThread = selectedCoreThread?.copy(hasDraft = messages.any { folderIsDrafts(it.folderId) })
+    val foundInOpenThread = remaining.size != messages.size
+    // Finding the draft in the open thread proves it lived there; otherwise only
+    // the caller knows. Absence proves nothing on its own: a quick reply saves a
+    // draft without adding a message locally, the list is empty while a thread
+    // loads, and a cleanup owner can belong to a thread that is no longer open.
+    val threadId = if (foundInOpenThread) selectedCoreThread?.id.orEmpty() else draftThreadId
+    if (threadId.isBlank()) return null
+    if (foundInOpenThread) messages = remaining
+    // Another draft still sitting in the thread keeps the marker on.
+    if (threadId == selectedCoreThread?.id && remaining.any { folderIsDrafts(it.folderId) }) {
+        selectedCoreThread = selectedCoreThread?.copy(hasDraft = true)
+        return null
+    }
+    clearThreadDraftEverywhere(threadId)
+    return threadId
+}
+
+/**
+ * Puts back the messages of drafts a failed discard left behind, at roughly
+ * their old place, keeping whatever arrived while the discard was in flight.
+ */
+private fun MeronMobileState.restoreUndiscardedDraftMessages(
+    previousMessages: List<MessageBody>,
+    owners: List<ComposeDraftOwner>,
+) {
+    val draftIds = owners.map { it.draftId.normalizedComposeDraftId() }.toSet()
+    val presentIds = messages.map { it.id }.toSet()
+    val restored = messages.toMutableList()
+    previousMessages.forEachIndexed { index, message ->
+        if (message.id in presentIds) return@forEachIndexed
+        val belongsToOwner =
+            draftIds.any { draftId ->
+                message.id == "local-draft-$draftId" || message.messageId.normalizedComposeDraftId() == draftId
+            }
+        if (belongsToOwner) restored.add(index.coerceAtMost(restored.size), message)
+    }
+    messages = restored
 }
 
 internal fun String.normalizedComposeDraftId(): String = trim().trim('<', '>').lowercase()
@@ -1111,14 +1258,15 @@ internal fun MeronMobileState.sendQuickReply() {
             // landed mid-send is discarded too.
             val draftId = quickReplyDraftId
             if (draftId.isNotBlank()) {
-                runCatching {
-                    withContext(ioDispatcher) {
-                        MobileMailCommandClient(core).discardDraft(
-                            DiscardDraftParams(accountId = accountId, draftId = draftId),
-                        )
-                    }
-                }
-                removeDiscardedDraftFromOpenThread(draftId)
+                val discarded =
+                    runCatching {
+                        withContext(ioDispatcher) {
+                            MobileMailCommandClient(core).discardDraft(
+                                DiscardDraftParams(accountId = accountId, draftId = draftId),
+                            )
+                        }
+                    }.isSuccess
+                if (discarded) removeDiscardedDraftFromOpenThread(draftId, thread.id)
             }
             quickReplySendInFlight = false
             quickReplyFailure = ""
@@ -1251,6 +1399,7 @@ internal fun MeronMobileState.openMessageCompose(
             composeDraftSaved = false
             composeDraftAccountId = ""
             composeReturnScreen = Screen.Thread
+            rememberComposeSeed()
             screen = Screen.Compose
             status = if (forward) "Forward draft ready" else "Copied message into compose"
         }.onFailure {
@@ -1398,6 +1547,7 @@ internal fun MeronMobileState.openComposeTo(
         to = email
         body = seedBodyWithSignature("", accountId.ifBlank { defaultSendAccountId() })
         composeReturnScreen = Screen.Thread
+        rememberComposeSeed()
         screen = Screen.Compose
     }
 }
@@ -1423,6 +1573,7 @@ internal fun MeronMobileState.openMailtoCompose(
         attachments = draft.attachments
         body = seedBodyWithSignature(draft.body, defaultSendAccountId())
         composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
+        rememberComposeSeed()
         screen = Screen.Compose
         onOpened()
     }
@@ -1438,6 +1589,7 @@ internal fun MeronMobileState.openCompose() {
         clearComposeDraftState()
         body = seedBodyWithSignature("", defaultSendAccountId())
         composeReturnScreen = if (screen == Screen.Kanban) screen else Screen.Mail
+        rememberComposeSeed()
         screen = Screen.Compose
     }
 }
@@ -1471,9 +1623,7 @@ private fun MeronMobileState.showLocalDraftInOpenThread() {
     val thread = selectedCoreThread ?: return
     if (composeReturnScreen != Screen.Thread) return
     val draft = ComposeDraft(to.trim(), cc.trim(), bcc.trim(), subject.trim(), body.trim(), attachments)
-    if (listOf(draft.to, draft.cc, draft.bcc, draft.subject, draft.body).all { it.isBlank() } && draft.attachments.isEmpty()) {
-        return
-    }
+    if (composeIsBlank()) return
     val accountId = selectedComposeIdentity()?.accountId ?: thread.accountId.ifBlank { defaultSendAccountId() }
     if (accountId.isBlank()) return
     val draftId = composeDraftId.ifBlank { newDraftMessageId(accountId) }
@@ -1526,6 +1676,32 @@ internal fun MeronMobileState.markThreadDraftEverywhere(threadId: String) {
             cached.copy(threads = threadsWithDraftFlag(cached.threads, setOf(threadId)))
         }
 }
+
+internal fun MeronMobileState.clearThreadDraftEverywhere(threadId: String) {
+    if (threadId.isBlank()) return
+    locallyDraftedThreadIds = locallyDraftedThreadIds - threadId
+    coreThreads = threadsWithoutDraftFlag(coreThreads, threadId)
+    selectedCoreThread =
+        selectedCoreThread?.let { thread ->
+            if (thread.id == threadId || thread.threadId == threadId) thread.copy(hasDraft = false) else thread
+        }
+    kanbanColumns =
+        kanbanColumns.mapValues { (_, state) ->
+            state.copy(threads = threadsWithoutDraftFlag(state.threads, threadId))
+        }
+    mailboxCache =
+        mailboxCache.mapValues { (_, cached) ->
+            cached.copy(threads = threadsWithoutDraftFlag(cached.threads, threadId))
+        }
+}
+
+private fun threadsWithoutDraftFlag(
+    threads: List<ThreadSummary>,
+    threadId: String,
+): List<ThreadSummary> =
+    threads.map { thread ->
+        if (thread.id == threadId || thread.threadId == threadId) thread.copy(hasDraft = false) else thread
+    }
 
 internal fun MeronMobileState.withLocalDraftFlags(threads: List<ThreadSummary>): List<ThreadSummary> = threadsWithDraftFlag(threads, locallyDraftedThreadIds)
 

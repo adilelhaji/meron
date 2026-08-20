@@ -869,6 +869,7 @@ internal fun MeronMobileState.openDraftCompose(
             composeInReplyTo = message.inReplyTo
             composeReferences = message.references
             composeReturnScreen = returnScreen
+            rememberComposeSeed()
             screen = Screen.Compose
             status = "Draft ready"
         }.onFailure {

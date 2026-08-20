@@ -27,9 +27,24 @@ import kotlinx.coroutines.sync.Mutex
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
+internal data class ComposeSeed(
+    // Recipients as parsed entries rather than raw text: the chips field
+    // rewrites "a@b" to "a@b, " the moment it first renders, and that is the
+    // field tidying itself, not the user adding anyone.
+    val to: List<String> = emptyList(),
+    val cc: List<String> = emptyList(),
+    val bcc: List<String> = emptyList(),
+    val subject: String = "",
+    val attachments: List<DraftAttachment> = emptyList(),
+)
+
 internal data class ComposeDraftOwner(
     val accountId: String,
     val draftId: String,
+    // The thread this draft replies in, blank for a standalone compose. A draft
+    // is not always present in the loaded messages, so this is what says which
+    // thread's draft marker the discard clears.
+    val threadId: String = "",
 )
 
 @OptIn(ExperimentalUuidApi::class)
@@ -337,6 +352,12 @@ internal class MeronMobileState(
     // identity can swap it for the new account's. Null means unmanaged — a body
     // this app did not compose (see SignatureTracking).
     var composeSignature by mutableStateOf<SignatureTracking>(null)
+
+    // The recipients, subject and attachments the composer was opened with. A
+    // reply arrives with To and Subject already filled in, and a forward with the
+    // message attached, so "did the user write anything" is measured against this
+    // rather than against empty fields.
+    var composeSeed by mutableStateOf(ComposeSeed())
 
     // Whether the app-wide signature row has been read back from the core.
     // A compose opened before it lands (a cold-start `mailto:` link) would

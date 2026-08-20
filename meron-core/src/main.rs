@@ -1605,17 +1605,34 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if draft_id.trim().is_empty() {
                 return Ok(json!({ "ok": true, "deleted": 0 }));
             }
+            // The LIST that finds the folder changes nothing and is where a dead
+            // pooled session gives out, so it preflights the delete that follows.
+            let drafts_slot: Arc<std::sync::Mutex<Option<String>>> =
+                Arc::new(std::sync::Mutex::new(None));
             let (drafts, deleted) = engine
-                .with_write_session(&account, |session| {
-                    let draft_id = draft_id.clone();
-                    Box::pin(async move {
-                        let drafts = imap::find_drafts_folder(session)
-                            .await?
-                            .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
-                        let deleted = imap::discard_draft(session, &drafts, &draft_id).await?;
-                        anyhow::Ok((drafts, deleted))
-                    })
-                })
+                .with_preflighted_write_session(
+                    &account,
+                    |session| {
+                        let slot = Arc::clone(&drafts_slot);
+                        Box::pin(async move {
+                            let drafts = imap::find_drafts_folder(session)
+                                .await?
+                                .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
+                            *slot.lock().unwrap() = Some(drafts);
+                            anyhow::Ok(())
+                        })
+                    },
+                    |session| {
+                        let draft_id = draft_id.clone();
+                        let slot = Arc::clone(&drafts_slot);
+                        Box::pin(async move {
+                            let drafts = { slot.lock().unwrap().clone() }
+                                .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
+                            let deleted = imap::discard_draft(session, &drafts, &draft_id).await?;
+                            anyhow::Ok((drafts, deleted))
+                        })
+                    },
+                )
                 .await?;
             // Drop the locally cached copies too, or the discarded draft keeps
             // showing in the thread view until the next full Drafts sync.
