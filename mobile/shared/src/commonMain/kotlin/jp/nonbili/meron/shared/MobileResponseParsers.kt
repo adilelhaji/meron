@@ -266,7 +266,15 @@ fun parseThreadListPage(responseJson: String): ThreadListPage {
                 folder = item.findJsonStringProperty("folder_id") ?: item.findJsonStringProperty("folder").orEmpty(),
                 folderRole = item.findJsonStringProperty("folder_role") ?: "folder",
                 subject = item.findJsonStringProperty("subject").orEmpty(),
-                sender = item.findJsonStringProperty("from_name") ?: item.findJsonStringProperty("from").orEmpty(),
+                // The envelope carries an empty from_name when the sender has
+                // no display name, so fall through blanks to the address rather
+                // than leaving the label empty for the row to fill in.
+                sender =
+                    item
+                        .findJsonStringProperty("from_name")
+                        .orEmpty()
+                        .ifBlank { item.findJsonStringProperty("from_addr").orEmpty() }
+                        .ifBlank { item.findJsonStringProperty("from").orEmpty() },
                 preview = item.findJsonStringProperty("preview").orEmpty(),
                 unread = item.findJsonBooleanProperty("unread") ?: false,
                 unreadCount =
@@ -323,7 +331,15 @@ fun parseStarredItemsResponse(responseJson: String): List<StarredItemSummary> {
                 folder = item.findJsonStringProperty("folder_id") ?: item.findJsonStringProperty("folder").orEmpty(),
                 folderRole = item.findJsonStringProperty("folder_role") ?: "folder",
                 subject = item.findJsonStringProperty("subject").orEmpty(),
-                sender = item.findJsonStringProperty("from_name") ?: item.findJsonStringProperty("from").orEmpty(),
+                // The envelope carries an empty from_name when the sender has
+                // no display name, so fall through blanks to the address rather
+                // than leaving the label empty for the row to fill in.
+                sender =
+                    item
+                        .findJsonStringProperty("from_name")
+                        .orEmpty()
+                        .ifBlank { item.findJsonStringProperty("from_addr").orEmpty() }
+                        .ifBlank { item.findJsonStringProperty("from").orEmpty() },
                 preview = item.findJsonStringProperty("preview").orEmpty(),
                 unread = item.findJsonBooleanProperty("unread") ?: false,
                 dateEpochSeconds = item.findJsonLongProperty("date") ?: item.findJsonLongProperty("date_epoch_seconds") ?: 0,

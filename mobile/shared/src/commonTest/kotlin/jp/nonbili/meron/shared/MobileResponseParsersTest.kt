@@ -170,6 +170,28 @@ class MobileResponseParsersTest {
     }
 
     @Test
+    fun threadListSenderFallsBackToAddressWhenNameIsEmpty() {
+        val threads =
+            parseThreadListResponse(
+                """{"result":{"threads":[{"id":"acc#INBOX#t","account_id":"acc","folder_id":"INBOX","from_name":"","from_addr":"ada@example.com","subject":"Hello"}]}}""",
+            )
+
+        assertEquals(1, threads.size)
+        assertEquals("ada@example.com", threads[0].sender)
+    }
+
+    @Test
+    fun starredItemSenderFallsBackToAddressWhenNameIsEmpty() {
+        val items =
+            parseStarredItemsResponse(
+                """{"result":{"items":[{"id":"m1","thread_id":"acc#INBOX#t","account_id":"acc","folder_id":"INBOX","from_name":"","from_addr":"ada@example.com","subject":"Hello"}]}}""",
+            )
+
+        assertEquals(1, items.size)
+        assertEquals("ada@example.com", items[0].sender)
+    }
+
+    @Test
     fun parsesThreadListNextCursor() {
         val page =
             parseThreadListPage(
