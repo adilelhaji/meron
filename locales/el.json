@@ -586,7 +586,7 @@
   "settings.appearance.messageTextSizeHint": "Κλιμακώνει το σώμα των μηνυμάτων πάνω από το μέγεθος κειμένου της εφαρμογής.",
   "settings.appearance.messageTextSizeSystemHint": "Κλιμακώνει το σώμα των μηνυμάτων. Το υπόλοιπο κείμενο ακολουθεί το μέγεθος κειμένου του συστήματος.",
   "settings.appearance.showSenderImages": "Εμφάνιση εικόνων αποστολέα",
-  "settings.appearance.showSenderImagesHint": "Ανακτά εικόνες αποστολέα από το Gravatar, με εικονίδια ιστοτόπου (favicons) ως εναλλακτική.",
+  "settings.appearance.showSenderImagesHint": "Στέλνει στο Gravatar έναν κατακερματισμό SHA-256 της διεύθυνσης email κάθε αποστολέα και, εναλλακτικά, τον τομέα του αποστολέα στην Google.",
   "settings.appearance.showUnreadAccountBadge": "Εμφάνιση σήματος μη αναγνωσμένων",
   "settings.appearance.showUnreadAccountBadgeHint": "Εμφάνιση του αριθμού μη αναγνωσμένων μηνυμάτων για κάθε λογαρισμό στην πλαϊνή γραμμή.",
   "settings.appearance.textSize": "Μέγεθος κειμένου",
