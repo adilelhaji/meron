@@ -1821,6 +1821,84 @@ export async function markAllRead() {
   }
 }
 
+// Mark one account's Inbox (or its synthetic RSS Inbox) read from account-level
+// chrome such as the side navigation menu. This deliberately does not depend on
+// the currently selected account/folder.
+export async function markAccountInboxRead(accountId: string) {
+  if (!accountId || accountId === 'unified') return
+
+  const accountFolders = mail$.foldersByAccount[accountId].get() ?? []
+  const inbox = accountFolders.find((folder) => folderMatches(folder, accountId, 'inbox'))
+  const folderId = inbox?.id || 'inbox'
+  const accountUnread = inbox?.unread ?? 0
+  const includedInUnified = accounts$.get().find((account) => account.id === accountId)?.included_in_unified !== false
+  const previousThreads = mail$.threads.get()
+  const previousMessages = mail$.messages.get()
+  const previousFolders = mail$.folders.get()
+  const previousAccountFolders = captureKeys(mail$.foldersByAccount.get(), [accountId])
+  const inAccountInbox = (item: Pick<Message, 'account_id' | 'folder_id'>) =>
+    item.account_id === accountId &&
+    folderMatches({ id: item.folder_id, account_id: accountId, name: '', role: '', unread: 0 }, accountId, folderId)
+  const affectedKanbanThreadIds = new Set(
+    Object.values(kanban$.threads.get())
+      .flat()
+      .filter((thread) => thread.unread && inAccountInbox(thread))
+      .map((thread) => thread.thread_id),
+  )
+  const directKanbanKeys = Array.from(
+    new Set([...Object.keys(kanban$.threads.get()), ...Object.keys(kanban$.unreadCounts.get())]),
+  ).filter((key) => {
+    const [columnAccountId, columnFolderId] = key.split('\n')
+    if (!columnAccountId || !columnFolderId) return false
+    if (columnAccountId === 'unified') return includedInUnified && unifiedFolderRole(columnFolderId) === 'inbox'
+    return (
+      columnAccountId === accountId &&
+      folderMatches({ id: columnFolderId, account_id: accountId, name: '', role: '', unread: 0 }, accountId, folderId)
+    )
+  })
+  const affectedKanbanKeys = Array.from(
+    new Set([...directKanbanKeys, ...Array.from(affectedKanbanThreadIds).flatMap(kanbanKeysWithThread)]),
+  )
+  const previousKanbanThreads = captureKeys(kanban$.threads.get(), affectedKanbanKeys)
+  const previousKanbanUnreadCounts = captureKeys(kanban$.unreadCounts.get(), affectedKanbanKeys)
+
+  mail$.threads.set(
+    previousThreads.map((thread) =>
+      thread.unread && inAccountInbox(thread) ? { ...thread, unread: false, unread_count: 0 } : thread,
+    ),
+  )
+  mail$.messages.set(
+    previousMessages.map((message) =>
+      message.unread && inAccountInbox(message) ? { ...message, unread: false } : message,
+    ),
+  )
+  for (const threadId of affectedKanbanThreadIds) {
+    updateKanbanThread(threadId, (thread) => ({ ...thread, unread: false, unread_count: 0 }))
+  }
+  // These badges are backend folder totals, not counts of the loaded cards.
+  // A single-account Inbox is fully cleared; a unified Inbox loses this
+  // account's whole cached contribution.
+  for (const key of directKanbanKeys) {
+    const [columnAccountId] = key.split('\n')
+    const previous = previousKanbanUnreadCounts.find(([candidate]) => candidate === key)?.[1] ?? 0
+    kanban$.unreadCounts[key].set(columnAccountId === 'unified' ? Math.max(0, previous - accountUnread) : 0)
+  }
+  updateCachedFolderUnread(accountId, folderId, 0)
+
+  try {
+    const result = await invoke<MutationResult>('mail.markAllRead', { account_id: accountId, folder_id: folderId })
+    applyMutationFolderUnreads(result)
+    void refreshAccountFoldersCache(accountId, false)
+  } catch (error) {
+    mail$.threads.set(previousThreads)
+    mail$.messages.set(previousMessages)
+    mail$.folders.set(previousFolders)
+    restoreAccountFolders(previousAccountFolders)
+    restoreKanbanColumns(previousKanbanThreads, previousKanbanUnreadCounts)
+    showToast(error instanceof Error ? error.message : t('notification.markReadFailed'), 'error')
+  }
+}
+
 export async function markMessagesRead(threadId: string, messageIds: string[]) {
   const uniqueIds = Array.from(new Set(messageIds.filter(Boolean)))
   if (!threadId || uniqueIds.length === 0) return

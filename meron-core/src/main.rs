@@ -1049,6 +1049,16 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "ok": true }))
         }
 
+        "rss.markAllRead" => {
+            let account = req_str(p, "account")?;
+            let updated = rss::mark_account_read(&engine.db.lock().unwrap(), &account)?;
+            Ok(json!({
+                "ok": true,
+                "updated": updated,
+                "folder_unreads": { (account): { "inbox": 0 } },
+            }))
+        }
+
         "rss.markStarred" => {
             let thread_id = req_str(p, "thread_id")?;
             let starred = p.get("starred").and_then(Value::as_bool).unwrap_or(true);

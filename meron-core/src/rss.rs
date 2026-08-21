@@ -719,6 +719,16 @@ pub fn mark_items_read(
     Ok(())
 }
 
+pub fn mark_account_read(conn: &Connection, account: &str) -> Result<usize> {
+    if !account.starts_with("rss-") {
+        return Err(anyhow!("invalid RSS account id: {account}"));
+    }
+    Ok(conn.execute(
+        "UPDATE messages SET seen = 1 WHERE account = ?1 AND seen = 0",
+        params![account],
+    )?)
+}
+
 pub fn mark_thread_starred(conn: &Connection, thread_id: &str, starred: bool) -> Result<()> {
     let (account, sub_id) =
         parse_thread_id(thread_id).ok_or_else(|| anyhow!("invalid RSS thread id: {thread_id}"))?;

@@ -530,9 +530,8 @@ func (a *App) markStarred(payload map[string]any) (any, error) {
 	return map[string]any{"ok": true}, nil
 }
 
-// markAllRead marks every message in one mail folder as read. RSS accounts have
-// no folder-wide flag, so the frontend marks those threads individually and this
-// path is a no-op for them.
+// markAllRead marks every message in one mail folder as read. An RSS account has
+// one synthetic Inbox, so its account-level operation marks every feed item read.
 func (a *App) markAllRead(payload map[string]any) (any, error) {
 	accountID, _ := payload["account_id"].(string)
 	folderID, _ := payload["folder_id"].(string)
@@ -543,7 +542,7 @@ func (a *App) markAllRead(payload map[string]any) (any, error) {
 		return map[string]any{"ok": true}, nil
 	}
 	if isRSSAccountID(accountID) {
-		return map[string]any{"ok": true}, nil
+		return a.sidecar.Call("rss.markAllRead", map[string]any{"account": accountID})
 	}
 	if accountID == "unified" {
 		return a.sidecar.Call("messages.markAllReadUnified", map[string]any{"folder": folderID})

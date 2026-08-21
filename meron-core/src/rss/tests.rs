@@ -692,6 +692,40 @@ fn marking_a_feed_unread_flags_only_its_newest_item() {
 }
 
 #[test]
+fn mark_account_read_clears_every_feed_without_touching_other_accounts() {
+    let conn = rss_conn_with_feed("rss-acct", "feed-1");
+    insert_item(&conn, "rss-acct", "feed-1", "item-1", 100);
+    insert_item(&conn, "rss-acct", "feed-1", "item-2", 200);
+
+    conn.execute(
+        "INSERT INTO accounts(id, engine, provider, display_name, config)
+             VALUES('rss-other', 'rss', 'rss', 'Other', '{}')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO subscriptions(id, account, url, title, feed_title, etag, last_modified, enabled)
+             VALUES('feed-other', 'rss-other', 'https://example.com/other', 'Other', 'Other', '', '', 1)",
+        [],
+    )
+    .unwrap();
+    insert_item(&conn, "rss-other", "feed-other", "item-other", 300);
+
+    assert_eq!(mark_account_read(&conn, "rss-acct").unwrap(), 2);
+    assert_eq!(unread_count(&conn, "rss-acct").unwrap(), 0);
+    assert_eq!(unread_count(&conn, "rss-other").unwrap(), 1);
+}
+
+#[test]
+fn mark_account_read_rejects_non_rss_account_ids() {
+    let conn = rss_conn_with_feed("rss-acct", "feed-1");
+    insert_item(&conn, "rss-acct", "feed-1", "item-1", 100);
+
+    assert!(mark_account_read(&conn, "mail-acct").is_err());
+    assert_eq!(unread_count(&conn, "rss-acct").unwrap(), 1);
+}
+
+#[test]
 fn mark_items_then_thread_starred() {
     let conn = rss_conn_with_feed("rss-acct", "feed-1");
     insert_item(&conn, "rss-acct", "feed-1", "item-1", 100);

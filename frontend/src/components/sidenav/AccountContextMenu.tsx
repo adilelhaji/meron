@@ -1,6 +1,8 @@
-import { Bell, BellOff, EyeOff, Pause, Play, SlidersHorizontal } from 'lucide-react'
+import { useValue } from '@legendapp/state/react'
+import { Bell, BellOff, CheckCheck, EyeOff, Pause, Play, SlidersHorizontal } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { setAccountMuted, setAccountPaused } from '../../states/accounts'
+import { inboxUnread, mail$, markAccountInboxRead } from '../../states/mail'
 import { setAccountSideNavHidden } from '../../states/settings'
 import { ui$ } from '../../states/ui'
 import type { Account } from '../../types'
@@ -8,7 +10,7 @@ import { RailContextMenu, RailMenuItem } from './RailContextMenu'
 
 const secondary = 'text-secondary'
 
-// Right-click menu for an account avatar: settings, mute, pause, hide.
+// Right-click menu for an account avatar: settings, notifications, checking, and visibility.
 export function AccountContextMenu({
   account,
   x,
@@ -21,6 +23,8 @@ export function AccountContextMenu({
   onClose: () => void
 }) {
   const { t } = useTranslation()
+  const folders = useValue(mail$.foldersByAccount[account.id])
+  const hasUnread = inboxUnread(folders) > 0
   return (
     <RailContextMenu x={x} y={y} onClose={onClose}>
       <RailMenuItem
@@ -29,6 +33,16 @@ export function AccountContextMenu({
         onClick={() => {
           ui$.accountSettingsId.set(account.id)
           ui$.settingsOpen.set(true)
+          onClose()
+        }}
+      />
+      <RailMenuItem
+        className="disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={!hasUnread}
+        icon={<CheckCheck size={13} className={secondary} />}
+        label={t('threads.actions.markAllAsRead')}
+        onClick={() => {
+          void markAccountInboxRead(account.id)
           onClose()
         }}
       />
