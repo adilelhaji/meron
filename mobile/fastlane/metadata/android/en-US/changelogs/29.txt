@@ -1,0 +1,3 @@
+- Keep message read state and unread counts distinct for cross-folder threads
+- Display setting descriptions in info dialogs for a cleaner layout
+- Update search and settings translations
