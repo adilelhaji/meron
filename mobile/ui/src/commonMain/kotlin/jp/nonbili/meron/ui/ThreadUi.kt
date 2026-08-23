@@ -139,6 +139,7 @@ internal fun ThreadScreen(
     onRemoveQuickReplyAttachment: (DraftAttachment) -> Unit,
     onOpenFullReply: () -> Unit,
     onSendReply: () -> Unit,
+    onRetryReply: () -> Unit,
     quickReplyFromIdentities: List<SendIdentity>,
     quickReplySelectedFrom: SendIdentity?,
     onSelectQuickReplyFrom: (SendIdentity) -> Unit,
@@ -688,6 +689,7 @@ internal fun ThreadScreen(
                         onRemoveAttachment = onRemoveQuickReplyAttachment,
                         onOpenFullEditor = onOpenFullReply,
                         onSend = onSendReply,
+                        onRetry = onRetryReply,
                         hasContent = quickReplyHasContent,
                         sending = quickReplySending,
                         fromIdentities = quickReplyFromIdentities,
@@ -1147,6 +1149,7 @@ internal fun ReplyBar(
     onRemoveAttachment: (DraftAttachment) -> Unit,
     onOpenFullEditor: () -> Unit,
     onSend: () -> Unit,
+    onRetry: () -> Unit = onSend,
     // Whether the bar holds anything worth sending. Passed in rather than read
     // off `value`, because a bar seeded with the account's signature is not
     // blank yet holds nothing the user wrote.
@@ -1201,7 +1204,7 @@ internal fun ReplyBar(
                         color = MaterialTheme.colorScheme.error,
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    TextButton(onClick = onSend, enabled = !sending && (value.isNotBlank() || attachments.isNotEmpty())) {
+                    TextButton(onClick = onRetry, enabled = !sending) {
                         Text(tr("chat.retry"))
                     }
                 }

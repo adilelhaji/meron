@@ -609,9 +609,6 @@ internal fun MeronMobileState.syncCoreThreads(
             val message = contextual?.cause?.message ?: it.message ?: "Sync failed"
             syncError = MobileSyncError(failedAccountId, message)
             errorBanner = null
-            // A sync failure is retried by syncing; drop any send left over from
-            // an earlier certificate prompt so trusting cannot resume it.
-            pendingCertificateRetry = null
             status = "Sync failed: ${it.message}"
             Log.w("MailLoad", "sync failed account=$accountId folder=$requestedFolder initialThreadsLoaded=$initialThreadsLoaded syncing=$syncing", it)
         }
@@ -909,6 +906,7 @@ internal fun MeronMobileState.readCoreThread(
     loadingMoreMessages = false
     previousTopScreen = returnScreen
     if (quickReplyThreadId != backendThreadId) {
+        ++quickReplyGeneration
         quickReplyAutosaveJob?.cancel()
         quickReplyAttachments = emptyList()
         quickReplyFailure = ""
@@ -985,6 +983,7 @@ internal fun MeronMobileState.hydrateQuickReplyFromTailDraft(
     val normalizedTailId = tail.messageId.normalizedComposeDraftId()
     if (quickReplyDraftId.isNotBlank() && quickReplyDraftId.normalizedComposeDraftId() == normalizedTailId) return
     quickReplyBody = tail.body
+    ++quickReplyGeneration
     quickReplyDraftId =
         tail.messageId
             .trim()
@@ -1015,6 +1014,7 @@ internal fun MeronMobileState.hydrateQuickReplyFromTailDraft(
             }.getOrElse { emptyList() }
         if (quickReplyThreadId == threadBackendId && quickReplyDraftId.normalizedComposeDraftId() == normalizedTailId) {
             quickReplyAttachments = copied
+            ++quickReplyGeneration
         }
     }
 }

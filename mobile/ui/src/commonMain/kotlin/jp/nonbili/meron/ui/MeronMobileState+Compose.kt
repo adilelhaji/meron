@@ -484,9 +484,18 @@ internal fun MeronMobileState.sendMail() {
     }
     composeSendInFlight = true
     pendingComposeSend = null
+    pendingCertificateRetry = null
+    val generation = composeSessionGeneration
+    val initialDraftOwners = composeDraftOwnerSnapshot()
     status = "Sending..."
     scope.launch {
         composeSaveMutex.withLock {
+            val draftOwners =
+                if (composeSessionGeneration == generation) {
+                    composeDraftOwnerSnapshot()
+                } else {
+                    initialDraftOwners
+                }
             val params =
                 runCatching {
                     withContext(ioDispatcher) {
@@ -498,14 +507,15 @@ internal fun MeronMobileState.sendMail() {
                         )
                     }
                 }.getOrElse {
-                    failComposeSend(it)
+                    failComposeSend(error = it)
                     return@withLock
                 }
             // Remembered so a send refused by a certificate we cannot validate
             // can be sent again as the same message — including its Message-ID —
             // once the user trusts the server.
-            pendingComposeSend = PendingComposeSend(accountId, params)
-            dispatchComposeSend(accountId, params)
+            val pending = PendingComposeSend(accountId, params, generation, draftOwners)
+            pendingComposeSend = pending
+            dispatchComposeSend(pending)
         }
     }
 }
@@ -516,72 +526,80 @@ internal fun MeronMobileState.sendMail() {
  * composer holds by the time the user gets back to it.
  */
 private suspend fun MeronMobileState.dispatchComposeSend(
-    accountId: String,
-    params: SendMailParams,
+    pending: PendingComposeSend,
 ) {
     runCatching {
         withContext(ioDispatcher) {
             val client = MobileMailCommandClient(core)
-            withManagedGoogleAuth(client, accountId) { client.send(params) }
+            withManagedGoogleAuth(client, pending.accountId) { client.send(pending.params) }
         }
     }.onSuccess {
-        finishComposeSend()
+        finishComposeSend(pending)
     }.onFailure {
-        failComposeSend(it)
+        failComposeSend(pending, it)
     }
 }
 
 /** Re-send the message a certificate rejection stopped, after it was trusted. */
 internal fun MeronMobileState.retryComposeSend() {
-    val pending = pendingComposeSend ?: return
+    retryComposeSend(pendingComposeSend ?: return)
+}
+
+internal fun MeronMobileState.retryComposeSend(pending: PendingComposeSend) {
     if (composeSendInFlight) return
+    pendingComposeSend = pending
     composeSendInFlight = true
     status = "Sending..."
     scope.launch {
         composeSaveMutex.withLock {
-            dispatchComposeSend(pending.accountId, pending.params)
+            dispatchComposeSend(pending)
         }
     }
 }
 
-private suspend fun MeronMobileState.finishComposeSend() {
-    val owners =
-        buildList {
-            if (composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
-                add(ComposeDraftOwner(composeDraftAccountId, composeDraftId, composeDraftThreadId()))
-            }
-            addAll(composeDraftCleanupOwners)
-            // Same draft, different remembered thread must not be
-            // discarded twice: the second attempt would report failure.
-        }.distinctBy { it.accountId to it.draftId }
-    composeDraftCleanupOwners = owners
-    discardComposeDraftOwners(owners)
-    clearComposeDraftState()
-    pendingComposeSend = null
-    pendingCertificateRetry = null
+private suspend fun MeronMobileState.finishComposeSend(pending: PendingComposeSend) {
+    val discardOutcome = discardComposeDraftOwners(pending.draftOwners)
+    composeDraftCleanupOwners =
+        (composeDraftCleanupOwners + discardOutcome.failedOwners)
+            .distinctBy { it.accountId to it.draftId }
+    if (pendingComposeSend == pending) pendingComposeSend = null
+    if (pendingCertificateRetry == PendingCertificateRetry.Compose(pending)) pendingCertificateRetry = null
     composeSendInFlight = false
-    // A retry can land after the user has left the composer to read the banner;
-    // only a composer still on screen gets closed.
-    if (screen == Screen.Compose) closeCompose()
+    if (composeSessionGeneration == pending.composeSessionGeneration) {
+        clearComposeDraftState()
+        // A retry can land after the user has left the composer to read the banner;
+        // only the captured composer still on screen gets closed.
+        if (screen == Screen.Compose) closeCompose()
+    }
     errorBanner = null
     status = "Message sent"
     syncCoreThreads()
 }
 
-private fun MeronMobileState.failComposeSend(error: Throwable) {
+private fun MeronMobileState.failComposeSend(
+    pending: PendingComposeSend? = pendingComposeSend,
+    error: Throwable,
+) {
     composeSendInFlight = false
     val message = error.message ?: "Send failed"
     errorBanner = message
     status = "Send failed: $message"
     // Trusting the certificate has to resume the send, not fall back to a
     // sync: the message is still unsent and the composer may be closed by then.
-    pendingCertificateRetry =
-        if (pendingComposeSend != null && untrustedCertificateProtocol(message) != null) {
-            { retryComposeSend() }
-        } else {
-            null
-        }
+    if (pending != null && untrustedCertificateProtocol(message) != null) {
+        pendingCertificateRetry = PendingCertificateRetry.Compose(pending)
+    } else if (pending != null && pendingCertificateRetry == PendingCertificateRetry.Compose(pending)) {
+        pendingCertificateRetry = null
+    }
 }
+
+private fun MeronMobileState.composeDraftOwnerSnapshot(): List<ComposeDraftOwner> =
+    buildList {
+        if (composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
+            add(ComposeDraftOwner(composeDraftAccountId, composeDraftId, composeDraftThreadId()))
+        }
+        addAll(composeDraftCleanupOwners)
+    }.distinctBy { it.accountId to it.draftId }
 
 /** The thread a compose draft belongs to, blank unless composing from a thread. */
 private fun MeronMobileState.composeDraftThreadId(): String = selectedCoreThread?.takeIf { composeReturnScreen == Screen.Thread }?.id.orEmpty()
@@ -883,10 +901,16 @@ private fun MeronMobileState.quickReplyWithoutSignature(): Pair<String, Boolean>
  */
 internal fun MeronMobileState.quickReplyIsBlank(): Boolean = quickReplyWithoutSignature().first.isBlank() && quickReplyAttachments.isEmpty()
 
-private suspend fun MeronMobileState.saveQuickReplyDraft(showStatus: Boolean): Boolean {
+private suspend fun MeronMobileState.saveQuickReplyDraft(showStatus: Boolean): Boolean =
+    quickReplySaveMutex.withLock {
+        saveQuickReplyDraftLocked(showStatus)
+    }
+
+private suspend fun MeronMobileState.saveQuickReplyDraftLocked(showStatus: Boolean): Boolean {
     // A send is about to discard the draft; saving now could resurrect it.
     if (quickReplySendInFlight) return false
     val thread = selectedCoreThread
+    val generation = quickReplyGeneration
     val accountId = thread?.accountId?.ifBlank { defaultSendAccountId() }.orEmpty()
     val parent = quickReplyParent()
     if (accountId.isBlank() || thread == null || parent == null) {
@@ -932,11 +956,28 @@ private suspend fun MeronMobileState.saveQuickReplyDraft(showStatus: Boolean): B
         }
     }.fold(
         onSuccess = { savedDraftId ->
-            quickReplyDraftId = savedDraftId
-            quickReplyDraftSaved = true
-            markThreadDraftEverywhere(thread.id)
-            if (showStatus) status = "Draft saved"
-            true
+            val sameEditor = selectedCoreThread?.id == thread.id && quickReplyThreadId == thread.id
+            val newlyAllocated = draftId.startsWith("local-draft-")
+            if (sameEditor && newlyAllocated && quickReplyDraftId.isBlank()) {
+                // Publish the allocated id even if the text changed or a send is
+                // waiting on the save lock. The next save reuses it, and the
+                // waiting send can capture it as the draft it must discard.
+                quickReplyDraftId = savedDraftId
+                quickReplyDraftSaved = true
+                markThreadDraftEverywhere(thread.id)
+                true
+            } else if (quickReplyGeneration != generation || !sameEditor || quickReplySendInFlight) {
+                // The save still belongs to the editor that started it. Keep its
+                // remote draft, but do not let its completion mutate another
+                // thread or a newer version of this reply.
+                true
+            } else {
+                quickReplyDraftId = savedDraftId
+                quickReplyDraftSaved = true
+                markThreadDraftEverywhere(thread.id)
+                if (showStatus) status = "Draft saved"
+                true
+            }
         },
         onFailure = {
             if (showStatus) status = "Draft save failed: ${it.message}"
@@ -1009,6 +1050,7 @@ internal fun MeronMobileState.discardQuickReplyDraftIfEmpty() {
 
 internal fun MeronMobileState.onQuickReplyBodyChange(value: String) {
     quickReplyBody = value
+    ++quickReplyGeneration
     quickReplyFailure = ""
     quickReplyAutosaveJob?.cancel()
     quickReplyAutosaveJob =
@@ -1034,6 +1076,7 @@ internal fun MeronMobileState.openQuickReplyInFullEditor() {
         status = "RSS items do not support replies."
         return
     }
+    ++quickReplyGeneration
     val replyFrom = resolveQuickReplyFrom(parent, coreAccounts.firstOrNull { it.id == accountId })
     // The seeded signature is handed over stripped, so the full composer inserts
     // and tracks its own copy — the account is the same, so this is the identical
@@ -1257,6 +1300,9 @@ internal fun MeronMobileState.sendQuickReply() {
     quickReplyFailure = ""
     quickReplyAutosaveJob?.cancel()
     quickReplySendInFlight = true
+    pendingCertificateRetry = null
+    pendingQuickReplySend = null
+    val generation = quickReplyGeneration
     val account = coreAccounts.firstOrNull { it.id == accountId }
     val replyFrom = resolveQuickReplyFrom(parent, account)
     val baseParams =
@@ -1277,82 +1323,134 @@ internal fun MeronMobileState.sendQuickReply() {
     // millisecond — message ids key the conversation list, duplicates crash.
     val tempId = "local-send-${currentTimeMillis()}-${localSendSequence++}"
     scope.launch {
-        val outboundMessageId =
-            runCatching {
-                withContext(ioDispatcher) { allocateCoreMessageId(MobileMailCommandClient(core), accountId, draft = false) }
-            }.getOrElse {
-                quickReplySendInFlight = false
-                quickReplyFailure = it.message.orEmpty()
-                status = "Send failed: ${it.message}"
-                return@launch
-            }
-        val params = baseParams.copy(messageId = outboundMessageId)
-        val optimistic =
-            MessageBody(
-                id = tempId,
-                folderId = parent.folderId,
-                from = "You",
-                fromAddr = replyFrom.ifBlank { account?.email.orEmpty() },
-                to = params.to,
-                cc = params.cc,
-                subject = params.subject,
-                body = sentBody,
-                messageId = outboundMessageId,
-                references = params.references,
-                dateEpochSeconds = currentTimeMillis() / 1000,
-                hasAttachments = sentAttachments.isNotEmpty(),
-                attachments =
-                    sentAttachments.map {
-                        MessageAttachment(filename = it.displayName, mimeType = it.mimeType, sizeBytes = it.sizeBytes)
-                    },
-                sendStatus = SendStatus.Sending,
-            )
-        messages = messages + optimistic
-        status = "Sending reply..."
-        runCatching {
-            withContext(ioDispatcher) {
-                val client = MobileMailCommandClient(core)
-                withManagedGoogleAuth(client, accountId) { client.send(params) }
-            }
-        }.onSuccess {
-            // Read the draft id after the send completes so an autosave that
-            // landed mid-send is discarded too.
-            val draftId = quickReplyDraftId
-            if (draftId.isNotBlank()) {
-                val discarded =
+        val pending =
+            quickReplySaveMutex.withLock {
+                val outboundMessageId =
                     runCatching {
-                        withContext(ioDispatcher) {
-                            MobileMailCommandClient(core).discardDraft(
-                                DiscardDraftParams(accountId = accountId, draftId = draftId),
-                            )
-                        }
-                    }.isSuccess
-                if (discarded) removeDiscardedDraftFromOpenThread(draftId, thread.id)
+                        withContext(ioDispatcher) { allocateCoreMessageId(MobileMailCommandClient(core), accountId, draft = false) }
+                    }.getOrElse {
+                        quickReplySendInFlight = false
+                        quickReplyFailure = it.message.orEmpty()
+                        status = "Send failed: ${it.message}"
+                        return@launch
+                    }
+                val params = baseParams.copy(messageId = outboundMessageId)
+                val optimistic =
+                    MessageBody(
+                        id = tempId,
+                        folderId = parent.folderId,
+                        from = "You",
+                        fromAddr = replyFrom.ifBlank { account?.email.orEmpty() },
+                        to = params.to,
+                        cc = params.cc,
+                        subject = params.subject,
+                        body = sentBody,
+                        messageId = outboundMessageId,
+                        references = params.references,
+                        dateEpochSeconds = currentTimeMillis() / 1000,
+                        hasAttachments = sentAttachments.isNotEmpty(),
+                        attachments =
+                            sentAttachments.map {
+                                MessageAttachment(filename = it.displayName, mimeType = it.mimeType, sizeBytes = it.sizeBytes)
+                            },
+                        sendStatus = SendStatus.Sending,
+                    )
+                messages = messages + optimistic
+                PendingQuickReplySend(
+                    accountId = accountId,
+                    params = params,
+                    tempMessageId = tempId,
+                    threadId = thread.id,
+                    draftOwner =
+                        quickReplyDraftId
+                            .takeIf { quickReplyDraftSaved && it.isNotBlank() }
+                            ?.let { ComposeDraftOwner(accountId, it, thread.id) },
+                    quickReplyGeneration = generation,
+                )
             }
-            quickReplySendInFlight = false
+        pendingQuickReplySend = pending
+        status = "Sending reply..."
+        dispatchQuickReplySend(pending)
+    }
+}
+
+internal fun MeronMobileState.retryQuickReplySend() {
+    val pending = pendingQuickReplySend ?: return
+    if (!quickReplyEditorOwns(pending)) return
+    retryQuickReplySend(pending)
+}
+
+internal fun MeronMobileState.retryQuickReplySend(pending: PendingQuickReplySend) {
+    if (quickReplySendInFlight) return
+    pendingQuickReplySend = pending
+    quickReplySendInFlight = true
+    quickReplyFailure = ""
+    messages = messages.map { if (it.id == pending.tempMessageId) it.copy(sendStatus = SendStatus.Sending) else it }
+    status = "Sending reply..."
+    scope.launch { dispatchQuickReplySend(pending) }
+}
+
+private suspend fun MeronMobileState.dispatchQuickReplySend(pending: PendingQuickReplySend) {
+    runCatching {
+        withContext(ioDispatcher) {
+            val client = MobileMailCommandClient(core)
+            withManagedGoogleAuth(client, pending.accountId) { client.send(pending.params) }
+        }
+    }.onSuccess {
+        val sameEditorGeneration = quickReplyGeneration == pending.quickReplyGeneration
+        pending.draftOwner?.takeIf { sameEditorGeneration }?.let { owner ->
+            val discarded =
+                runCatching {
+                    withContext(ioDispatcher) {
+                        MobileMailCommandClient(core).discardDraft(
+                            DiscardDraftParams(accountId = owner.accountId, draftId = owner.draftId),
+                        )
+                    }
+                }.isSuccess
+            if (discarded) removeDiscardedDraftFromOpenThread(owner.draftId, owner.threadId)
+        }
+        if (pendingQuickReplySend == pending) pendingQuickReplySend = null
+        if (pendingCertificateRetry == PendingCertificateRetry.QuickReply(pending)) pendingCertificateRetry = null
+        quickReplySendInFlight = false
+        if (sameEditorGeneration) {
             quickReplyFailure = ""
             quickReplyAttachments = emptyList()
             quickReplyDraftId = ""
             quickReplyDraftSaved = false
             quickReplyInReplyTo = ""
             quickReplyReferences = ""
-            // Back to a fresh reply bar rather than an empty one: the next reply
-            // in this thread gets a signature just like the one just sent did.
+            ++quickReplyGeneration
             seedQuickReplySignature()
-            status = "Reply sent"
-            messages = messages.map { if (it.id == tempId) it.copy(sendStatus = SendStatus.None) else it }
-            syncCoreThreads(syncFirst = false)
-            runCatching { reloadCurrentThreadMessages() }
-                .onFailure { }
-        }.onFailure {
-            quickReplySendInFlight = false
-            val message = it.message ?: "Send failed"
+        }
+        status = "Reply sent"
+        val threadStillOpen = selectedCoreThread?.id == pending.threadId
+        if (threadStillOpen) {
+            messages = messages.map { if (it.id == pending.tempMessageId) it.copy(sendStatus = SendStatus.None) else it }
+        }
+        errorBanner = null
+        syncCoreThreads(syncFirst = false)
+        if (threadStillOpen) runCatching { reloadCurrentThreadMessages() }.onFailure { }
+    }.onFailure {
+        quickReplySendInFlight = false
+        val message = it.message ?: "Send failed"
+        status = "Reply failed: $message"
+        if (quickReplyEditorOwns(pending)) {
             quickReplyFailure = message
-            status = "Reply failed: $message"
-            messages = messages.map { if (it.id == tempId) it.copy(sendStatus = SendStatus.Failed) else it }
+            messages = messages.map { if (it.id == pending.tempMessageId) it.copy(sendStatus = SendStatus.Failed) else it }
+        }
+        if (untrustedCertificateProtocol(message) != null) {
+            errorBanner = message
+            pendingCertificateRetry = PendingCertificateRetry.QuickReply(pending)
+        } else if (pendingCertificateRetry == PendingCertificateRetry.QuickReply(pending)) {
+            pendingCertificateRetry = null
         }
     }
 }
+
+private fun MeronMobileState.quickReplyEditorOwns(pending: PendingQuickReplySend): Boolean =
+    selectedCoreThread?.id == pending.threadId &&
+        quickReplyThreadId == pending.threadId &&
+        quickReplyGeneration == pending.quickReplyGeneration
 
 private suspend fun allocateCoreMessageId(
     client: MobileMailCommandClient,

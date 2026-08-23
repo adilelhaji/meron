@@ -10,6 +10,7 @@ import { errorMessage } from '../../lib/errors'
 import { securityForPort, serverSelectionAfterDiscovery, type MailSecurity } from './accountSecurity'
 import {
   certificateProbePayload,
+  shouldPromptForCertificate,
   untrustedCertificateProtocol,
   type CertificateInfo,
   type CertificateProtocol,
@@ -438,13 +439,18 @@ export function useAccountDialog() {
       const message = errorMessage(err, 'Could not save account')
       // A server whose certificate does not validate (a local bridge with a
       // self-signed one) is unreachable until its exact certificate is pinned.
-      // Offer that instead of dead-ending on the handshake error — but only
-      // once per server: a failure that survives the pin is a real failure.
+      // Offer that instead of dead-ending on the handshake error. Compare the
+      // probed certificate with the effective pin on this failed request: a
+      // stale reconnect pin is replaceable, while retrying the same pin cannot
+      // produce an endless prompt loop.
       const protocol = untrustedCertificateProtocol(message)
-      const alreadyPinned = protocol === 'smtp' ? smtpCertPin : certPin
-      if (protocol && !alreadyPinned) {
+      if (protocol) {
+        const attemptedPin =
+          protocol === 'smtp'
+            ? (smtpCertPin ?? reconnectAccount?.smtp_cert_pin)
+            : (certPin ?? reconnectAccount?.cert_pin)
         const prompt = await probeCertificate(protocol)
-        if (prompt) {
+        if (prompt && shouldPromptForCertificate(prompt.certificate.fingerprint, attemptedPin)) {
           setCertPrompt(prompt)
           return
         }

@@ -1047,10 +1047,12 @@ internal fun MailRouteContent(
 
                         errorBanner != null -> {
                             val authLike = isAuthError(errorBanner!!)
+                            val certificateAccountId = certificateErrorAccountId(selectedAccount?.id, pendingCertificateRetry)
+                            val certificateAccount = coreAccounts.firstOrNull { it.id == certificateAccountId }
                             // Send failures land here too, so this is where an
                             // untrusted submission-server certificate shows up.
                             val untrustedCert =
-                                selectedAccount != null && untrustedCertificateProtocol(errorBanner!!) != null
+                                certificateAccount != null && untrustedCertificateProtocol(errorBanner!!) != null
                             StatusBanner(
                                 message = if (untrustedCert) tr("accounts.certificate.title") else errorBanner!!,
                                 isError = true,
@@ -1062,9 +1064,21 @@ internal fun MailRouteContent(
                                     },
                                 onAction = {
                                     when {
-                                        untrustedCert -> showServerCertificate(selectedAccount!!.id, errorBanner!!)
-                                        authLike && selectedAccount != null -> reconnectAccount(selectedAccount)
-                                        else -> syncCoreThreads()
+                                        untrustedCert -> {
+                                            showServerCertificate(
+                                                certificateAccount.id,
+                                                errorBanner!!,
+                                                pendingCertificateRetry,
+                                            )
+                                        }
+
+                                        authLike && selectedAccount != null -> {
+                                            reconnectAccount(selectedAccount)
+                                        }
+
+                                        else -> {
+                                            syncCoreThreads()
+                                        }
                                     }
                                 },
                                 onDismiss = { errorBanner = null },

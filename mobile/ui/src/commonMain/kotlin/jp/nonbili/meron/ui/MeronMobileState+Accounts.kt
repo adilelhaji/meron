@@ -531,9 +531,11 @@ internal fun MeronMobileState.saveAccountProxy(
 internal fun MeronMobileState.showServerCertificate(
     accountId: String,
     message: String,
+    retry: PendingCertificateRetry? = null,
 ) {
     val protocol = untrustedCertificateProtocol(message) ?: return
-    val account = coreAccounts.find { it.id == accountId } ?: return
+    val resolvedAccountId = certificateErrorAccountId(accountId, retry) ?: return
+    val account = coreAccounts.find { it.id == resolvedAccountId } ?: return
     if (!coreLoaded) {
         status = coreUnavailableMessage
         return
@@ -570,11 +572,12 @@ internal fun MeronMobileState.showServerCertificate(
             } else {
                 certPrompt =
                     MobileCertPrompt(
-                        accountId = accountId,
+                        accountId = resolvedAccountId,
                         host = host,
                         port = port,
                         protocol = protocol,
                         certificate = certificate,
+                        retry = retry,
                     )
             }
         }.onFailure {
@@ -612,9 +615,12 @@ internal fun MeronMobileState.trustPromptedCertificate() {
             status = "Trusted ${prompt.host}"
             // Resume what the certificate blocked — an unsent message stays
             // unsent unless its send is the thing that runs again.
-            val retry = pendingCertificateRetry
-            pendingCertificateRetry = null
-            if (retry != null) retry() else syncCoreThreads()
+            if (pendingCertificateRetry == prompt.retry) pendingCertificateRetry = null
+            when (val retry = prompt.retry) {
+                is PendingCertificateRetry.Compose -> retryComposeSend(retry.pending)
+                is PendingCertificateRetry.QuickReply -> retryQuickReplySend(retry.pending)
+                null -> syncCoreThreads()
+            }
         }.onFailure {
             status = "Could not save the certificate: ${it.message}"
         }

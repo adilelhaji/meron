@@ -6,9 +6,12 @@ import jp.nonbili.meron.shared.CloseableHandle
 import jp.nonbili.meron.shared.CoreEvent
 import jp.nonbili.meron.shared.CoreEventStream
 import jp.nonbili.meron.shared.MeronCore
+import jp.nonbili.meron.shared.MessageBody
 import jp.nonbili.meron.shared.MobileCommand
 import jp.nonbili.meron.shared.ProxySpec
+import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.isUntrustedCertificateError
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -40,7 +43,7 @@ class CertificateTrustFlowTest {
             assertEquals(1, core.sendPayloads.size)
             assertTrue(isUntrustedCertificateError(assertNotNull(state.errorBanner)))
 
-            state.showServerCertificate("a", assertNotNull(state.errorBanner))
+            state.showServerCertificate("a", assertNotNull(state.errorBanner), state.pendingCertificateRetry)
             waitUntil { state.certPrompt != null }
             val prompt = assertNotNull(state.certPrompt)
             assertEquals(CertificateProtocol.SMTP, prompt.protocol)
@@ -79,6 +82,242 @@ class CertificateTrustFlowTest {
             assertNull(state.pendingCertificateRetry)
         }
 
+    @Test
+    fun certificateAccountComesFromTheCrossAccountPendingSend() =
+        runBlocking {
+            val core = TrustCore()
+            val state = state(core, this)
+            state.coreAccounts = state.coreAccounts + account("b", smtpPort = 2025)
+            state.selectedCoreAccountId = UNIFIED_ACCOUNT_ID
+            state.openCompose()
+            state.composeFromAccountId = "b"
+            state.to = "you@example.com"
+            state.subject = "Cross account"
+            state.body = "Body"
+
+            state.sendMail()
+            waitUntil { state.errorBanner != null }
+
+            assertEquals("b", certificateErrorAccountId("a", state.pendingCertificateRetry))
+            state.showServerCertificate("a", assertNotNull(state.errorBanner), state.pendingCertificateRetry)
+            waitUntil { state.certPrompt != null }
+            assertEquals("b", state.certPrompt?.accountId)
+            assertEquals(2025, state.certPrompt?.port)
+        }
+
+    @Test
+    fun activePromptKeepsItsRetryWhenAnUnrelatedFailureIsRecorded() =
+        runBlocking {
+            val core = TrustCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "Ping"
+            state.body = "Body"
+            state.sendMail()
+            waitUntil { state.errorBanner != null }
+            state.showServerCertificate("a", assertNotNull(state.errorBanner), state.pendingCertificateRetry)
+            waitUntil { state.certPrompt != null }
+            val promptRetry = assertNotNull(state.certPrompt).retry
+
+            state.syncError = MobileSyncError("a", "network failed")
+            state.errorBanner = null
+
+            assertEquals(promptRetry, state.certPrompt?.retry)
+            core.sendFails = false
+            state.trustPromptedCertificate()
+            waitUntil { core.sendPayloads.size == 2 }
+            assertEquals(core.sendPayloads[0], core.sendPayloads[1])
+        }
+
+    @Test
+    fun successfulTrustRetryDoesNotClearANewerComposeSession() =
+        runBlocking {
+            val core = TrustCore()
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "Old"
+            state.body = "Old body"
+            state.sendMail()
+            waitUntil { state.errorBanner != null }
+            state.showServerCertificate("a", assertNotNull(state.errorBanner), state.pendingCertificateRetry)
+            waitUntil { state.certPrompt != null }
+
+            state.openCompose()
+            state.to = "new@example.com"
+            state.subject = "New"
+            state.body = "New body"
+            core.sendFails = false
+            state.trustPromptedCertificate()
+            waitUntil { core.sendPayloads.size == 2 }
+
+            assertEquals(Screen.Compose, state.screen)
+            assertEquals("new@example.com", state.to)
+            assertEquals("New", state.subject)
+            assertEquals("New body", state.body)
+        }
+
+    @Test
+    fun quickReplyTrustRetryReusesTheExactSendAndPreservesNewEditorText() =
+        runBlocking {
+            val core = TrustCore()
+            val state = state(core, this)
+            state.selectedCoreThread =
+                ThreadSummary(id = "t1", accountId = "a", folder = "INBOX", subject = "Ping", sender = "sender@example.com")
+            state.quickReplyThreadId = "t1"
+            state.messages =
+                listOf(
+                    MessageBody(
+                        id = "m1",
+                        folderId = "INBOX",
+                        from = "Sender",
+                        fromAddr = "sender@example.com",
+                        to = "a@example.com",
+                        subject = "Ping",
+                        body = "Original",
+                        messageId = "original@example.com",
+                    ),
+                )
+            state.onQuickReplyBodyChange("First reply")
+
+            state.sendQuickReply()
+            waitUntil { state.errorBanner != null }
+            val firstPayload = core.sendPayloads.single()
+            val bubbleId = assertNotNull(state.pendingQuickReplySend).tempMessageId
+            state.onQuickReplyBodyChange("Changed while prompting")
+            state.showServerCertificate("a", assertNotNull(state.errorBanner), state.pendingCertificateRetry)
+            waitUntil { state.certPrompt != null }
+            core.sendFails = false
+            state.trustPromptedCertificate()
+            waitUntil { core.sendPayloads.size == 2 }
+
+            assertEquals(firstPayload, core.sendPayloads[1])
+            assertEquals(1, core.identityAllocations)
+            assertEquals(1, state.messages.count { it.id == bubbleId })
+            assertEquals("Changed while prompting", state.quickReplyBody)
+        }
+
+    @Test
+    fun quickReplyTrustRetryKeepsADraftReusedByNewerEdits() =
+        runBlocking {
+            val core = TrustCore()
+            val state = state(core, this)
+            state.selectedCoreThread =
+                ThreadSummary(id = "t1", accountId = "a", folder = "INBOX", subject = "Ping", sender = "sender@example.com")
+            state.quickReplyThreadId = "t1"
+            state.messages =
+                listOf(
+                    MessageBody(
+                        id = "m1",
+                        folderId = "INBOX",
+                        from = "Sender",
+                        fromAddr = "sender@example.com",
+                        to = "a@example.com",
+                        subject = "Ping",
+                        body = "Original",
+                        messageId = "original@example.com",
+                    ),
+                )
+            state.quickReplyBody = "First reply"
+            state.quickReplyDraftId = "reply-draft@example.com"
+            state.quickReplyDraftSaved = true
+
+            state.sendQuickReply()
+            waitUntil { state.errorBanner != null }
+            state.onQuickReplyBodyChange("Newer saved reply")
+            state.autoSaveQuickReplyDraft()
+            waitUntil { core.savedDraftPayloads.isNotEmpty() }
+            state.showServerCertificate("a", assertNotNull(state.errorBanner), state.pendingCertificateRetry)
+            waitUntil { state.certPrompt != null }
+            core.sendFails = false
+            state.trustPromptedCertificate()
+            waitUntil { core.sendPayloads.size == 2 }
+
+            assertTrue(core.discardDraftPayloads.isEmpty())
+            assertEquals("reply-draft@example.com", state.quickReplyDraftId)
+            assertEquals(true, state.quickReplyDraftSaved)
+            assertEquals("Newer saved reply", state.quickReplyBody)
+        }
+
+    @Test
+    fun freshQuickReplyPreparationDropsAnOlderRetryWhenIdentityAllocationFails() =
+        runBlocking {
+            val core = TrustCore()
+            val state = state(core, this)
+            state.selectedCoreThread =
+                ThreadSummary(id = "t1", accountId = "a", folder = "INBOX", subject = "Ping", sender = "sender@example.com")
+            state.quickReplyThreadId = "t1"
+            state.messages =
+                listOf(
+                    MessageBody(
+                        id = "m1",
+                        folderId = "INBOX",
+                        from = "Sender",
+                        fromAddr = "sender@example.com",
+                        to = "a@example.com",
+                        subject = "Ping",
+                        body = "Original",
+                        messageId = "original@example.com",
+                    ),
+                )
+            state.onQuickReplyBodyChange("Old reply")
+            state.sendQuickReply()
+            waitUntil { state.pendingQuickReplySend != null && !state.quickReplySendInFlight }
+            assertEquals(1, core.sendPayloads.size)
+
+            state.onQuickReplyBodyChange("New reply")
+            core.failIdentityAllocation = true
+            state.sendQuickReply()
+            waitUntil { !state.quickReplySendInFlight && state.quickReplyFailure.contains("allocation failed") }
+
+            assertNull(state.pendingQuickReplySend)
+            state.retryQuickReplySend()
+            delay(20)
+            assertEquals(1, core.sendPayloads.size)
+        }
+
+    @Test
+    fun quickReplyFailureAfterNavigationDoesNotExposeTheOldRetry() =
+        runBlocking {
+            val core = TrustCore().apply { sendGate = CompletableDeferred() }
+            val state = state(core, this)
+            state.selectedCoreThread =
+                ThreadSummary(id = "old", accountId = "a", folder = "INBOX", subject = "Old", sender = "old@example.com")
+            state.quickReplyThreadId = "old"
+            state.messages =
+                listOf(
+                    MessageBody(
+                        id = "old-message",
+                        folderId = "INBOX",
+                        from = "Old",
+                        fromAddr = "old@example.com",
+                        to = "a@example.com",
+                        subject = "Old",
+                        body = "Original",
+                        messageId = "old@example.com",
+                    ),
+                )
+            state.onQuickReplyBodyChange("Old reply")
+            state.sendQuickReply()
+            waitUntil { core.sendPayloads.size == 1 }
+
+            state.selectedCoreThread =
+                ThreadSummary(id = "new", accountId = "a", folder = "INBOX", subject = "New", sender = "new@example.com")
+            state.quickReplyThreadId = "new"
+            state.quickReplyBody = "New reply"
+            state.quickReplyFailure = ""
+            state.messages = emptyList()
+            ++state.quickReplyGeneration
+            assertNotNull(core.sendGate).complete(Unit)
+            waitUntil { !state.quickReplySendInFlight }
+
+            assertEquals("", state.quickReplyFailure)
+            state.retryQuickReplySend()
+            delay(20)
+            assertEquals(1, core.sendPayloads.size)
+        }
+
     private suspend fun waitUntil(condition: () -> Boolean) {
         withTimeout(5_000) {
             while (!condition()) delay(5)
@@ -102,23 +341,29 @@ class CertificateTrustFlowTest {
         ).apply {
             coreAccounts =
                 listOf(
-                    AccountSummary(
-                        id = "a",
-                        email = "a@example.com",
-                        imapHost = "127.0.0.1",
-                        imapPort = 1143,
-                        smtpHost = "127.0.0.1",
-                        smtpPort = 1025,
-                        tls = false,
-                        starttls = true,
-                        smtpTls = false,
-                        smtpStarttls = true,
-                        proxy = ProxySpec("socks5", "127.0.0.1", 9050),
-                    ),
+                    account("a"),
                 )
             selectedCoreAccountId = "a"
             appSignatureLoaded = true
         }
+
+    private fun account(
+        id: String,
+        smtpPort: Int = 1025,
+    ): AccountSummary =
+        AccountSummary(
+            id = id,
+            email = "$id@example.com",
+            imapHost = "127.0.0.1",
+            imapPort = 1143,
+            smtpHost = "127.0.0.1",
+            smtpPort = smtpPort,
+            tls = false,
+            starttls = true,
+            smtpTls = false,
+            smtpStarttls = true,
+            proxy = ProxySpec("socks5", "127.0.0.1", 9050),
+        )
 
     /** Refuses the first send the way a bridge with a self-signed certificate does. */
     private class TrustCore(
@@ -126,9 +371,14 @@ class CertificateTrustFlowTest {
             "smtp-untrusted-certificate: invalid peer certificate: Other(OtherError(CaUsedAsEndEntity))",
     ) : MeronCore {
         val sendPayloads = mutableListOf<String>()
+        val savedDraftPayloads = mutableListOf<String>()
+        val discardDraftPayloads = mutableListOf<String>()
         var probePayload: String? = null
         var pinPayload: String? = null
         var sendFails = true
+        var identityAllocations = 0
+        var failIdentityAllocation = false
+        var sendGate: CompletableDeferred<Unit>? = null
 
         override suspend fun invoke(
             command: String,
@@ -136,12 +386,25 @@ class CertificateTrustFlowTest {
         ): String =
             when (command) {
                 MobileCommand.AllocateIdentity -> {
+                    identityAllocations += 1
+                    if (failIdentityAllocation) throw RuntimeException("allocation failed")
                     """{"message_id":"draft-1@example.com"}"""
                 }
 
                 MobileCommand.Send -> {
                     sendPayloads += payloadJson
+                    sendGate?.await()
                     if (sendFails) throw RuntimeException(failure)
+                    "{}"
+                }
+
+                MobileCommand.SaveDraft -> {
+                    savedDraftPayloads += payloadJson
+                    "{}"
+                }
+
+                MobileCommand.DiscardDraft -> {
+                    discardDraftPayloads += payloadJson
                     "{}"
                 }
 

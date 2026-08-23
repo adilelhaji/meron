@@ -5,9 +5,11 @@ import jp.nonbili.meron.shared.CloseableHandle
 import jp.nonbili.meron.shared.CoreEvent
 import jp.nonbili.meron.shared.CoreEventStream
 import jp.nonbili.meron.shared.MeronCore
+import jp.nonbili.meron.shared.MessageBody
 import jp.nonbili.meron.shared.MobileCommand
 import jp.nonbili.meron.shared.ProxySpec
 import jp.nonbili.meron.shared.SignatureSpec
+import jp.nonbili.meron.shared.ThreadSummary
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
@@ -137,6 +139,123 @@ class ComposeSaveLifecycleTest {
             assertEquals(false, state.composeDraftSaved)
             assertEquals(1, core.discardPayloads.size)
             assertTrue(core.discardPayloads.single().contains("existing-a@example.com"))
+        }
+
+    @Test
+    fun failedPostSendDraftDiscardRemainsQueuedForCleanup() =
+        runBlocking {
+            val core = SaveCore().apply { discardFails = true }
+            val state = state(core, this)
+            state.openCompose()
+            state.to = "you@example.com"
+            state.subject = "Send"
+            state.body = "Send body${state.body}"
+            state.composeDraftId = "existing-a@example.com"
+            state.composeDraftSaved = true
+            state.composeDraftAccountId = "a"
+
+            state.sendMail()
+            core.sendFinished.await()
+            core.discardFinished.await()
+            withTimeout(1_000) {
+                while (state.composeSendInFlight) yield()
+            }
+
+            assertEquals(
+                listOf(ComposeDraftOwner("a", "existing-a@example.com", "")),
+                state.composeDraftCleanupOwners,
+            )
+            assertEquals("", state.composeDraftId)
+        }
+
+    @Test
+    fun completedQuickReplySaveSurvivesNavigationWithoutMutatingTheNewThread() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            state.selectedCoreThread =
+                ThreadSummary(id = "old", accountId = "a", folder = "INBOX", subject = "Old", sender = "old@example.com")
+            state.quickReplyThreadId = "old"
+            state.messages =
+                listOf(
+                    MessageBody(
+                        id = "old-message",
+                        folderId = "INBOX",
+                        from = "Old",
+                        fromAddr = "old@example.com",
+                        to = "a@example.com",
+                        subject = "Old",
+                        body = "Original",
+                        messageId = "old@example.com",
+                    ),
+                )
+            state.quickReplyBody = "Saved reply"
+            state.quickReplyDraftId = "existing-reply@example.com"
+            state.quickReplyDraftSaved = true
+
+            state.autoSaveQuickReplyDraft()
+            core.firstSaveStarted.await()
+            state.selectedCoreThread =
+                ThreadSummary(id = "new", accountId = "a", folder = "INBOX", subject = "New", sender = "new@example.com")
+            state.quickReplyThreadId = "new"
+            state.quickReplyBody = "New thread reply"
+            state.quickReplyDraftId = "new-reply@example.com"
+            ++state.quickReplyGeneration
+            core.releaseFirstSave.complete(Unit)
+            core.firstSaveFinished.await()
+            yield()
+
+            assertTrue(core.discardPayloads.isEmpty())
+            assertEquals("new", state.quickReplyThreadId)
+            assertEquals("New thread reply", state.quickReplyBody)
+            assertEquals("new-reply@example.com", state.quickReplyDraftId)
+        }
+
+    @Test
+    fun obsoleteQuickReplySavePublishesItsNewRemoteIdForTheSameEditor() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            prepareQuickReply(state)
+            state.onQuickReplyBodyChange("First version")
+
+            state.autoSaveQuickReplyDraft()
+            core.firstSaveStarted.await()
+            state.onQuickReplyBodyChange("Second version")
+            core.releaseFirstSave.complete(Unit)
+            core.firstSaveFinished.await()
+            withTimeout(1_000) {
+                while (state.quickReplyDraftId.isBlank()) yield()
+            }
+            assertEquals("draft-1@example.com", state.quickReplyDraftId)
+
+            state.autoSaveQuickReplyDraft()
+            core.secondSaveFinished.await()
+
+            assertEquals(1, core.allocationCalls)
+            assertTrue(core.savedPayloads[1].contains("\"draft_id\":\"draft-1@example.com\""))
+            assertTrue(core.discardPayloads.isEmpty())
+        }
+
+    @Test
+    fun quickReplySendWaitingForSaveDiscardsTheNewlyAllocatedDraft() =
+        runBlocking {
+            val core = SaveCore()
+            val state = state(core, this)
+            prepareQuickReply(state)
+            state.onQuickReplyBodyChange("Reply")
+
+            state.autoSaveQuickReplyDraft()
+            core.firstSaveStarted.await()
+            state.sendQuickReply()
+            yield()
+            assertEquals(0, core.sendCalls)
+            core.releaseFirstSave.complete(Unit)
+            core.sendFinished.await()
+            core.discardFinished.await()
+
+            assertEquals(2, core.allocationCalls)
+            assertTrue(core.discardPayloads.single().contains("draft-1@example.com"))
         }
 
     @Test
@@ -281,6 +400,25 @@ class ComposeSaveLifecycleTest {
             appSignatureLoaded = true
         }
 
+    private fun prepareQuickReply(state: MeronMobileState) {
+        state.selectedCoreThread =
+            ThreadSummary(id = "thread", accountId = "a", folder = "INBOX", subject = "Subject", sender = "sender@example.com")
+        state.quickReplyThreadId = "thread"
+        state.messages =
+            listOf(
+                MessageBody(
+                    id = "message",
+                    folderId = "INBOX",
+                    from = "Sender",
+                    fromAddr = "sender@example.com",
+                    to = "a@example.com",
+                    subject = "Subject",
+                    body = "Original",
+                    messageId = "original@example.com",
+                ),
+            )
+    }
+
     private class SaveCore : MeronCore {
         val firstSaveStarted = CompletableDeferred<Unit>()
         val firstSaveFinished = CompletableDeferred<Unit>()
@@ -292,7 +430,8 @@ class ComposeSaveLifecycleTest {
         val discardPayloads = mutableListOf<String>()
         var saveCalls = 0
         var sendCalls = 0
-        private var allocationCalls = 0
+        var discardFails = false
+        var allocationCalls = 0
 
         override suspend fun invoke(
             command: String,
@@ -320,6 +459,7 @@ class ComposeSaveLifecycleTest {
                 MobileCommand.DiscardDraft -> {
                     discardPayloads += payloadJson
                     discardFinished.complete(Unit)
+                    if (discardFails) throw RuntimeException("discard failed")
                     "{}"
                 }
 

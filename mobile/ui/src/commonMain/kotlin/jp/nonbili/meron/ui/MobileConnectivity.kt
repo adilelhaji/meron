@@ -21,13 +21,47 @@ internal data class MobileCertPrompt(
     val port: Int,
     val protocol: CertificateProtocol,
     val certificate: ServerCertificate,
+    val retry: PendingCertificateRetry?,
 )
 
 /** A prepared message whose send failed and can be retried as-is. */
 internal data class PendingComposeSend(
     val accountId: String,
     val params: SendMailParams,
+    val composeSessionGeneration: Int,
+    val draftOwners: List<ComposeDraftOwner>,
 )
+
+/** An immutable quick reply, including the optimistic bubble it owns. */
+internal data class PendingQuickReplySend(
+    val accountId: String,
+    val params: SendMailParams,
+    val tempMessageId: String,
+    val threadId: String,
+    val draftOwner: ComposeDraftOwner?,
+    val quickReplyGeneration: Int,
+)
+
+internal sealed interface PendingCertificateRetry {
+    val accountId: String
+
+    data class Compose(
+        val pending: PendingComposeSend,
+    ) : PendingCertificateRetry {
+        override val accountId: String = pending.accountId
+    }
+
+    data class QuickReply(
+        val pending: PendingQuickReplySend,
+    ) : PendingCertificateRetry {
+        override val accountId: String = pending.accountId
+    }
+}
+
+internal fun certificateErrorAccountId(
+    selectedAccountId: String?,
+    retry: PendingCertificateRetry?,
+): String? = retry?.accountId ?: selectedAccountId
 
 internal class AccountSyncException(
     val accountId: String,

@@ -50,6 +50,13 @@ export function untrustedCertificateProtocol(message: string): CertificateProtoc
   return isUntrustedCertificateError(message) ? 'imap' : null
 }
 
+// Re-prompt only when the probe found a certificate different from the pin the
+// failed request actually tried. This lets reconnect replace a stale stored pin
+// without looping when a pin accepted during this save somehow still fails.
+export function shouldPromptForCertificate(fingerprint: string, attemptedPin?: string): boolean {
+  return fingerprint.trim().toLowerCase() !== (attemptedPin ?? '').trim().toLowerCase()
+}
+
 // Hex SHA-256 as colon-separated byte pairs, the form every other tool
 // (openssl, browsers, Bridge's own logs) prints so the two can be compared.
 export function formatFingerprint(fingerprint: string): string {

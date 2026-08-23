@@ -257,6 +257,8 @@ internal class MeronMobileState(
     // Same double-send/autosave-race gate as composeSendInFlight, for the
     // inline reply bar.
     var quickReplySendInFlight by mutableStateOf(false)
+    var quickReplyGeneration = 0
+    val quickReplySaveMutex = Mutex()
 
     // Debounce bookkeeping for autosaving the quick-reply draft as the user
     // types; not UI state, so a plain var rather than mutableStateOf.
@@ -307,14 +309,14 @@ internal class MeronMobileState(
     var certPrompt by mutableStateOf<MobileCertPrompt?>(null)
     var certPromptBusy by mutableStateOf(false)
 
-    // What to re-run once a certificate is trusted: the send that was refused,
-    // or null to fall back to a sync. Set wherever a failure is recorded, so a
-    // later unrelated failure cannot resume a stale action.
-    var pendingCertificateRetry: (() -> Unit)? = null
+    // The exact operation refused by a certificate. A prompt snapshots this so
+    // unrelated failures cannot change what accepting that prompt resumes.
+    var pendingCertificateRetry: PendingCertificateRetry? = null
 
     // The message a refused send was carrying, kept so the retry sends exactly
     // that one rather than whatever the composer holds by then.
     var pendingComposeSend: PendingComposeSend? = null
+    var pendingQuickReplySend: PendingQuickReplySend? = null
     var addSection by mutableStateOf(0)
     var notificationPermissionGranted by mutableStateOf(mobileHost.notificationsEnabled())
     var notificationBannerDismissed by mutableStateOf(loadAppBoolean(prefs, NOTIFICATION_BANNER_DISMISSED_PREF, false))

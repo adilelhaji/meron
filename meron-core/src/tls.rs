@@ -264,7 +264,7 @@ pub fn is_cert_error(err: &std::io::Error) -> bool {
 
 /// Handshake with `host` over an already-connected socket purely to read back
 /// the leaf certificate. The session is discarded; nothing is sent over it.
-pub async fn capture(host: &str, tcp: TcpStream, timeout: std::time::Duration) -> Result<CertInfo> {
+async fn capture(host: &str, tcp: TcpStream) -> Result<CertInfo> {
     let verifier = Arc::new(CapturingVerifier {
         captured: Mutex::new(None),
         inner: webpki_verifier()?,
@@ -274,14 +274,10 @@ pub async fn capture(host: &str, tcp: TcpStream, timeout: std::time::Duration) -
     // An unparseable server name (a bare IP is fine, garbage is not) would fail
     // the handshake before we ever see a certificate.
     let server_name = ServerName::try_from(host.to_string()).context("invalid server name")?;
-    let handshake: Result<TlsStream<TcpStream>> = tokio::time::timeout(timeout, async {
-        connector
-            .connect(server_name, tcp)
-            .await
-            .context("tls handshake")
-    })
-    .await
-    .map_err(|_| anyhow::anyhow!("tls handshake: timed out"))?;
+    let handshake: Result<TlsStream<TcpStream>> = connector
+        .connect(server_name, tcp)
+        .await
+        .context("tls handshake");
     let captured = verifier.captured.lock().unwrap().take();
     match captured {
         // The handshake may still fail after certificate selection (a signature
@@ -305,16 +301,31 @@ pub async fn probe(
     starttls: bool,
     proxy: Option<&crate::proxy::ProxyConfig>,
 ) -> Result<CertInfo> {
-    let tcp = crate::imap::open_socket(host, port, proxy).await?;
-    let tcp = if starttls {
-        match protocol {
-            "smtp" => crate::smtp::starttls_socket(tcp).await?,
-            _ => crate::imap::starttls_socket(tcp).await?,
-        }
-    } else {
-        tcp
-    };
-    capture(host, tcp, PROBE_TIMEOUT).await
+    probe_with_timeout(host, port, protocol, starttls, proxy, PROBE_TIMEOUT).await
+}
+
+async fn probe_with_timeout(
+    host: &str,
+    port: u16,
+    protocol: &str,
+    starttls: bool,
+    proxy: Option<&crate::proxy::ProxyConfig>,
+    timeout: std::time::Duration,
+) -> Result<CertInfo> {
+    tokio::time::timeout(timeout, async {
+        let tcp = crate::imap::open_socket(host, port, proxy).await?;
+        let tcp = if starttls {
+            match protocol {
+                "smtp" => crate::smtp::starttls_socket(tcp).await?,
+                _ => crate::imap::starttls_socket(tcp).await?,
+            }
+        } else {
+            tcp
+        };
+        capture(host, tcp).await
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("certificate probe: timed out"))?
 }
 
 /// Matches the connect path's handshake cap: a probe runs while the user waits
@@ -324,6 +335,34 @@ const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn probe_timeout_includes_starttls_greeting() {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            let (_tcp, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+
+        let started = tokio::time::Instant::now();
+        let err = probe_with_timeout(
+            "127.0.0.1",
+            port,
+            "imap",
+            true,
+            None,
+            std::time::Duration::from_millis(50),
+        )
+        .await
+        .unwrap_err();
+        server.abort();
+
+        assert!(err.to_string().contains("timed out"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
 
     #[test]
     fn fingerprint_is_lowercase_hex_sha256() {

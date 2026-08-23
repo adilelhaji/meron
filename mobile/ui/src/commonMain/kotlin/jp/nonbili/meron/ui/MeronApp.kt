@@ -920,12 +920,14 @@ private fun MeronMobileScreenContent(
                     onQuickReplyAttach = {
                         pickAttachmentInto { picked ->
                             quickReplyAttachments = quickReplyAttachments + picked
+                            ++quickReplyGeneration
                             quickReplyFailure = ""
                             autoSaveQuickReplyDraft()
                         }
                     },
                     onRemoveQuickReplyAttachment = { attachment ->
                         quickReplyAttachments = quickReplyAttachments.filterNot { it.id == attachment.id }
+                        ++quickReplyGeneration
                         quickReplyFailure = ""
                         if (quickReplyIsBlank()) {
                             discardQuickReplyDraftIfEmpty()
@@ -935,10 +937,12 @@ private fun MeronMobileScreenContent(
                     },
                     onOpenFullReply = ::openQuickReplyInFullEditor,
                     onSendReply = ::sendQuickReply,
+                    onRetryReply = ::retryQuickReplySend,
                     quickReplyFromIdentities = quickReplyIdentities(),
                     quickReplySelectedFrom = selectedQuickReplyIdentity(),
                     onSelectQuickReplyFrom = { identity ->
                         quickReplyFrom = identity.email
+                        ++quickReplyGeneration
                         // The saved draft carries the From header, so re-save it
                         // against the newly chosen identity instead of waiting
                         // for the next keystroke's debounce.

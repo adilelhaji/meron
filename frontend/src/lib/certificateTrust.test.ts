@@ -4,6 +4,7 @@ import {
   commonName,
   formatFingerprint,
   isUntrustedCertificateError,
+  shouldPromptForCertificate,
   untrustedCertificateProtocol,
 } from './certificateTrust'
 
@@ -44,6 +45,20 @@ describe('untrustedCertificateProtocol', () => {
 
   it('returns null for failures that are not about a certificate', () => {
     expect(untrustedCertificateProtocol('login failed: authentication failed')).toBe(null)
+  })
+})
+
+describe('shouldPromptForCertificate', () => {
+  it('allows a newly probed certificate to replace a stale reconnect pin', () => {
+    expect(shouldPromptForCertificate('new-fingerprint', 'stale-fingerprint')).toBe(true)
+  })
+
+  it('does not prompt repeatedly for the pin already attempted by this save', () => {
+    expect(shouldPromptForCertificate('ABCD', 'abcd')).toBe(false)
+  })
+
+  it('prompts when the failed request did not carry a pin', () => {
+    expect(shouldPromptForCertificate('new-fingerprint')).toBe(true)
   })
 })
 
