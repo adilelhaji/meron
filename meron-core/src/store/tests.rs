@@ -2476,6 +2476,54 @@ fn thread_key_inheritance_matches_parent_message_id_case_insensitively() {
     assert_eq!(child_key, "Root@Mail.example");
 }
 
+#[test]
+fn thread_key_inheritance_follows_referenced_message_to_canonical_root() {
+    use crate::imap::MessageHeader;
+    let conn = test_conn();
+
+    // Proton Bridge can return a later reply whose References root is the
+    // first sent reply, while In-Reply-To names the newest received message.
+    // The first reply has already inherited the conversation's older root.
+    upsert_messages(
+        &conn,
+        "acct",
+        "Sent",
+        &[MessageHeader {
+            uid: 1,
+            subject: "Re: test".into(),
+            date: 100,
+            thread_key: "proton-root@protonmail.internalid".into(),
+            message_id: "first-reply@local".into(),
+            in_reply_to: "proton-root@protonmail.internalid".into(),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+
+    upsert_messages(
+        &conn,
+        "acct",
+        "Sent",
+        &[MessageHeader {
+            uid: 2,
+            subject: "Re: test".into(),
+            date: 200,
+            thread_key: "first-reply@local".into(),
+            message_id: "second-reply@local".into(),
+            in_reply_to: "received-between-replies@example.com".into(),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+
+    let child_key: String = conn
+        .query_row("SELECT thread_key FROM messages WHERE uid = 2", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(child_key, "proton-root@protonmail.internalid");
+}
+
 /// The account address and the mailbox login are separate fields, so both are
 /// identities the user owns — a custom account whose server authenticates by
 /// user name has them differ, and picking its own address used to fall through

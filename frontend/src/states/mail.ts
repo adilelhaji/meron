@@ -1084,7 +1084,8 @@ export async function loadThread(threadId: string) {
     // Bodies still filling in the background arrive via the `mail.synced`
     // re-read; until then hide their placeholders rather than render empty
     // bubbles.
-    const messages = result.messages.filter((message) => !message.body_missing)
+    const refreshed = result.messages.filter((message) => !message.body_missing)
+    const messages = mergeRefreshedThreadMessages(mail$.messages.get(), refreshed, threadId)
     mail$.messages.set(messages)
     mail$.messagesCursor.set(result.next_cursor ?? '')
     mail$.messagesLoadingMore.set(false)
@@ -1102,6 +1103,30 @@ export async function loadThread(threadId: string) {
       mail$.threadLoading.set(false)
     }
   }
+}
+
+/**
+ * Keep optimistic sends visible while the server's Sent copy catches up. Some
+ * providers expose it over IMAP only after SMTP has returned (Proton Bridge can
+ * take several seconds), so replacing the thread page wholesale creates a gap
+ * where the reply disappears. Once the canonical row carrying the same
+ * Message-ID arrives, it replaces the local bubble instead of rendering twice.
+ */
+export function mergeRefreshedThreadMessages(current: Message[], refreshed: Message[], threadId: string): Message[] {
+  const canonicalMessageIds = new Set(
+    refreshed.map((message) => normalizeMessageId(message.message_id)).filter(Boolean),
+  )
+  const optimistic = current.filter((message) => {
+    if (message.thread_id !== threadId || !isLocalSendId(message.id)) return false
+    const messageId = normalizeMessageId(message.message_id)
+    return !messageId || !canonicalMessageIds.has(messageId)
+  })
+  if (optimistic.length === 0) return refreshed
+  return [...refreshed, ...optimistic].sort((a, b) => a.date - b.date)
+}
+
+function normalizeMessageId(value: string | undefined): string {
+  return (value ?? '').trim().replace(/^<|>$/g, '').toLowerCase()
 }
 
 export async function loadMoreMessages(threadId: string) {

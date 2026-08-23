@@ -19,6 +19,7 @@ import {
   mail$,
   markAllRead,
   markMessagesRead,
+  mergeRefreshedThreadMessages,
   requestThreadReselect,
   threadListViewKey,
   moveThreadToFolder,
@@ -59,6 +60,40 @@ const bulkItem = (message: Message, overrides: Partial<BulkSelectionItem> = {}):
   draft: false,
   trash: false,
   ...overrides,
+})
+
+describe('thread message refresh reconciliation', () => {
+  it('keeps an optimistic reply until the canonical Sent copy arrives', () => {
+    const original = thread({ id: 'm1', thread_id: 't1', message_id: 'root@example.com', date: 100 })
+    const optimistic = thread({
+      id: 'sent-local',
+      thread_id: 't1',
+      message_id: 'reply@example.com',
+      send_status: 'sent',
+      date: 200,
+    })
+
+    expect(mergeRefreshedThreadMessages([original, optimistic], [original], 't1')).toEqual([original, optimistic])
+
+    const canonical = thread({
+      id: 'sent:2',
+      folder_id: 'Sent',
+      thread_id: 't1',
+      message_id: '<REPLY@example.com>',
+      date: 200,
+    })
+    expect(mergeRefreshedThreadMessages([original, optimistic], [original, canonical], 't1')).toEqual([
+      original,
+      canonical,
+    ])
+  })
+
+  it('does not carry an optimistic reply into another thread', () => {
+    const optimistic = thread({ id: 'sent-local', thread_id: 't1', send_status: 'sending' })
+    const other = thread({ id: 'm2', thread_id: 't2' })
+
+    expect(mergeRefreshedThreadMessages([optimistic], [other], 't2')).toEqual([other])
+  })
 })
 
 describe('thread list paging', () => {

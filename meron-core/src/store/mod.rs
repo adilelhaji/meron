@@ -246,7 +246,7 @@ pub fn upsert_messages(
             extra.insert("in_reply_to".to_string(), json!(m.in_reply_to));
         }
         let extra_json = Value::Object(extra).to_string();
-        let thread_key = resolve_message_thread_key(&tx, account, &m.thread_key, &m.in_reply_to)?;
+        let thread_key = resolve_message_thread_key(&tx, account, &m.thread_key)?;
         tx.execute(
             "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date, seen, starred, thread_key, json, recipients)
              VALUES(?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -287,19 +287,17 @@ fn resolve_message_thread_key(
     conn: &rusqlite::Transaction<'_>,
     account: &str,
     thread_key: &str,
-    in_reply_to: &str,
 ) -> Result<String> {
     let key = thread_key.trim();
-    let parent_id = in_reply_to.trim();
-    if key.is_empty()
-        || parent_id.is_empty()
-        || !key.eq_ignore_ascii_case(parent_id)
-        || key.starts_with("uid:")
-        || key.starts_with("gmthrid:")
-    {
+    if key.is_empty() || key.starts_with("uid:") || key.starts_with("gmthrid:") {
         return Ok(thread_key.to_string());
     }
 
+    // References chooses a Message-ID as the raw thread key. That message may
+    // itself already have inherited an older canonical root. Following the
+    // key through its cached Message-ID keeps later replies in that same root,
+    // even when their immediate In-Reply-To names a different message. Proton
+    // Bridge exposes exactly this shape after a reply round trip.
     let inherited = conn
         .query_row(
             "SELECT thread_key FROM messages
@@ -308,7 +306,7 @@ fn resolve_message_thread_key(
                AND COALESCE(thread_key, '') <> ''
              ORDER BY date ASC, uid ASC
              LIMIT 1",
-            params![account, parent_id],
+            params![account, key],
             |row| row.get::<_, String>(0),
         )
         .optional()?;
@@ -317,9 +315,9 @@ fn resolve_message_thread_key(
 }
 
 fn reconcile_account_thread_keys(conn: &rusqlite::Transaction<'_>, account: &str) -> Result<()> {
-    // A fresh folder sync may upsert replies newest-first, so a child can arrive
-    // before the parent row whose Message-ID would reveal the canonical root key.
-    // Re-run the same parent-key inheritance over the complete account cache.
+    // A fresh folder sync may upsert a reply before the referenced row whose
+    // Message-ID reveals the canonical root key. Re-run the same key inheritance
+    // over the complete account cache until multi-hop chains settle.
     for _ in 0..16 {
         let changed = conn.execute(
             "UPDATE messages AS child
@@ -328,7 +326,7 @@ fn reconcile_account_thread_keys(conn: &rusqlite::Transaction<'_>, account: &str
                       FROM messages parent
                      WHERE parent.account = child.account
                        AND lower(COALESCE(json_extract(parent.json, '$.message_id'), '')) =
-                           lower(COALESCE(json_extract(child.json, '$.in_reply_to'), ''))
+                           lower(child.thread_key)
                        AND COALESCE(parent.thread_key, '') <> ''
                        AND parent.thread_key <> child.thread_key
                      ORDER BY parent.date ASC, parent.uid ASC
@@ -337,9 +335,6 @@ fn reconcile_account_thread_keys(conn: &rusqlite::Transaction<'_>, account: &str
               WHERE child.account = ?1
                 AND child.uid <> 0
                 AND COALESCE(child.thread_key, '') <> ''
-                AND COALESCE(json_extract(child.json, '$.in_reply_to'), '') <> ''
-                AND lower(COALESCE(child.thread_key, '')) =
-                    lower(COALESCE(json_extract(child.json, '$.in_reply_to'), ''))
                 AND child.thread_key NOT LIKE 'uid:%'
                 AND child.thread_key NOT LIKE 'gmthrid:%'
                 AND EXISTS (
@@ -347,7 +342,7 @@ fn reconcile_account_thread_keys(conn: &rusqlite::Transaction<'_>, account: &str
                       FROM messages parent
                      WHERE parent.account = child.account
                        AND lower(COALESCE(json_extract(parent.json, '$.message_id'), '')) =
-                           lower(COALESCE(json_extract(child.json, '$.in_reply_to'), ''))
+                           lower(child.thread_key)
                        AND COALESCE(parent.thread_key, '') <> ''
                        AND parent.thread_key <> child.thread_key
                 )",

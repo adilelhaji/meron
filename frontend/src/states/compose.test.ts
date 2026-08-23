@@ -20,6 +20,7 @@ import {
   resolveQuickReplyFrom,
   saveQuickReplyDraft,
   seedQuickReplySignature,
+  sendReply,
   withoutHydratedQuickReplyDraft,
 } from './compose'
 import { accounts$ } from './accounts'
@@ -451,6 +452,8 @@ describe('quick reply draft sharing', () => {
           Invoke: async (command: string, payload: unknown) => {
             calls.push({ command, payload })
             if (command === 'mail.allocateIdentity') return { message_id: 'draft-core@example.com' }
+            if (command === 'mail.folderList') return { folders: [] }
+            if (command === 'mail.threadList') return { threads: [] }
             return {}
           },
         },
@@ -625,6 +628,157 @@ describe('quick reply draft sharing', () => {
       ancestor,
       sending,
     ])
+  })
+
+  it('does not rehydrate the consumed draft when the thread refreshes during send', async () => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      message_id: 'root@example.com',
+      date: 1000,
+    })
+    const draft = message({
+      id: 'draft-row',
+      account_id: 'acc-1',
+      folder_id: 'Drafts',
+      thread_id: 't-1',
+      from_addr: 'me@example.com',
+      message_id: 'reply-draft@example.com',
+      body: 'Hello there',
+      date: 2000,
+    })
+    mail$.threads.set([thread])
+    mail$.messages.set([thread, draft])
+    ui$.selectedThread.set('t-1')
+    compose$.composer.set('Hello there')
+    compose$.quickReplyDraftId.set('reply-draft@example.com')
+    compose$.quickReplyDraftSaved.set(true)
+    compose$.quickReplySignature.set(null)
+    settings$.signature.set('')
+    ;(window as any).go.main.App.Invoke = async (command: string, payload: unknown) => {
+      calls.push({ command, payload })
+      if (command === 'mail.allocateIdentity') return { message_id: 'sent@example.com' }
+      if (command === 'mail.send') {
+        // A mail.synced refresh can land before sendReply gets to discard the
+        // server draft, temporarily making that draft the conversation tail.
+        mail$.messages.set([thread, draft])
+      }
+      if (command === 'mail.folderList') return { folders: [] }
+      if (command === 'mail.threadList') return { threads: [] }
+      return {}
+    }
+
+    await sendReply()
+
+    expect(compose$.composer.get()).toBe('')
+    expect(compose$.quickReplyDraftId.get()).toBe('')
+    expect(compose$.quickReplyDraftSaved.get()).toBe(false)
+  })
+
+  it('allows a different draft to hydrate after the sent draft cleanup settles', async () => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      message_id: 'root@example.com',
+      date: 1000,
+    })
+    const sentDraft = message({
+      id: 'sent-draft-row',
+      account_id: 'acc-1',
+      folder_id: 'Drafts',
+      thread_id: 't-1',
+      message_id: 'sent-draft@example.com',
+      body: 'First reply',
+      date: 2000,
+    })
+    mail$.threads.set([thread])
+    mail$.messages.set([thread, sentDraft])
+    ui$.selectedThread.set('t-1')
+    compose$.composer.set('First reply')
+    compose$.quickReplyDraftId.set('sent-draft@example.com')
+    compose$.quickReplyDraftSaved.set(true)
+    compose$.quickReplySignature.set(null)
+    settings$.signature.set('')
+
+    await sendReply()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    const newerDraft = message({
+      id: 'new-draft-row',
+      account_id: 'acc-1',
+      folder_id: 'Drafts',
+      thread_id: 't-1',
+      message_id: 'different-draft@example.com',
+      body: 'Written elsewhere',
+      date: 3000,
+    })
+    mail$.messages.set([thread, newerDraft])
+
+    expect(compose$.composer.get()).toBe('Written elsewhere')
+    expect(compose$.quickReplyDraftId.get()).toBe('different-draft@example.com')
+  })
+
+  it('keeps the consumed draft guarded across a navigation round trip during send', async () => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      message_id: 'root@example.com',
+      date: 1000,
+    })
+    const other = message({ id: 'other', account_id: 'acc-1', thread_id: 't-2', message_id: 'other@example.com' })
+    const draft = message({
+      id: 'draft-row',
+      account_id: 'acc-1',
+      folder_id: 'Drafts',
+      thread_id: 't-1',
+      message_id: 'reply-draft@example.com',
+      body: 'Consumed reply',
+      date: 2000,
+    })
+    mail$.threads.set([thread, other])
+    mail$.messages.set([thread, draft])
+    ui$.selectedThread.set('t-1')
+    compose$.composer.set('Consumed reply')
+    compose$.quickReplyDraftId.set('reply-draft@example.com')
+    compose$.quickReplyDraftSaved.set(true)
+    compose$.quickReplySignature.set(null)
+    settings$.signature.set('')
+
+    let sendStarted!: () => void
+    const started = new Promise<void>((resolve) => (sendStarted = resolve))
+    let releaseSend!: () => void
+    ;(window as any).go.main.App.Invoke = async (command: string, payload: unknown) => {
+      calls.push({ command, payload })
+      if (command === 'mail.allocateIdentity') return { message_id: 'sent@example.com' }
+      if (command === 'mail.send') {
+        sendStarted()
+        await new Promise<void>((resolve) => (releaseSend = resolve))
+      }
+      if (command === 'mail.folderList') return { folders: [] }
+      if (command === 'mail.threadList') return { threads: [] }
+      return {}
+    }
+
+    const send = sendReply()
+    await started
+    ui$.selectedThread.set('t-2')
+    ui$.selectedThread.set('t-1')
+    mail$.messages.set([thread, draft])
+
+    expect(compose$.composer.get()).toBe('')
+    expect(compose$.quickReplyDraftSaved.get()).toBe(false)
+
+    releaseSend()
+    await send
   })
 
   it('keeps unrelated older drafts visible', () => {

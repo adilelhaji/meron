@@ -494,6 +494,14 @@ export function withoutHydratedQuickReplyDraft(
 
 let quickReplyDraftSaveTimer: ReturnType<typeof setTimeout> | null = null
 const QUICK_REPLY_DRAFT_SAVE_DELAY_MS = 1200
+type QuickReplySendHydrationGuard = {
+  threadId: string
+  accountId: string
+  draftId: string
+  inFlight: boolean
+  suppressDraft: boolean
+}
+const quickReplySendHydrationGuards = new Map<string, QuickReplySendHydrationGuard>()
 
 /** After the user stops typing, save (or discard, if now empty) the real server draft. */
 export function scheduleQuickReplyDraftSave() {
@@ -518,6 +526,12 @@ export function cancelQuickReplyDraftSave() {
 }
 
 ui$.selectedThread.onChange(({ value }) => {
+  // A failed send keeps its consumed draft suppressed while the user remains
+  // in that editor. Once they leave, make the server safety copy available for
+  // a later reopen; in-flight sends remain guarded across navigation.
+  for (const guard of quickReplySendHydrationGuards.values()) {
+    if (!guard.inFlight && guard.threadId !== value) guard.suppressDraft = false
+  }
   if (value) return
   cancelQuickReplyDraftSave()
   compose$.composer.set('')
@@ -539,6 +553,16 @@ function hydrateQuickReplyFromTailDraft(messages: Message[]) {
   const tail = newestMessage(inThread)
   if (!tail || !isDraftFolder(tail.folder_id, tail.account_id)) return
   const tailDraftId = tail.message_id || tail.id
+  const normalizedTailDraftId = normalizeQuickReplyDraftId(tailDraftId)
+  const guarded = [...quickReplySendHydrationGuards.values()].some(
+    (guard) =>
+      guard.threadId === activeThreadId &&
+      (guard.inFlight ||
+        (guard.suppressDraft &&
+          !!guard.draftId &&
+          normalizeQuickReplyDraftId(guard.draftId) === normalizedTailDraftId)),
+  )
+  if (guarded) return
   if (compose$.quickReplyDraftId.peek() === tailDraftId) return
 
   compose$.composer.set(tail.body ?? '')
@@ -559,7 +583,18 @@ function hydrateQuickReplyFromTailDraft(messages: Message[]) {
   }
 }
 
-mail$.messages.onChange(({ value }) => hydrateQuickReplyFromTailDraft(value))
+function normalizeQuickReplyDraftId(value: string): string {
+  return value.trim().replace(/^<|>$/g, '').toLowerCase()
+}
+
+mail$.messages.onChange(({ value }) => {
+  for (const tempId of quickReplySendHydrationGuards.keys()) {
+    if (!value.some((message) => message.id === tempId) && !getPendingSend(tempId)) {
+      quickReplySendHydrationGuards.delete(tempId)
+    }
+  }
+  hydrateQuickReplyFromTailDraft(value)
+})
 
 // The app signature is read out of the prefs table after the first render, and
 // an account's override can be rewritten from the settings dialog while a
@@ -1533,6 +1568,18 @@ export async function sendReply() {
       url: a.mime.startsWith('image/') || a.mime.startsWith('video/') ? `data:${a.mime};base64,${a.data}` : null,
     })),
   }
+  const savedDraftId = compose$.quickReplyDraftSaved.peek() ? compose$.quickReplyDraftId.peek() : ''
+  // From this point the current quick reply belongs to the optimistic send.
+  // Keep background thread refreshes from hydrating its still-persisted draft
+  // back into the editor until SMTP and the post-send discard settle. This is
+  // keyed by the send so navigation cannot accidentally reopen the race.
+  quickReplySendHydrationGuards.set(tempId, {
+    threadId: activeT.thread_id,
+    accountId: replyAccountId,
+    draftId: savedDraftId,
+    inFlight: true,
+    suppressDraft: true,
+  })
   setPendingSend(tempId, payload)
   mail$.messages.push(sent)
   // Clear the composer optimistically. On failure the message stays in the pane
@@ -1540,7 +1587,6 @@ export async function sendReply() {
   // menu), so we don't restore the draft. Retry replays the stored PendingSend
   // payload above, not the (now-cleared) composer text, so clearing here
   // doesn't affect retry.
-  const savedDraftId = compose$.quickReplyDraftSaved.peek() ? compose$.quickReplyDraftId.peek() : ''
   cancelQuickReplyDraftSave()
   compose$.composerAttachments.set([])
   compose$.quickReplyDraftId.set('')
@@ -1550,18 +1596,6 @@ export async function sendReply() {
   seedQuickReplySignature()
 
   await dispatchSend(tempId)
-  // Discard the now-obsolete draft only once the send actually succeeded
-  // (dispatchSend drops the pending payload on success, keeps it on failure —
-  // a failed send should leave the draft in place as a safety net).
-  if (savedDraftId && !getPendingSend(tempId)) {
-    void discardSavedDraftCopy({
-      threadId: activeT.thread_id,
-      messageId: '',
-      folderId: '',
-      accountId: replyAccountId,
-      draftMessageId: savedDraftId,
-    })
-  }
 }
 
 // Set the send lifecycle status on the optimistic message with the given id.
@@ -1576,12 +1610,19 @@ function setSendStatus(tempId: string, status: Message['send_status']) {
 async function dispatchSend(tempId: string) {
   const payload = getPendingSend(tempId)
   if (!payload) return
+  const guard = quickReplySendHydrationGuards.get(tempId)
+  if (guard) {
+    guard.inFlight = true
+    guard.suppressDraft = true
+  }
   setSendStatus(tempId, 'sending')
   try {
     await invoke('mail.send', payload)
     discardPendingSend(tempId)
     setSendStatus(tempId, 'sent')
+    void finishQuickReplySendLifecycle(tempId)
   } catch (error) {
+    settleFailedQuickReplySendGuard(tempId)
     setSendStatus(tempId, 'failed')
     const message = error instanceof Error ? error.message : t('compose.toast.sendFailed')
     // A submission server whose certificate we cannot validate (a local bridge
@@ -1592,6 +1633,35 @@ async function dispatchSend(tempId: string) {
     if (await offerCertificateTrust(payload.account_id, message, () => dispatchSend(tempId))) return
     showToast(message, 'error')
   }
+}
+
+async function finishQuickReplySendLifecycle(tempId: string) {
+  const guard = quickReplySendHydrationGuards.get(tempId)
+  if (!guard) return
+  if (!guard.draftId) {
+    quickReplySendHydrationGuards.delete(tempId)
+    return
+  }
+  const discarded = await discardSavedDraftCopy({
+    threadId: guard.threadId,
+    messageId: '',
+    folderId: '',
+    accountId: guard.accountId,
+    draftMessageId: guard.draftId,
+  })
+  if (quickReplySendHydrationGuards.get(tempId) !== guard) return
+  if (discarded) {
+    quickReplySendHydrationGuards.delete(tempId)
+  } else {
+    settleFailedQuickReplySendGuard(tempId)
+  }
+}
+
+function settleFailedQuickReplySendGuard(tempId: string) {
+  const guard = quickReplySendHydrationGuards.get(tempId)
+  if (!guard) return
+  guard.inFlight = false
+  if (ui$.selectedThread.peek() !== guard.threadId) guard.suppressDraft = false
 }
 
 // Re-attempt a previously failed send, triggered by clicking the failed bubble.
