@@ -1228,6 +1228,15 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             }
             secrets::store(&id, &secrets::Secrets::from_creds(&creds))?;
             engine.accounts.lock().await.insert(id.clone(), creds);
+            // Start watching the new account right away. Only startup resumed
+            // IDLE for known accounts, so an account added mid-session stayed
+            // unwatched (and its INBOX unwarmed) until the next launch: mail
+            // arrived on the server and nothing pushed it into the store.
+            if !engine.is_paused(&id) {
+                if start_idle_watch(engine.clone(), out.clone(), id.clone(), "INBOX".to_string()) {
+                    spawn_body_prefetch(engine.clone(), id.clone(), "INBOX".to_string());
+                }
+            }
             Ok(json!({ "ok": true, "account": id }))
         }
 

@@ -599,6 +599,17 @@ pub async fn sync_folders(
             Box::pin(async move { imap::list_folders(session).await })
         })
         .await?;
+    crate::mlog!(
+        crate::log::Level::Debug,
+        "mail.sync",
+        "folders account={account}: {} listed [{}]",
+        folders.len(),
+        folders
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     let db = engine.db.lock().unwrap();
     store::upsert_folders(&db, account, &folders)?;
     Ok(folders)
@@ -684,6 +695,15 @@ pub async fn sync_messages(
 
     let synced_messages = batch.messages.clone();
     let count = synced_messages.len();
+    crate::mlog!(
+        crate::log::Level::Debug,
+        "mail.sync",
+        "messages account={account} folder={folder}: fetched={count} \
+         uidvalidity={} uid_next={} prior_validity={prior_validity} server_uids={}",
+        batch.uidvalidity,
+        batch.uid_next,
+        server_uids.as_ref().map_or(-1, |u| u.len() as i64)
+    );
     let db = engine.db.lock().unwrap();
     if prior_validity != 0 && prior_validity != batch.uidvalidity {
         store::clear_folder_messages(&db, account, folder)?;
@@ -695,8 +715,21 @@ pub async fn sync_messages(
     store::ensure_folder(&db, account, folder)?;
     if let Some(uids) = server_uids.as_ref() {
         let validity_ok = prior_validity == 0 || prior_validity == batch.uidvalidity;
-        if validity_ok {
+        // An empty UID set means "the server holds nothing here" only if the
+        // fetch also came back empty. Having just read `count` messages out of
+        // this same mailbox, an empty SEARCH result contradicts itself — the
+        // connection lied (see the CONDSTORE desync in imap::sync_flags) — and
+        // pruning against it would delete the very messages just stored.
+        let uids_credible = !uids.is_empty() || count == 0;
+        if validity_ok && uids_credible {
             store::prune_missing_messages(&db, account, folder, uids)?;
+        } else if !uids_credible {
+            crate::mlog!(
+                crate::log::Level::Warn,
+                "mail.sync",
+                "skipping prune for account={account} folder={folder}: \
+                 UID SEARCH returned no UIDs but {count} messages were fetched"
+            );
         }
     }
     if let Some(fs) = flag_sync {

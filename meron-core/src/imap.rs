@@ -961,14 +961,27 @@ pub struct FlagSync {
 /// the messages whose flags changed since `since_modseq` (CHANGEDSINCE).
 ///
 /// Returns no changes (but still reports HIGHESTMODSEQ) when there's no prior
-/// baseline or UIDVALIDITY changed. On servers without CONDSTORE the SELECT or
-/// FETCH errors; callers treat that as a no-op and fall back to the recent sync.
+/// baseline or UIDVALIDITY changed, and is a no-op on servers that do not
+/// advertise CONDSTORE — the capability must be checked rather than probed.
+/// Proton Mail Bridge answers `SELECT "INBOX" (CONDSTORE)` with an *untagged*
+/// `BAD` (" BAD [Error offset=17]: expected CR"), so the client never matches a
+/// response to its tag: instead of erroring, every later command on that
+/// connection reads the previous command's reply. The desynced session then
+/// reports empty mailboxes and an empty folder LIST while still looking
+/// healthy, so it goes back into the pool and poisons the account's syncs.
 pub async fn sync_flags(
     session: &mut Session,
     folder: &str,
     since_modseq: u64,
     validity_matches: bool,
 ) -> Result<FlagSync> {
+    if !supports_condstore(session).await {
+        session.select(folder).await.context("SELECT")?;
+        return Ok(FlagSync {
+            highest_modseq: 0,
+            changes: Vec::new(),
+        });
+    }
     let mailbox = session
         .select_condstore(folder)
         .await
@@ -1677,6 +1690,18 @@ fn fetch_items(gmail: bool, body: bool) -> &'static str {
 async fn supports_gmail_ext(session: &mut Session) -> bool {
     match session.capabilities().await {
         Ok(caps) => caps.has_str("X-GM-EXT-1"),
+        Err(_) => false,
+    }
+}
+
+/// Whether the server advertises CONDSTORE (RFC 7162), i.e. accepts
+/// `SELECT ... (CONDSTORE)` and `FETCH ... (CHANGEDSINCE n)`. Absent it, the
+/// flag reconciliation in [`sync_flags`] must not be attempted at all: a server
+/// that rejects the parameter without a properly tagged response leaves the
+/// connection unusable (see the note there).
+async fn supports_condstore(session: &mut Session) -> bool {
+    match session.capabilities().await {
+        Ok(caps) => caps.has_str("CONDSTORE"),
         Err(_) => false,
     }
 }

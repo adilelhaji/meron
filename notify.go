@@ -145,9 +145,32 @@ func (a *App) handleSidecarEvent(name string, detail any) {
 	case "core.fatal":
 		a.recordCoreError(detail)
 		return
+	case "mail.syncError", "error":
+		a.logSidecarError(name, detail)
+		return
 	case "mail.newMessages":
 		a.notifyNewMail(detail)
 	}
+}
+
+// logSidecarError copies engine-side sync/generic failures into meron.log. The
+// UI shows only a generic "unable to connect" banner, so without this the real
+// cause (TLS, auth, timeout) reached the frontend and was thrown away, leaving
+// nothing on disk to diagnose a failing account from.
+func (a *App) logSidecarError(name string, detail any) {
+	message, account := "", ""
+	if m, ok := detail.(map[string]any); ok {
+		message, _ = m["message"].(string)
+		account, _ = m["account"].(string)
+	}
+	if message == "" {
+		message = fmt.Sprint(detail)
+	}
+	if account != "" {
+		a.logf("%s: account=%s %s", name, account, message)
+		return
+	}
+	a.logf("%s: %s", name, message)
 }
 
 // recordCoreError logs the core's own fatal-condition report and keeps it for
