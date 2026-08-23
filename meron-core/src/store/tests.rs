@@ -2678,6 +2678,7 @@ fn saving_an_account_again_keeps_settings_the_form_does_not_carry() {
             proxy: true,
             cert_pin: true,
             smtp_cert_pin: true,
+            password: true,
         },
     );
     upsert_account(&conn, "acct", &meta, &reconnected).unwrap();
@@ -2705,11 +2706,85 @@ fn a_setting_that_was_sent_is_not_carried_over() {
             proxy: false,
             cert_pin: false,
             smtp_cert_pin: true,
+            password: false,
         },
     );
 
     assert_eq!(replacement.proxy, crate::proxy::ProxyChoice::Global);
     assert_eq!(replacement.cert_pin, None);
+}
+
+/// Editing an account's servers from Settings resends the form without a
+/// password — the UI never holds one. An omitted password must keep the stored
+/// credential rather than blank it, or saving a port change would lock the
+/// account out.
+#[test]
+fn an_omitted_password_is_carried_over() {
+    let mut stored = proxy_test_creds(crate::proxy::ProxyChoice::Direct);
+    stored.password = "hunter2".to_string();
+
+    let mut edited = proxy_test_creds(crate::proxy::ProxyChoice::Direct);
+    edited.password = String::new();
+    edited.port = 1143;
+    edited.carry_over(
+        &stored,
+        crate::imap::OmittedSettings {
+            proxy: false,
+            cert_pin: false,
+            smtp_cert_pin: false,
+            password: true,
+        },
+    );
+
+    assert_eq!(edited.password, "hunter2");
+    // The edit itself still applies.
+    assert_eq!(edited.port, 1143);
+}
+
+/// A password the caller *did* send replaces the stored one — that is how the
+/// user changes it after a server-side reset.
+#[test]
+fn a_sent_password_replaces_the_stored_one() {
+    let mut stored = proxy_test_creds(crate::proxy::ProxyChoice::Direct);
+    stored.password = "old".to_string();
+
+    let mut replacement = proxy_test_creds(crate::proxy::ProxyChoice::Direct);
+    replacement.password = "new".to_string();
+    replacement.carry_over(
+        &stored,
+        crate::imap::OmittedSettings {
+            proxy: false,
+            cert_pin: false,
+            smtp_cert_pin: false,
+            password: false,
+        },
+    );
+
+    assert_eq!(replacement.password, "new");
+}
+
+/// Editing an existing account (server settings, reconnect) re-runs the upsert
+/// with no avatar; the custom one the user picked must survive it.
+#[test]
+fn upsert_account_keeps_an_existing_avatar() {
+    let conn = test_conn();
+    proxy_test_account(&conn, "acct", crate::proxy::ProxyChoice::Direct);
+    conn.execute(
+        "UPDATE accounts SET avatar_url = ?1 WHERE id = ?2",
+        rusqlite::params!["/media/avatars/acct.png", "acct"],
+    )
+    .unwrap();
+
+    proxy_test_account(&conn, "acct", crate::proxy::ProxyChoice::Direct);
+
+    let stored: String = conn
+        .query_row(
+            "SELECT avatar_url FROM accounts WHERE id = ?1",
+            ["acct"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(stored, "/media/avatars/acct.png");
 }
 
 /// Accepting a certificate for an account that already exists must not disturb

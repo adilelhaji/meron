@@ -118,11 +118,15 @@ pub struct OmittedSettings {
     pub proxy: bool,
     pub cert_pin: bool,
     pub smtp_cert_pin: bool,
+    /// Editing an existing account's servers must not require retyping its
+    /// password, and the UI never holds one to resend: an absent `password`
+    /// means "keep the stored one" rather than "set it to empty".
+    pub password: bool,
 }
 
 impl OmittedSettings {
     pub fn any(&self) -> bool {
-        self.proxy || self.cert_pin || self.smtp_cert_pin
+        self.proxy || self.cert_pin || self.smtp_cert_pin || self.password
     }
 }
 
@@ -137,6 +141,9 @@ impl Creds {
         }
         if omitted.smtp_cert_pin {
             self.smtp_cert_pin = stored.smtp_cert_pin.clone();
+        }
+        if omitted.password {
+            self.password = stored.password.clone();
         }
     }
 

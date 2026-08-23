@@ -89,6 +89,10 @@ pub(crate) fn current_engine() -> Option<Arc<Engine>> {
 pub(crate) fn evict_engine_account(account_id: &str) {
     if let Some(engine) = current_engine() {
         engine.accounts.blocking_lock().remove(account_id);
+        // Pooled sessions were authenticated with the creds we just evicted and
+        // may even point at a different server after a settings edit; reusing
+        // one would defeat the eviction.
+        engine.clear_pool(account_id);
     }
 }
 

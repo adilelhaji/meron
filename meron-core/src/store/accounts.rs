@@ -303,7 +303,12 @@ pub fn upsert_account(
            provider     = excluded.provider,
            email        = excluded.email,
            display_name = excluded.display_name,
-           avatar_url   = excluded.avatar_url,
+           -- An empty avatar means unspecified, not cleared: the account edit
+           -- paths (server settings, reconnect) re-run this upsert without one
+           -- and would otherwise wipe a custom avatar. account.setAvatar is how
+           -- an avatar is set or cleared.
+           avatar_url   = CASE WHEN excluded.avatar_url = '' THEN accounts.avatar_url
+                               ELSE excluded.avatar_url END,
            config       = excluded.config,
            updated_at   = excluded.updated_at,
            sender_name = excluded.sender_name",
@@ -823,6 +828,9 @@ pub fn list_accounts(conn: &Connection) -> Result<Vec<serde_json::Value>> {
                 "provider": provider,
                 "engine": "meron_mail",
                 "auth_type": c.auth_type,
+                // The login name, which is not always the address: editors that
+                // resend the account must preserve it rather than assume email.
+                "username": c.user,
                 "imap_host": c.host,
                 "imap_port": c.port,
                 "smtp_host": c.smtp_host,

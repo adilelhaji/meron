@@ -30,6 +30,7 @@ export function AccountDialogCustom({
     runDiscovery,
     save,
     saveDisabled,
+    editing,
   } = ctl
   const { inputClass, fieldLabelClass, serverGridClass } = classes
 
@@ -42,6 +43,10 @@ export function AccountDialogCustom({
         onBlur={() => runDiscovery(form.email)}
         inputClassName={inputClass}
         labelClassName={fieldLabelClass}
+        // The address is the account's primary key in the store, so letting it
+        // be edited here would create a second account rather than change this
+        // one. Renaming is Remove + Add, deliberately.
+        disabled={editing}
       />
       {(discovering || discoverNote) && (
         <p
@@ -60,7 +65,7 @@ export function AccountDialogCustom({
       />
       <label className="flex flex-col gap-1.5 w-full">
         <span className={`pl-0.5 ${fieldLabelClass ?? 'text-[0.6875rem] font-semibold text-secondary'}`}>
-          {t('accounts.fields.password')}
+          {editing ? t('accounts.fields.passwordUnchanged') : t('accounts.fields.password')}
         </span>
         <span className="relative flex items-center">
           <input

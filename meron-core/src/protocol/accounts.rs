@@ -839,13 +839,19 @@ pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Res
         proxy: params.get("proxy").is_none(),
         cert_pin: params.get("cert_pin").is_none(),
         smtp_cert_pin: params.get("smtp_cert_pin").is_none(),
+        password: params.get("password").is_none(),
     };
 
     let result = with_mobile_db(data_dir, |conn| {
         let mut creds = creds.clone();
         if omitted.any()
-            && let Some(stored) = store::load_account(&conn, &id).map_err(|err| err.to_string())?
+            && let Some(mut stored) =
+                store::load_account(&conn, &id).map_err(|err| err.to_string())?
         {
+            // The password is held in the secret store, not the account row.
+            if omitted.password {
+                load_mobile_secret(&conn, &id).apply_to(&mut stored);
+            }
             creds.carry_over(&stored, omitted);
         }
         store::upsert_account(&conn, &id, &meta, &creds).map_err(|err| err.to_string())?;

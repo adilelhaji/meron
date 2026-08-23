@@ -24,6 +24,7 @@ import {
   MessagesSquare,
   Keyboard,
   Archive,
+  Server,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { importOpml, exportOpml } from '../../states/feeds'
@@ -83,6 +84,18 @@ const CONVERSATION_LAYOUT_OPTIONS = (
 
 function isRssAccount(account: Account) {
   return account.provider === 'rss' || account.auth_type === 'rss'
+}
+
+// The account's servers as one line, so the settings row shows what is
+// configured without opening the editor. Mirrors the security labels the setup
+// form offers (TLS / STARTTLS / None).
+function serverSummary(account: Account, t: ReturnType<typeof useTranslation>['t']) {
+  // TLS/STARTTLS are protocol names and stay verbatim; only "none" is prose.
+  const security = (tls?: boolean, starttls?: boolean) =>
+    starttls ? 'STARTTLS' : tls === false ? t('accounts.security.none') : 'TLS'
+  const imap = `${account.imap_host || '—'}:${account.imap_port || 993} (${security(account.tls, account.starttls)})`
+  const smtp = `${account.smtp_host || '—'}:${account.smtp_port || 465} (${security(account.smtp_tls, account.smtp_starttls)})`
+  return `IMAP ${imap} · SMTP ${smtp}`
 }
 
 function reconnectMode(account: Account): SetupMode {
@@ -890,6 +903,25 @@ function AccountPanel({ account }: { account: Account }) {
           <p className="text-[0.65625rem] text-secondary mt-0.5 font-medium truncate">{subtitle}</p>
         </div>
       </div>
+
+      {!isRSS && account.auth_type === 'password' && !account.needs_reconnect && (
+        <SettingsGroup title={t('settings.account.serverTitle', { defaultValue: 'Server settings' })}>
+          <SettingRow
+            title={t('settings.account.serverAccount', { defaultValue: 'Incoming and outgoing servers' })}
+            hint={serverSummary(account, t)}
+            control={
+              <button
+                type="button"
+                onClick={reconnectAccount}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-hover hover:bg-border text-primary font-bold text-[0.625rem] cursor-pointer transition-colors"
+              >
+                <Server size={12} />
+                {t('settings.account.serverEdit', { defaultValue: 'Edit' })}
+              </button>
+            }
+          />
+        </SettingsGroup>
+      )}
 
       {account.needs_reconnect && !isRSS && (
         <SettingsGroup title={t('settings.account.reconnectTitle', { defaultValue: 'Reconnect' })}>

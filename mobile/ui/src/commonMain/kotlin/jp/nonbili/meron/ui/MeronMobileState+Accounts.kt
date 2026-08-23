@@ -519,6 +519,146 @@ internal fun MeronMobileState.saveAccountProxy(
 }
 
 /**
+ * Save an existing account's servers. The password is deliberately absent from
+ * the request unless the user typed a new one: the core reads an omitted
+ * `password` as "keep the stored credential", so changing a port never costs
+ * the account its login.
+ *
+ * A certificate the server cannot prove is offered for pinning here rather than
+ * dead-ending, exactly as the sync and send paths do — but against the *edited*
+ * endpoint, since the save failed and the stored account still names the old one.
+ */
+internal fun MeronMobileState.saveAccountServerSettings(
+    account: AccountSummary,
+    draft: ServerSettingsDraft,
+) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    val params =
+        AddPasswordAccountParams(
+            email = account.email,
+            displayName = account.displayName,
+            senderName = account.senderName,
+            imapHost = draft.imapHost,
+            imapPort = draft.imapPort,
+            smtpHost = draft.smtpHost,
+            smtpPort = draft.smtpPort,
+            username = draft.username.ifBlank { account.email },
+            password = draft.password,
+            tls = draft.imapSecurity == MailSecurity.TLS,
+            starttls = draft.imapSecurity == MailSecurity.STARTTLS,
+            smtpTls = draft.smtpSecurity == MailSecurity.TLS,
+            smtpStarttls = draft.smtpSecurity == MailSecurity.STARTTLS,
+        )
+    status = "Saving server settings..."
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                val client = MobileMailCommandClient(core)
+                client.addPasswordAccount(params)
+                client.listAccounts()
+            }
+        }.onSuccess {
+            applyAccounts(it, preferEmail = account.email)
+            errorBanner = null
+            syncError = null
+            status = "Server settings saved"
+            syncCoreThreads(accountOverride = account.id, folderOverride = INBOX_FOLDER, syncFirst = true)
+        }.onFailure { failure ->
+            val message = failure.message ?: "Server settings save failed"
+            if (untrustedCertificateProtocol(message) != null) {
+                showTypedServerCertificate(
+                    accountId = account.id,
+                    imapHost = draft.imapHost,
+                    imapPort = draft.imapPort,
+                    imapSecurity = draft.imapSecurity,
+                    smtpHost = draft.smtpHost,
+                    smtpPort = draft.smtpPort,
+                    smtpSecurity = draft.smtpSecurity,
+                    proxy = account.proxy,
+                    retry = PendingCertificateRetry.ServerSettings(account.id, draft),
+                    message = message,
+                )
+            } else {
+                errorBanner = message
+                status = "Server settings save failed: $message"
+            }
+        }
+    }
+}
+
+/**
+ * The certificate prompt for a save whose servers are not stored yet — a new
+ * account, or an edit that failed before it could be written. Same flow as
+ * [showServerCertificate], but probing the endpoint the user just typed rather
+ * than the account's recorded one, which is stale or absent in both cases.
+ *
+ * [message] is the failure carrying the core's marker; it names which of the
+ * two servers refused. It is restored as the banner if the probe itself fails,
+ * so a dead end still explains itself.
+ */
+private fun MeronMobileState.showTypedServerCertificate(
+    accountId: String,
+    imapHost: String,
+    imapPort: Int,
+    imapSecurity: MailSecurity,
+    smtpHost: String,
+    smtpPort: Int,
+    smtpSecurity: MailSecurity,
+    proxy: ProxySpec,
+    retry: PendingCertificateRetry,
+    message: String,
+) {
+    val protocol = untrustedCertificateProtocol(message) ?: return
+    val smtp = protocol == CertificateProtocol.SMTP
+    val host = if (smtp) smtpHost else imapHost
+    if (host.isBlank()) return
+    val port = if (smtp) smtpPort else imapPort
+    val starttls = (if (smtp) smtpSecurity else imapSecurity) == MailSecurity.STARTTLS
+    certPromptBusy = true
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                parseProbeCertResponse(
+                    requireCoreOk(
+                        MobileMailCommandClient(core).probeCert(
+                            ProbeCertParams(
+                                host = host,
+                                port = port,
+                                protocol = protocol.wire,
+                                starttls = starttls,
+                                proxy = proxy,
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }.onSuccess { certificate: ServerCertificate? ->
+            if (certificate == null) {
+                errorBanner = message
+                status = "Could not read the server's certificate"
+            } else {
+                certPrompt =
+                    MobileCertPrompt(
+                        accountId = accountId,
+                        host = host,
+                        port = port,
+                        protocol = protocol,
+                        certificate = certificate,
+                        retry = retry,
+                    )
+            }
+        }.onFailure {
+            errorBanner = message
+            status = "Could not read the server's certificate: ${it.message}"
+        }
+        certPromptBusy = false
+    }
+}
+
+/**
  * Fetch the certificate the failing server presented and put it in front of the
  * user. A server whose certificate cannot be validated — a local Proton Mail
  * Bridge serves a self-signed CA certificate as its leaf — is unreachable until
@@ -594,6 +734,24 @@ internal fun MeronMobileState.showServerCertificate(
 internal fun MeronMobileState.trustPromptedCertificate() {
     val prompt = certPrompt ?: return
     val fingerprint = prompt.certificate.fingerprint
+    // Pinning normally writes to the account's row and lets the retry read it
+    // back. An account that does not exist yet has no row, so its pin travels
+    // on the request that creates it instead.
+    val addRetry = prompt.retry as? PendingCertificateRetry.AddAccount
+    if (addRetry != null) {
+        certPrompt = null
+        errorBanner = null
+        if (pendingCertificateRetry == prompt.retry) pendingCertificateRetry = null
+        status = "Trusted ${prompt.host}"
+        val smtp = prompt.protocol == CertificateProtocol.SMTP
+        addPasswordAccount(
+            addRetry.params.copy(
+                certPin = if (smtp) addRetry.params.certPin else fingerprint,
+                smtpCertPin = if (smtp) fingerprint else addRetry.params.smtpCertPin,
+            ),
+        )
+        return
+    }
     certPromptBusy = true
     scope.launch {
         runCatching {
@@ -617,9 +775,28 @@ internal fun MeronMobileState.trustPromptedCertificate() {
             // unsent unless its send is the thing that runs again.
             if (pendingCertificateRetry == prompt.retry) pendingCertificateRetry = null
             when (val retry = prompt.retry) {
-                is PendingCertificateRetry.Compose -> retryComposeSend(retry.pending)
-                is PendingCertificateRetry.QuickReply -> retryQuickReplySend(retry.pending)
-                null -> syncCoreThreads()
+                is PendingCertificateRetry.Compose -> {
+                    retryComposeSend(retry.pending)
+                }
+
+                is PendingCertificateRetry.QuickReply -> {
+                    retryQuickReplySend(retry.pending)
+                }
+
+                is PendingCertificateRetry.ServerSettings -> {
+                    val account = coreAccounts.find { it.id == retry.accountId }
+                    if (account == null) syncCoreThreads() else saveAccountServerSettings(account, retry.draft)
+                }
+
+                // Handled by the early return above: an account that does not
+                // exist yet never reaches the pin-then-retry path.
+                is PendingCertificateRetry.AddAccount -> {
+                    Unit
+                }
+
+                null -> {
+                    syncCoreThreads()
+                }
             }
         }.onFailure {
             status = "Could not save the certificate: ${it.message}"
@@ -682,7 +859,7 @@ internal fun MeronMobileState.addPasswordAccount() {
         status = coreUnavailableMessage
         return
     }
-    val params =
+    addPasswordAccount(
         AddPasswordAccountParams(
             email = email.trim(),
             displayName = displayName.trim(),
@@ -697,7 +874,25 @@ internal fun MeronMobileState.addPasswordAccount() {
             starttls = imapSecurity == MailSecurity.STARTTLS,
             smtpTls = smtpSecurity == MailSecurity.TLS,
             smtpStarttls = smtpSecurity == MailSecurity.STARTTLS,
-        )
+        ),
+    )
+}
+
+/**
+ * Create the account described by [params].
+ *
+ * A server whose certificate cannot be validated — a local Proton Mail Bridge
+ * serves a self-signed CA certificate as its leaf — is offered for pinning
+ * instead of dead-ending on the handshake error, which is what setup used to do:
+ * the banner named a TLS failure the user had no way to act on, so such an
+ * account simply could not be added on this device. Accepting re-enters here
+ * with the pin attached, since there is no stored account to write it to yet.
+ */
+private fun MeronMobileState.addPasswordAccount(params: AddPasswordAccountParams) {
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
     status = "Adding password account..."
     scope.launch {
         runCatching {
@@ -711,14 +906,54 @@ internal fun MeronMobileState.addPasswordAccount() {
             resetPasswordAccountForm()
             screen = Screen.Mail
             errorBanner = null
+            certPrompt = null
             status = "Added ${params.email}"
             syncCoreThreads(accountOverride = selectedCoreAccountId, folderOverride = INBOX_FOLDER, syncFirst = true)
-        }.onFailure {
-            errorBanner = it.message ?: "Add account failed"
-            status = "Add account failed: ${it.message}"
+        }.onFailure { failure ->
+            val message = failure.message ?: "Add account failed"
+            if (untrustedCertificateProtocol(message) != null &&
+                shouldPromptForNewCertificate(params, message)
+            ) {
+                showTypedServerCertificate(
+                    accountId = mailAccountId(params.email),
+                    imapHost = params.imapHost,
+                    imapPort = params.imapPort,
+                    imapSecurity = mailSecurityOf(params.tls, params.starttls ?: false),
+                    smtpHost = params.smtpHost,
+                    smtpPort = params.smtpPort,
+                    smtpSecurity = mailSecurityOf(params.smtpTls ?: true, params.smtpStarttls ?: false),
+                    proxy = ProxySpec.followApp,
+                    retry = PendingCertificateRetry.AddAccount(mailAccountId(params.email), params),
+                    message = message,
+                )
+            } else {
+                errorBanner = message
+                status = "Add account failed: $message"
+            }
         }
     }
 }
+
+/**
+ * The id the core mints for a mail address, so a prompt raised before the
+ * account exists still names the account it will become. Mirrors `accountID`
+ * in the bridge: the normalized address, used verbatim.
+ */
+internal fun mailAccountId(email: String): String = email.trim().lowercase()
+
+/**
+ * Whether a certificate failure is worth prompting about, or is the *same*
+ * refusal we already pinned for. Retrying a pin that did not help would
+ * otherwise loop the prompt forever.
+ */
+private fun shouldPromptForNewCertificate(
+    params: AddPasswordAccountParams,
+    message: String,
+): Boolean =
+    when (untrustedCertificateProtocol(message)) {
+        CertificateProtocol.SMTP -> params.smtpCertPin == null
+        else -> params.certPin == null
+    }
 
 // Clear the password setup form when its account is added and whenever a fresh
 // setup starts, so an account never inherits the previous server, ports and

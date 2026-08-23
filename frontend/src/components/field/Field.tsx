@@ -12,6 +12,7 @@ interface FieldProps {
   type?: string
   inputClassName?: string
   labelClassName?: string
+  disabled?: boolean
 }
 
 type FieldSize = 'sm' | 'md' | 'lg'
@@ -97,6 +98,7 @@ export function Field({
   type = 'text',
   inputClassName,
   labelClassName,
+  disabled = false,
 }: FieldProps) {
   return (
     <label className="flex flex-col gap-1.5 w-full">
@@ -107,10 +109,11 @@ export function Field({
         onChange={(event) => onChange(event.target.value)}
         onBlur={onBlur}
         onKeyDown={onKeyDown}
-        className={
+        disabled={disabled}
+        className={`${
           inputClassName ??
           'w-full text-xs py-2 px-3.5 rounded-xl border border-border bg-raised text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:border-transparent focus:bg-chats transition-all outline-none'
-        }
+        } disabled:cursor-not-allowed disabled:opacity-60`}
       />
     </label>
   )

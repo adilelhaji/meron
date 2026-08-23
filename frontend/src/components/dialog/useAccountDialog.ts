@@ -28,6 +28,12 @@ export function useAccountDialog() {
   const reconnectAccountId = useValue(ui$.reconnectAccountId)
   const accounts = useValue(accounts$)
   const reconnectAccount = accounts.find((account) => account.id === reconnectAccountId) ?? null
+  // The same dialog serves two jobs on an existing account. A *reconnect* is
+  // repairing a missing keychain credential, so the password is the whole point
+  // and must be retyped. *Editing* server settings is the ordinary case — the
+  // credential is intact, the UI never holds it, and asking for it again to
+  // change a port would be busywork the user cannot always satisfy.
+  const editing = !!reconnectAccount && reconnectAccount.needs_reconnect !== true
   const gmailConfigured = !!system?.gmail_oauth_configured
   const outlookConfigured = !!system?.outlook_oauth_configured
 
@@ -126,7 +132,9 @@ export function useAccountDialog() {
       smtp_port_touched: reconnectAccount.smtp_port > 0,
       smtp_security: smtpSecurity,
       smtp_security_touched: smtpSecurity !== securityForPort(smtpPort),
-      username: reconnectAccount.email,
+      // Not always the address — a server can use a separate login, and
+      // resending the account must preserve it.
+      username: reconnectAccount.username || reconnectAccount.email,
       username_touched: true,
       password: '',
       auth_code: '',
@@ -413,7 +421,10 @@ export function useAccountDialog() {
           smtp_host: form.smtp_host,
           smtp_port: Number(form.smtp_port),
           username: form.username || form.email,
-          password: form.password,
+          // Omitting the key entirely tells the core to keep the stored
+          // password; sending "" would blank it. Only an explicitly typed
+          // password replaces what the keychain already holds.
+          ...(editing && !form.password ? {} : { password: form.password }),
           tls: form.imap_security === 'tls',
           starttls: form.imap_security === 'starttls',
           smtp_tls: form.smtp_security === 'tls',
@@ -468,7 +479,7 @@ export function useAccountDialog() {
       ? !exchangedTokens && !form.auth_code
       : mode === 'rss'
         ? !form.display_name
-        : !form.email || !form.password)
+        : !form.email || (!form.password && !editing))
 
   return {
     mode,
@@ -495,6 +506,7 @@ export function useAccountDialog() {
     dismissCertPrompt,
     saveDisabled,
     reconnectAccount,
+    editing,
   }
 }
 

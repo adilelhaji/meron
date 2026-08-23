@@ -297,7 +297,7 @@ internal fun AddAccountScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MailSecuritySelector(
+internal fun MailSecuritySelector(
     label: String,
     security: MailSecurity,
     onSecurityChange: (MailSecurity) -> Unit,

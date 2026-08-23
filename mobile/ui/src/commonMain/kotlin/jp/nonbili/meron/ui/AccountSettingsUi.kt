@@ -83,6 +83,7 @@ internal fun SettingsAccountDetailPage(
         aliasesText: String,
     ) -> Unit,
     onSaveProxy: (ProxySpec) -> Unit,
+    onSaveServerSettings: (ServerSettingsDraft) -> Unit,
     onSaveSignature: (SignatureSpec) -> Unit,
     onPickAvatar: () -> Unit,
     onOpenWallpaper: () -> Unit,
@@ -274,6 +275,16 @@ internal fun SettingsAccountDetailPage(
             }
 
             item { SettingsSectionLabel(tr("settings.sections.network")) }
+            // Only password accounts have user-editable endpoints: OAuth
+            // providers hand us theirs, and RSS has none.
+            if (account.authType == "password") {
+                item {
+                    SettingsServerRow(
+                        account = account,
+                        onSave = onSaveServerSettings,
+                    )
+                }
+            }
             item {
                 SettingsProxyRow(
                     spec = account.proxy,

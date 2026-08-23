@@ -91,11 +91,21 @@ data class AddPasswordAccountParams(
     val smtpHost: String,
     val smtpPort: Int = 465,
     val username: String,
-    val password: String,
+    // Null omits the field, which the core reads as "keep the stored password".
+    // Editing an existing account's servers must not require retyping it — the
+    // UI never holds one. A blank string would *clear* the credential, so the
+    // distinction matters.
+    val password: String?,
     val tls: Boolean = true,
     val starttls: Boolean? = null,
     val smtpTls: Boolean? = null,
     val smtpStarttls: Boolean? = null,
+    // Certificates the user accepted for a server webpki rejects. Null omits
+    // the field, which keeps whatever the stored account already trusts; a new
+    // account has nothing to keep, so the pin has to travel with the request
+    // that creates it.
+    val certPin: String? = null,
+    val smtpCertPin: String? = null,
 ) {
     fun toJson(): String =
         jsonObject(
@@ -107,11 +117,13 @@ data class AddPasswordAccountParams(
             "smtp_host" to smtpHost.jsonString(),
             "smtp_port" to smtpPort.toString(),
             "username" to username.jsonString(),
-            "password" to password.jsonString(),
+            "password" to password?.jsonString(),
             "tls" to tls.toString(),
             "starttls" to starttls?.toString(),
             "smtp_tls" to smtpTls?.toString(),
             "smtp_starttls" to smtpStarttls?.toString(),
+            "cert_pin" to certPin?.jsonString(),
+            "smtp_cert_pin" to smtpCertPin?.jsonString(),
         )
 }
 

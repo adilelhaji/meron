@@ -19,6 +19,8 @@ export type Account = {
   avatar_url?: string
   provider: string
   auth_type: AuthType
+  /** The IMAP/SMTP login, which is not always the address. */
+  username?: string
   imap_host: string
   imap_port: number
   smtp_host: string

@@ -12,6 +12,8 @@ data class AccountSummary(
     val engine: String = "",
     val provider: String = "",
     val authType: String = "",
+    /** The IMAP/SMTP login, which is not always the address. */
+    val username: String = "",
     val imapHost: String = "",
     val imapPort: Int = 0,
     val smtpHost: String = "",

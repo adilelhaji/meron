@@ -154,6 +154,7 @@ internal fun SettingsScreen(
     onSaveAppSignature: (String) -> Unit,
     onSaveAccountSignature: (AccountSummary, SignatureSpec) -> Unit,
     onSaveAccountProxy: (AccountSummary, ProxySpec) -> Unit,
+    onSaveAccountServerSettings: (AccountSummary, ServerSettingsDraft) -> Unit,
     kanbanColumnWidth: Int,
     onCycleKanbanColumnWidth: () -> Unit,
     notificationsNeedPermission: Boolean,
@@ -391,6 +392,7 @@ internal fun SettingsScreen(
                             )
                         },
                         onSaveProxy = { spec -> onSaveAccountProxy(account, spec) },
+                        onSaveServerSettings = { draft -> onSaveAccountServerSettings(account, draft) },
                         onSaveSignature = { spec -> onSaveAccountSignature(account, spec) },
                         onPickAvatar = { onPickAccountAvatar(account) },
                         onOpenWallpaper = { settingsNavController.navigate(SettingsRoutes.AccountWallpaper) },

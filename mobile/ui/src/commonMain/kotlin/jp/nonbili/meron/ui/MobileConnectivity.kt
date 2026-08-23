@@ -1,6 +1,7 @@
 package jp.nonbili.meron.ui
 
 import jp.nonbili.meron.shared.AccountSummary
+import jp.nonbili.meron.shared.AddPasswordAccountParams
 import jp.nonbili.meron.shared.CertificateProtocol
 import jp.nonbili.meron.shared.SendMailParams
 import jp.nonbili.meron.shared.ServerCertificate
@@ -56,6 +57,28 @@ internal sealed interface PendingCertificateRetry {
     ) : PendingCertificateRetry {
         override val accountId: String = pending.accountId
     }
+
+    /**
+     * A server-settings save a certificate refusal interrupted. It carries the
+     * edited servers because they are *not* stored yet — the save failed — so
+     * both the probe and the retry have to use what the user typed rather than
+     * the account's current values.
+     */
+    data class ServerSettings(
+        override val accountId: String,
+        val draft: ServerSettingsDraft,
+    ) : PendingCertificateRetry
+
+    /**
+     * An account creation a certificate refusal interrupted. Unlike every other
+     * case there is no stored account yet, so the accepted pin cannot be written
+     * to a row and read back — it has to ride along on the request that retries.
+     * [accountId] is the id the core will mint for this address.
+     */
+    data class AddAccount(
+        override val accountId: String,
+        val params: AddPasswordAccountParams,
+    ) : PendingCertificateRetry
 }
 
 internal fun certificateErrorAccountId(

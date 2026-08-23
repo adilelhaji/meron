@@ -1167,13 +1167,21 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 proxy: p.get("proxy").is_none(),
                 cert_pin: p.get("cert_pin").is_none(),
                 smtp_cert_pin: p.get("smtp_cert_pin").is_none(),
+                password: p.get("password").is_none(),
             };
             if omitted.any() {
                 let stored = {
                     let db = engine.db.lock().unwrap();
                     store::load_account(&db, &id)?
                 };
-                if let Some(stored) = stored {
+                if let Some(mut stored) = stored {
+                    // The password lives in the keychain, not the account row,
+                    // so the stored creds have to be hydrated before they can
+                    // supply one.
+                    if omitted.password {
+                        let db = engine.db.lock().unwrap();
+                        engine.host.apply_secret(&db, &id, &mut stored);
+                    }
                     creds.carry_over(&stored, omitted);
                 }
             }
@@ -1228,6 +1236,14 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             }
             secrets::store(&id, &secrets::Secrets::from_creds(&creds))?;
             engine.accounts.lock().await.insert(id.clone(), creds);
+            // This call also edits an existing account (server settings, a new
+            // password, a reconnect). Replacing the cached creds is not enough:
+            // warm pooled sessions and the live IDLE watcher are already
+            // authenticated against the *old* server, and would keep serving
+            // reads and pushes from it indefinitely. Drop the pool and wake the
+            // watchers so the next connection is made with what was just saved.
+            engine.clear_pool(&id);
+            engine.resume_signal.notify_waiters();
             // Start watching the new account right away. Only startup resumed
             // IDLE for known accounts, so an account added mid-session stayed
             // unwatched (and its INBOX unwarmed) until the next launch: mail

@@ -1247,6 +1247,7 @@ private fun MeronMobileScreenContent(
                     onSaveAppSignature = ::saveAppSignature,
                     onSaveAccountSignature = ::saveAccountSignature,
                     onSaveAccountProxy = ::saveAccountProxy,
+                    onSaveAccountServerSettings = ::saveAccountServerSettings,
                     kanbanColumnWidth = kanbanColumnWidth,
                     onCycleKanbanColumnWidth = {
                         val next = nextKanbanColumnWidth(kanbanColumnWidth)

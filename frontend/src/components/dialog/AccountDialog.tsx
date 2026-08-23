@@ -24,6 +24,8 @@ export function AccountDialog({ variant = 'dialog' }: AccountDialogProps) {
   const isSetup = variant === 'setup'
   const ctl = useAccountDialog()
   const { mode, setMode } = ctl
+  // Both reuse the existing-account layout (no provider rail); only the wording
+  // differs — see `editing` in useAccountDialog.
   const reconnecting = !!ctl.reconnectAccount
   const classes = dialogClasses(isSetup)
 
@@ -90,9 +92,11 @@ export function AccountDialog({ variant = 'dialog' }: AccountDialogProps) {
         {/* Header */}
         <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-border/70 shrink-0">
           <h2 className="text-[0.9375rem] font-bold tracking-tight leading-tight">
-            {reconnecting
-              ? t('accounts.actions.reconnectAccountTitle', { defaultValue: 'Reconnect account' })
-              : t('accounts.actions.addAccountTitle')}
+            {ctl.editing
+              ? t('accounts.actions.editAccountTitle', { defaultValue: 'Account server settings' })
+              : reconnecting
+                ? t('accounts.actions.reconnectAccountTitle', { defaultValue: 'Reconnect account' })
+                : t('accounts.actions.addAccountTitle')}
           </h2>
           <IconButton icon={X} iconSize={15} label={t('buttons.close')} size="sm" onClick={onClose} />
         </div>
@@ -184,7 +188,7 @@ function AccountDialogError({ error }: { error: string }) {
 
 function SaveButton({ ctl, isSetup }: { ctl: AccountDialogController; isSetup: boolean }) {
   const { t } = useTranslation()
-  const { save, saveDisabled, loading, reconnectAccount } = ctl
+  const { save, saveDisabled, loading, reconnectAccount, editing } = ctl
   return (
     <button
       onClick={save}
@@ -201,9 +205,11 @@ function SaveButton({ ctl, isSetup }: { ctl: AccountDialogController; isSetup: b
     >
       {loading && <RefreshCw size={11} className="animate-spin" />}
       <span>
-        {reconnectAccount
-          ? t('accounts.actions.reconnectAccount', { defaultValue: 'Reconnect' })
-          : t('accounts.actions.saveAccount')}
+        {editing
+          ? t('buttons.save')
+          : reconnectAccount
+            ? t('accounts.actions.reconnectAccount', { defaultValue: 'Reconnect' })
+            : t('accounts.actions.saveAccount')}
       </span>
     </button>
   )
