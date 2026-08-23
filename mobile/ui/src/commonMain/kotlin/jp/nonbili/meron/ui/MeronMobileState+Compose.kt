@@ -178,6 +178,7 @@ import jp.nonbili.meron.shared.RssMarkReadParams
 import jp.nonbili.meron.shared.RssMarkStarredParams
 import jp.nonbili.meron.shared.RssThreadParams
 import jp.nonbili.meron.shared.SendIdentity
+import jp.nonbili.meron.shared.SendMailParams
 import jp.nonbili.meron.shared.SendStatus
 import jp.nonbili.meron.shared.SharedMobileContract
 import jp.nonbili.meron.shared.SignatureMark
@@ -237,6 +238,7 @@ import jp.nonbili.meron.shared.threadIdIsRss
 import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
 import jp.nonbili.meron.shared.toSendMailParams
+import jp.nonbili.meron.shared.untrustedCertificateProtocol
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -481,45 +483,104 @@ internal fun MeronMobileState.sendMail() {
         return
     }
     composeSendInFlight = true
+    pendingComposeSend = null
     status = "Sending..."
     scope.launch {
         composeSaveMutex.withLock {
-            runCatching {
-                withContext(ioDispatcher) {
-                    val client = MobileMailCommandClient(core)
-                    val params =
+            val params =
+                runCatching {
+                    withContext(ioDispatcher) {
+                        val client = MobileMailCommandClient(core)
                         draft.toSendMailParams(accountId = accountId, from = identity?.email.orEmpty()).copy(
                             inReplyTo = composeInReplyTo,
                             references = composeReferences,
                             messageId = allocateCoreMessageId(client = client, accountId = accountId, draft = false),
                         )
-                    withManagedGoogleAuth(client, accountId) { client.send(params) }
+                    }
+                }.getOrElse {
+                    failComposeSend(it)
+                    return@withLock
                 }
-            }.onSuccess {
-                val owners =
-                    buildList {
-                        if (composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
-                            add(ComposeDraftOwner(composeDraftAccountId, composeDraftId, composeDraftThreadId()))
-                        }
-                        addAll(composeDraftCleanupOwners)
-                        // Same draft, different remembered thread must not be
-                        // discarded twice: the second attempt would report failure.
-                    }.distinctBy { it.accountId to it.draftId }
-                composeDraftCleanupOwners = owners
-                discardComposeDraftOwners(owners)
-                clearComposeDraftState()
-                composeSendInFlight = false
-                closeCompose()
-                errorBanner = null
-                status = "Message sent"
-                syncCoreThreads()
-            }.onFailure {
-                composeSendInFlight = false
-                errorBanner = it.message ?: "Send failed"
-                status = "Send failed: ${it.message}"
-            }
+            // Remembered so a send refused by a certificate we cannot validate
+            // can be sent again as the same message — including its Message-ID —
+            // once the user trusts the server.
+            pendingComposeSend = PendingComposeSend(accountId, params)
+            dispatchComposeSend(accountId, params)
         }
     }
+}
+
+/**
+ * Send a prepared message and reconcile the composer around the result. Split
+ * out so a retry sends exactly the message that failed rather than whatever the
+ * composer holds by the time the user gets back to it.
+ */
+private suspend fun MeronMobileState.dispatchComposeSend(
+    accountId: String,
+    params: SendMailParams,
+) {
+    runCatching {
+        withContext(ioDispatcher) {
+            val client = MobileMailCommandClient(core)
+            withManagedGoogleAuth(client, accountId) { client.send(params) }
+        }
+    }.onSuccess {
+        finishComposeSend()
+    }.onFailure {
+        failComposeSend(it)
+    }
+}
+
+/** Re-send the message a certificate rejection stopped, after it was trusted. */
+internal fun MeronMobileState.retryComposeSend() {
+    val pending = pendingComposeSend ?: return
+    if (composeSendInFlight) return
+    composeSendInFlight = true
+    status = "Sending..."
+    scope.launch {
+        composeSaveMutex.withLock {
+            dispatchComposeSend(pending.accountId, pending.params)
+        }
+    }
+}
+
+private suspend fun MeronMobileState.finishComposeSend() {
+    val owners =
+        buildList {
+            if (composeDraftSaved && composeDraftAccountId.isNotBlank() && composeDraftId.isNotBlank()) {
+                add(ComposeDraftOwner(composeDraftAccountId, composeDraftId, composeDraftThreadId()))
+            }
+            addAll(composeDraftCleanupOwners)
+            // Same draft, different remembered thread must not be
+            // discarded twice: the second attempt would report failure.
+        }.distinctBy { it.accountId to it.draftId }
+    composeDraftCleanupOwners = owners
+    discardComposeDraftOwners(owners)
+    clearComposeDraftState()
+    pendingComposeSend = null
+    pendingCertificateRetry = null
+    composeSendInFlight = false
+    // A retry can land after the user has left the composer to read the banner;
+    // only a composer still on screen gets closed.
+    if (screen == Screen.Compose) closeCompose()
+    errorBanner = null
+    status = "Message sent"
+    syncCoreThreads()
+}
+
+private fun MeronMobileState.failComposeSend(error: Throwable) {
+    composeSendInFlight = false
+    val message = error.message ?: "Send failed"
+    errorBanner = message
+    status = "Send failed: $message"
+    // Trusting the certificate has to resume the send, not fall back to a
+    // sync: the message is still unsent and the composer may be closed by then.
+    pendingCertificateRetry =
+        if (pendingComposeSend != null && untrustedCertificateProtocol(message) != null) {
+            { retryComposeSend() }
+        } else {
+            null
+        }
 }
 
 /** The thread a compose draft belongs to, blank unless composing from a thread. */

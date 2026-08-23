@@ -301,6 +301,20 @@ internal class MeronMobileState(
         }
     var errorBanner by mutableStateOf<String?>(null)
     var syncError by mutableStateOf<MobileSyncError?>(null)
+
+    // The certificate a server presented that we could not validate, once the
+    // user has asked to see it. Non-null puts the trust dialog on screen.
+    var certPrompt by mutableStateOf<MobileCertPrompt?>(null)
+    var certPromptBusy by mutableStateOf(false)
+
+    // What to re-run once a certificate is trusted: the send that was refused,
+    // or null to fall back to a sync. Set wherever a failure is recorded, so a
+    // later unrelated failure cannot resume a stale action.
+    var pendingCertificateRetry: (() -> Unit)? = null
+
+    // The message a refused send was carrying, kept so the retry sends exactly
+    // that one rather than whatever the composer holds by then.
+    var pendingComposeSend: PendingComposeSend? = null
     var addSection by mutableStateOf(0)
     var notificationPermissionGranted by mutableStateOf(mobileHost.notificationsEnabled())
     var notificationBannerDismissed by mutableStateOf(loadAppBoolean(prefs, NOTIFICATION_BANNER_DISMISSED_PREF, false))

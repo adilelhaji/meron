@@ -1,11 +1,32 @@
 package jp.nonbili.meron.ui
 
 import jp.nonbili.meron.shared.AccountSummary
+import jp.nonbili.meron.shared.CertificateProtocol
+import jp.nonbili.meron.shared.SendMailParams
+import jp.nonbili.meron.shared.ServerCertificate
 import kotlinx.coroutines.CancellationException
 
 internal data class MobileSyncError(
     val accountId: String?,
     val message: String,
+)
+
+/**
+ * A server certificate the user is being asked to trust, and the account and
+ * server it belongs to. [protocol] decides which pin an acceptance writes.
+ */
+internal data class MobileCertPrompt(
+    val accountId: String,
+    val host: String,
+    val port: Int,
+    val protocol: CertificateProtocol,
+    val certificate: ServerCertificate,
+)
+
+/** A prepared message whose send failed and can be retried as-is. */
+internal data class PendingComposeSend(
+    val accountId: String,
+    val params: SendMailParams,
 )
 
 internal class AccountSyncException(

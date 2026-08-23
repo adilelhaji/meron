@@ -27,6 +27,9 @@ export type Account = {
   starttls?: boolean
   smtp_tls?: boolean
   smtp_starttls?: boolean
+  /** Server certificates this account accepted, when they cannot be validated normally. */
+  cert_pin?: string
+  smtp_cert_pin?: string
   /** Whether remote (URL-based) inline images render for this account. */
   load_remote_images?: boolean
   /** Whether message views prefer original HTML when available (default true). */

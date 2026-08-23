@@ -1088,8 +1088,9 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
         // Store (and validate) IMAP credentials for an account.
         "account.connect" => {
+            let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
             let host = req_str(p, "host")?;
-            let creds = imap::Creds {
+            let mut creds = imap::Creds {
                 host: host.clone(),
                 port: req_u16(p, "port").unwrap_or(993),
                 user: req_str(p, "user")?,
@@ -1153,8 +1154,29 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     .trim()
                     .to_string(),
                 proxy: proxy::ProxyChoice::from_json(p.get("proxy").unwrap_or(&Value::Null)),
+                // Set once the user has inspected and accepted a certificate
+                // that webpki rejects (see `account.probeCert`).
+                cert_pin: cert_pin_param(p, "cert_pin"),
+                smtp_cert_pin: cert_pin_param(p, "smtp_cert_pin"),
             };
-            let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
+            // A reconnect resends the setup form, which has no field for the
+            // account's proxy or the certificates it accepted. Carry those over
+            // from the stored account so saving credentials again does not
+            // silently reset them.
+            let omitted = imap::OmittedSettings {
+                proxy: p.get("proxy").is_none(),
+                cert_pin: p.get("cert_pin").is_none(),
+                smtp_cert_pin: p.get("smtp_cert_pin").is_none(),
+            };
+            if omitted.any() {
+                let stored = {
+                    let db = engine.db.lock().unwrap();
+                    store::load_account(&db, &id)?
+                };
+                if let Some(stored) = stored {
+                    creds.carry_over(&stored, omitted);
+                }
+            }
             // Password accounts validate before storage. OAuth accounts may be
             // created directly after Google's token exchange; IMAP validation
             // can be slow or network-dependent, and later sync/watch calls will
@@ -1165,6 +1187,12 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         .await
                         .map_err(|_| anyhow::anyhow!("IMAP validation timed out"))??;
                 let _ = session.logout().await;
+                // The submission server can be a different daemon with a
+                // certificate of its own; a save that only validated IMAP would
+                // hand the user an account that fails at the first send.
+                tokio::time::timeout(Duration::from_secs(20), smtp::check_certificate(&creds))
+                    .await
+                    .unwrap_or(Ok(()))?;
             }
             let meta = store::AccountMeta {
                 engine: "mail".to_string(),
@@ -2500,6 +2528,26 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             )
         }
 
+        // Fetch the certificate a mail server presents, so the account dialog
+        // can show it and let the user pin it. Needed for local bridges (Proton
+        // Mail Bridge) whose self-signed leaf webpki refuses outright; nothing
+        // is sent over the probe connection.
+        "account.probeCert" => {
+            let host = req_str(p, "host")?;
+            let port = req_u16(p, "port").unwrap_or(993);
+            let protocol = p
+                .get("protocol")
+                .and_then(Value::as_str)
+                .unwrap_or("imap")
+                .to_string();
+            let starttls = p.get("starttls").and_then(Value::as_bool).unwrap_or(false);
+            let proxy = proxy::ProxyChoice::from_json(p.get("proxy").unwrap_or(&Value::Null));
+            let info =
+                meron_core::tls::probe(&host, port, &protocol, starttls, proxy.resolve().as_ref())
+                    .await?;
+            Ok(json!({ "certificate": info }))
+        }
+
         // Forget an account: drop its in-memory creds, cached state, and the
         // keychain secret. The IDLE watcher notices the account is gone on its
         // next loop and exits.
@@ -2597,6 +2645,38 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if let Some(creds) = engine.accounts.lock().await.get_mut(&id) {
                 creds.proxy = choice;
             }
+            Ok(json!({ "ok": true }))
+        }
+
+        // Store certificate pins the user accepted for an account that already
+        // exists — a server whose certificate rotated, or one whose failure only
+        // showed up on a later sync or send. Omitting a key leaves that server's
+        // pin alone; an explicit null clears it.
+        "account.setCertPin" => {
+            let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
+            let mut accounts = engine.accounts.lock().await;
+            let existing = accounts.get(&id);
+            let cert_pin = match p.get("cert_pin") {
+                Some(_) => cert_pin_param(p, "cert_pin"),
+                None => existing.and_then(|creds| creds.cert_pin.clone()),
+            };
+            let smtp_cert_pin = match p.get("smtp_cert_pin") {
+                Some(_) => cert_pin_param(p, "smtp_cert_pin"),
+                None => existing.and_then(|creds| creds.smtp_cert_pin.clone()),
+            };
+            store::set_account_cert_pins(
+                &engine.db.lock().unwrap(),
+                &id,
+                cert_pin.as_deref(),
+                smtp_cert_pin.as_deref(),
+            )?;
+            if let Some(creds) = accounts.get_mut(&id) {
+                creds.cert_pin = cert_pin;
+                creds.smtp_cert_pin = smtp_cert_pin;
+            }
+            drop(accounts);
+            // Pooled sessions were built with the old trust decision.
+            engine.clear_pool(&id);
             Ok(json!({ "ok": true }))
         }
 
@@ -2856,6 +2936,16 @@ fn req_u32(params: &Value, key: &str) -> anyhow::Result<u32> {
         .and_then(Value::as_u64)
         .map(|n| n as u32)
         .ok_or_else(|| anyhow::anyhow!("missing number param: {key}"))
+}
+
+/// A certificate pin parameter: hex, normalized, with blank treated as absent.
+fn cert_pin_param(params: &Value, key: &str) -> Option<String> {
+    params
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|pin| !pin.is_empty())
+        .map(|pin| pin.to_ascii_lowercase())
 }
 
 fn req_str_array(params: &Value, key: &str) -> anyhow::Result<Vec<String>> {

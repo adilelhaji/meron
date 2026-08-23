@@ -24,6 +24,7 @@ import {
 import { settings$ } from './settings'
 import { formatFullTimestamp } from '../components/chat/messageHelpers'
 import { closeComposeSession, forgetComposeSession, pruneComposeSessions } from './composeSessions'
+import { offerCertificateTrust } from './certificateTrust'
 
 // Compose/reader-tab + draft state. Reader tabs open using the account's
 // conversation view preference; compose tabs hold a full-editor draft. The
@@ -1582,7 +1583,14 @@ async function dispatchSend(tempId: string) {
     setSendStatus(tempId, 'sent')
   } catch (error) {
     setSendStatus(tempId, 'failed')
-    showToast(error instanceof Error ? error.message : t('compose.toast.sendFailed'), 'error')
+    const message = error instanceof Error ? error.message : t('compose.toast.sendFailed')
+    // A submission server whose certificate we cannot validate (a local bridge
+    // with a self-signed one, or one that rotated since setup) is unreachable
+    // until that certificate is pinned. Offer it and retry on acceptance
+    // instead of leaving a failed bubble the user can only retry into the same
+    // failure.
+    if (await offerCertificateTrust(payload.account_id, message, () => dispatchSend(tempId))) return
+    showToast(message, 'error')
   }
 }
 

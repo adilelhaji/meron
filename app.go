@@ -194,6 +194,10 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.accountAddPassword(payload)
 	case "account.autodiscover":
 		return a.autodiscover(payload)
+	case "account.probeCert":
+		return a.accountProbeCert(payload)
+	case "account.setCertPin":
+		return a.accountSetCertPin(payload)
 	case "account.addGmailOAuth", "oauth.gmailComplete":
 		return a.accountAddGmailOAuth(payload)
 	case "account.addOutlookOAuth", "oauth.outlookComplete":

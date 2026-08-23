@@ -14,8 +14,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import jp.nonbili.meron.shared.ServerCertificate
+import jp.nonbili.meron.shared.certificateCommonName
+import jp.nonbili.meron.shared.formatCertificateFingerprint
 
 @Composable
 internal fun AddFeedDialog(
@@ -132,6 +136,78 @@ internal fun DeleteFolderDialog(
             }
         },
     )
+}
+
+/**
+ * Asks the user to accept a server certificate that could not be validated
+ * against the public roots — a local Proton Mail Bridge serves a self-signed
+ * one. They compare the fingerprint against the one the server is supposed to
+ * have; accepting pins that exact certificate for this account and nothing else.
+ */
+@Composable
+internal fun CertificateTrustDialog(
+    server: String,
+    certificate: ServerCertificate,
+    busy: Boolean,
+    onTrust: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(tr("accounts.certificate.title")) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(tr("accounts.certificate.body", mapOf("server" to server)))
+                CertificateRow(tr("accounts.certificate.issuedTo"), certificateCommonName(certificate.subject))
+                CertificateRow(tr("accounts.certificate.issuedBy"), certificateCommonName(certificate.issuer))
+                CertificateRow(tr("accounts.certificate.expires"), certificate.notAfter)
+                CertificateRow(
+                    tr("accounts.certificate.fingerprint"),
+                    formatCertificateFingerprint(certificate.fingerprint),
+                    monospace = true,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onTrust, enabled = !busy) {
+                if (busy) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                } else {
+                    Text(tr("accounts.certificate.trust"))
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy) {
+                Text(tr("buttons.cancel"))
+            }
+        },
+    )
+}
+
+@Composable
+private fun CertificateRow(
+    label: String,
+    value: String,
+    monospace: Boolean = false,
+) {
+    if (value.isBlank()) return
+    Column {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style =
+                if (monospace) {
+                    MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace)
+                } else {
+                    MaterialTheme.typography.bodyMedium
+                },
+        )
+    }
 }
 
 /**

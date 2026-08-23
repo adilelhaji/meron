@@ -23,5 +23,6 @@ pub mod smtp;
 pub mod store;
 pub mod thread_list;
 pub mod thread_read;
+pub mod tls;
 pub mod unified;
 pub mod utf7;

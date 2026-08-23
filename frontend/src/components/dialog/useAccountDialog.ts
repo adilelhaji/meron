@@ -8,6 +8,13 @@ import { openMailAccount } from '../../states/kanban'
 import { nextRssAccountDisplayName } from '../../states/feeds'
 import { errorMessage } from '../../lib/errors'
 import { securityForPort, serverSelectionAfterDiscovery, type MailSecurity } from './accountSecurity'
+import {
+  certificateProbePayload,
+  untrustedCertificateProtocol,
+  type CertificateInfo,
+  type CertificateProtocol,
+  type CertificatePrompt,
+} from '../../lib/certificateTrust'
 
 type AddAccountResult = { account?: { id?: string } }
 
@@ -58,6 +65,10 @@ export function useAccountDialog() {
   const [appPasswordHint, setAppPasswordHint] = useState<{ provider: string; url: string } | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [waitingForGoogle, setWaitingForGoogle] = useState(false)
+  const [certPrompt, setCertPrompt] = useState<CertificatePrompt | null>(null)
+  // Pins accepted during the save in flight. A bridge can refuse on IMAP and
+  // then again on submission, and the second prompt must not drop the first.
+  const pins = useRef<{ imap?: string; smtp?: string }>({})
   const autoBeginOAuthKeyRef = useRef('')
   const rssAutoNameRef = useRef('')
   const discoveryGenerationRef = useRef(0)
@@ -308,9 +319,65 @@ export function useAccountDialog() {
     }
   }
 
+  // A save validates both servers — IMAP first, then the submission server's
+  // certificate — so either can be the one that was refused.
+  function serverTarget(protocol: CertificateProtocol) {
+    return protocol === 'smtp'
+      ? {
+          host: form.smtp_host.trim(),
+          port: Number(form.smtp_port) || 465,
+          starttls: form.smtp_security === 'starttls',
+        }
+      : {
+          host: form.imap_host.trim(),
+          port: Number(form.imap_port) || 993,
+          starttls: form.imap_security === 'starttls',
+        }
+  }
+
+  // Ask the core what certificate that server actually presented, so the user
+  // has something to look at before deciding to pin it. Returns null when even
+  // the probe cannot reach the server — then the original error stands.
+  async function probeCertificate(protocol: CertificateProtocol): Promise<CertificatePrompt | null> {
+    const target = serverTarget(protocol)
+    try {
+      const res = await invoke<{ certificate: CertificateInfo }>(
+        'account.probeCert',
+        certificateProbePayload({ ...target, protocol }, reconnectAccount?.proxy),
+      )
+      if (!res?.certificate?.fingerprint) return null
+      return { host: target.host, port: target.port, protocol, certificate: res.certificate }
+    } catch {
+      return null
+    }
+  }
+
+  // Pin the certificate the user just accepted and retry the save with it. The
+  // other server's pin, if one was accepted earlier in this same save, rides
+  // along — a bridge can present a certificate on each port.
+  async function trustCertificate() {
+    const accepted = certPrompt
+    setCertPrompt(null)
+    if (!accepted) return
+    await submit(
+      accepted.protocol === 'imap' ? accepted.certificate.fingerprint : pins.current.imap,
+      accepted.protocol === 'smtp' ? accepted.certificate.fingerprint : pins.current.smtp,
+    )
+  }
+
+  function dismissCertPrompt() {
+    setCertPrompt(null)
+  }
+
   async function save() {
+    await submit()
+  }
+
+  async function submit(certPin?: string, smtpCertPin?: string) {
+    pins.current = { imap: certPin, smtp: smtpCertPin }
     try {
       setError('')
+      setCertPrompt(null)
       setLoading(true)
       // Snapshot existing ids so we can jump to the freshly added account below.
       const before = new Set(accounts$.peek().map((acc) => acc.id))
@@ -350,6 +417,10 @@ export function useAccountDialog() {
           starttls: form.imap_security === 'starttls',
           smtp_tls: form.smtp_security === 'tls',
           smtp_starttls: form.smtp_security === 'starttls',
+          // A reconnect keeps the pins the account already carries unless the
+          // user has just accepted a new certificate.
+          cert_pin: certPin ?? reconnectAccount?.cert_pin ?? '',
+          smtp_cert_pin: smtpCertPin ?? reconnectAccount?.smtp_cert_pin ?? '',
         })
         createdId = added.account?.id ?? ''
       }
@@ -364,7 +435,21 @@ export function useAccountDialog() {
         if (created) ui$.accountSettingsId.set(created.id)
       }
     } catch (err) {
-      setError(errorMessage(err, 'Could not save account'))
+      const message = errorMessage(err, 'Could not save account')
+      // A server whose certificate does not validate (a local bridge with a
+      // self-signed one) is unreachable until its exact certificate is pinned.
+      // Offer that instead of dead-ending on the handshake error — but only
+      // once per server: a failure that survives the pin is a real failure.
+      const protocol = untrustedCertificateProtocol(message)
+      const alreadyPinned = protocol === 'smtp' ? smtpCertPin : certPin
+      if (protocol && !alreadyPinned) {
+        const prompt = await probeCertificate(protocol)
+        if (prompt) {
+          setCertPrompt(prompt)
+          return
+        }
+      }
+      setError(message)
       if (mode === 'custom') setAdvancedOpen(true)
     } finally {
       setLoading(false)
@@ -399,6 +484,9 @@ export function useAccountDialog() {
     runDiscovery,
     beginOAuth,
     save,
+    certPrompt,
+    trustCertificate,
+    dismissCertPrompt,
     saveDisabled,
     reconnectAccount,
   }

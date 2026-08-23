@@ -137,6 +137,7 @@ import androidx.compose.ui.unit.sp
 import jp.nonbili.meron.shared.AccountAliasParams
 import jp.nonbili.meron.shared.AccountAliasesParams
 import jp.nonbili.meron.shared.AccountAvatarParams
+import jp.nonbili.meron.shared.AccountCertPinParams
 import jp.nonbili.meron.shared.AccountChatWallpaperParams
 import jp.nonbili.meron.shared.AccountFlagParams
 import jp.nonbili.meron.shared.AccountIdParams
@@ -155,6 +156,7 @@ import jp.nonbili.meron.shared.AppPrefsGetParams
 import jp.nonbili.meron.shared.AppPrefsSetParams
 import jp.nonbili.meron.shared.AttachmentReadParams
 import jp.nonbili.meron.shared.AutodiscoverAccountParams
+import jp.nonbili.meron.shared.CertificateProtocol
 import jp.nonbili.meron.shared.ComposeDraft
 import jp.nonbili.meron.shared.ContactSuggestParams
 import jp.nonbili.meron.shared.ContactSuggestion
@@ -176,6 +178,7 @@ import jp.nonbili.meron.shared.MobileMailCommandClient
 import jp.nonbili.meron.shared.MoveRssFeedParams
 import jp.nonbili.meron.shared.MoveThreadParams
 import jp.nonbili.meron.shared.OAuthAuthorizationRequest
+import jp.nonbili.meron.shared.ProbeCertParams
 import jp.nonbili.meron.shared.ProxyParams
 import jp.nonbili.meron.shared.ProxySpec
 import jp.nonbili.meron.shared.RemoveRssFeedParams
@@ -183,6 +186,7 @@ import jp.nonbili.meron.shared.RssMarkReadParams
 import jp.nonbili.meron.shared.RssMarkStarredParams
 import jp.nonbili.meron.shared.RssThreadParams
 import jp.nonbili.meron.shared.SendIdentity
+import jp.nonbili.meron.shared.ServerCertificate
 import jp.nonbili.meron.shared.SharedMobileContract
 import jp.nonbili.meron.shared.SignatureSpec
 import jp.nonbili.meron.shared.StarredItemSummary
@@ -226,6 +230,7 @@ import jp.nonbili.meron.shared.parseMediaFileUrlResponse
 import jp.nonbili.meron.shared.parseOAuthCallbackUrlForRedirect
 import jp.nonbili.meron.shared.parseOpmlExportResponse
 import jp.nonbili.meron.shared.parseOpmlImportCountResponse
+import jp.nonbili.meron.shared.parseProbeCertResponse
 import jp.nonbili.meron.shared.parseProxyResponse
 import jp.nonbili.meron.shared.parseStarredItemsPage
 import jp.nonbili.meron.shared.parseStarredItemsResponse
@@ -240,6 +245,7 @@ import jp.nonbili.meron.shared.threadIdIsRss
 import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
 import jp.nonbili.meron.shared.toSendMailParams
+import jp.nonbili.meron.shared.untrustedCertificateProtocol
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -510,6 +516,114 @@ internal fun MeronMobileState.saveAccountProxy(
             status = "Proxy update failed: ${it.message}"
         }
     }
+}
+
+/**
+ * Fetch the certificate the failing server presented and put it in front of the
+ * user. A server whose certificate cannot be validated — a local Proton Mail
+ * Bridge serves a self-signed CA certificate as its leaf — is unreachable until
+ * that exact certificate is pinned, so the alternative to this prompt is an
+ * account that can never sync.
+ *
+ * [message] is the failure that carries the core's marker; it names which of
+ * the two servers refused.
+ */
+internal fun MeronMobileState.showServerCertificate(
+    accountId: String,
+    message: String,
+) {
+    val protocol = untrustedCertificateProtocol(message) ?: return
+    val account = coreAccounts.find { it.id == accountId } ?: return
+    if (!coreLoaded) {
+        status = coreUnavailableMessage
+        return
+    }
+    val host = if (protocol == CertificateProtocol.SMTP) account.smtpHost else account.imapHost
+    if (host.isBlank()) return
+    val port =
+        when {
+            protocol == CertificateProtocol.SMTP -> account.smtpPort.takeIf { it > 0 } ?: 465
+            else -> account.imapPort.takeIf { it > 0 } ?: 993
+        }
+    val starttls = if (protocol == CertificateProtocol.SMTP) account.smtpStarttls else account.starttls
+    certPromptBusy = true
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                parseProbeCertResponse(
+                    requireCoreOk(
+                        MobileMailCommandClient(core).probeCert(
+                            ProbeCertParams(
+                                host = host,
+                                port = port,
+                                protocol = protocol.wire,
+                                starttls = starttls,
+                                proxy = account.proxy,
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }.onSuccess { certificate: ServerCertificate? ->
+            if (certificate == null) {
+                status = "Could not read the server's certificate"
+            } else {
+                certPrompt =
+                    MobileCertPrompt(
+                        accountId = accountId,
+                        host = host,
+                        port = port,
+                        protocol = protocol,
+                        certificate = certificate,
+                    )
+            }
+        }.onFailure {
+            status = "Could not read the server's certificate: ${it.message}"
+        }
+        certPromptBusy = false
+    }
+}
+
+/**
+ * Pin the certificate the user accepted and retry the sync. Only the server the
+ * prompt was about is pinned: the other one keeps whatever it had.
+ */
+internal fun MeronMobileState.trustPromptedCertificate() {
+    val prompt = certPrompt ?: return
+    val fingerprint = prompt.certificate.fingerprint
+    certPromptBusy = true
+    scope.launch {
+        runCatching {
+            withContext(ioDispatcher) {
+                requireCoreOk(
+                    MobileMailCommandClient(core).setAccountCertPin(
+                        AccountCertPinParams(
+                            accountId = prompt.accountId,
+                            certPin = fingerprint.takeIf { prompt.protocol == CertificateProtocol.IMAP },
+                            smtpCertPin = fingerprint.takeIf { prompt.protocol == CertificateProtocol.SMTP },
+                        ),
+                    ),
+                )
+            }
+        }.onSuccess {
+            certPrompt = null
+            syncError = null
+            errorBanner = null
+            status = "Trusted ${prompt.host}"
+            // Resume what the certificate blocked — an unsent message stays
+            // unsent unless its send is the thing that runs again.
+            val retry = pendingCertificateRetry
+            pendingCertificateRetry = null
+            if (retry != null) retry() else syncCoreThreads()
+        }.onFailure {
+            status = "Could not save the certificate: ${it.message}"
+        }
+        certPromptBusy = false
+    }
+}
+
+internal fun MeronMobileState.dismissCertificatePrompt() {
+    certPrompt = null
 }
 
 internal fun MeronMobileState.loadStorageUsage(showStatus: Boolean = false) {

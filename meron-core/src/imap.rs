@@ -12,7 +12,6 @@ use futures::StreamExt;
 use mailparse::MailHeaderMap;
 use std::collections::HashSet;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
@@ -97,9 +96,50 @@ pub struct Creds {
     /// Whether this account follows the app-wide proxy, forces a direct
     /// connection, or uses its own.
     pub proxy: crate::proxy::ProxyChoice,
+    /// Hex SHA-256 of an IMAP server certificate the user inspected and
+    /// accepted, for servers whose certificate webpki cannot validate (local
+    /// bridges with a self-signed leaf). See [`crate::tls`].
+    pub cert_pin: Option<String>,
+    /// The same, for the submission server. Separate because the two can be
+    /// different daemons with different certificates — a local bridge serves one
+    /// certificate on both ports, but nothing guarantees that in general.
+    pub smtp_cert_pin: Option<String>,
+}
+
+/// Which settings a save left out of its parameters, and so must be carried
+/// over from the stored account instead of reset.
+///
+/// Saving an account resends what the setup form holds — servers, ports,
+/// credentials. Everything else about a connection lives elsewhere in the UI (a
+/// per-account proxy) or is answered by a prompt (an accepted certificate), so a
+/// reconnect that only re-enters a password must not clear them.
+#[derive(Clone, Copy, Debug)]
+pub struct OmittedSettings {
+    pub proxy: bool,
+    pub cert_pin: bool,
+    pub smtp_cert_pin: bool,
+}
+
+impl OmittedSettings {
+    pub fn any(&self) -> bool {
+        self.proxy || self.cert_pin || self.smtp_cert_pin
+    }
 }
 
 impl Creds {
+    /// Copy the omitted settings across from the account as it is stored today.
+    pub fn carry_over(&mut self, stored: &Creds, omitted: OmittedSettings) {
+        if omitted.proxy {
+            self.proxy = stored.proxy.clone();
+        }
+        if omitted.cert_pin {
+            self.cert_pin = stored.cert_pin.clone();
+        }
+        if omitted.smtp_cert_pin {
+            self.smtp_cert_pin = stored.smtp_cert_pin.clone();
+        }
+    }
+
     /// Whether this account authenticates via OAuth2 (XOAUTH2) rather than a
     /// password. Covers every provider — `gmail_oauth`, `outlook_oauth`, … — so
     /// new providers don't need to be enumerated at each auth site.
@@ -188,19 +228,6 @@ pub struct RecentBatch {
     pub messages: Vec<MessageHeader>,
 }
 
-fn tls_connector() -> Result<tokio_rustls::TlsConnector> {
-    let mut roots = rustls::RootCertStore::empty();
-    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
-        rustls::crypto::ring::default_provider(),
-    ))
-    .with_safe_default_protocol_versions()
-    .context("tls protocol versions")?
-    .with_root_certificates(roots)
-    .with_no_client_auth();
-    Ok(tokio_rustls::TlsConnector::from(Arc::new(config)))
-}
-
 /// Cap on the DNS lookup and on the TLS handshake, each. Without it a sick
 /// resolver (getaddrinfo retrying across nameservers) can hold a sync for the
 /// better part of a minute before erroring; failing fast surfaces the error
@@ -262,37 +289,57 @@ pub async fn connect_stream(
     port: u16,
     tls: bool,
     proxy: Option<&crate::proxy::ProxyConfig>,
+    cert_pin: Option<&str>,
 ) -> Result<Stream> {
-    let tcp = match proxy {
-        Some(proxy) => crate::proxy::connect_through(proxy, host, port).await?,
-        None => connect_tcp(host, port).await?,
-    };
-
-    // Enable TCP keepalives to prevent silent drops by NAT/firewalls and detect network loss quickly.
-    let sock_ref = socket2::SockRef::from(&tcp);
-    let keepalive = socket2::TcpKeepalive::new()
-        .with_time(std::time::Duration::from_secs(60))
-        .with_interval(std::time::Duration::from_secs(10));
-    let _ = sock_ref.set_tcp_keepalive(&keepalive);
+    let tcp = open_socket(host, port, proxy).await?;
     if tls {
-        Ok(Stream::Tls(Box::new(upgrade_to_tls(host, tcp).await?)))
+        Ok(Stream::Tls(Box::new(
+            upgrade_to_tls(host, tcp, cert_pin).await?,
+        )))
     } else {
         Ok(Stream::Plain(tcp))
     }
 }
 
+/// Connect the TCP socket (directly or through the proxy) and set the
+/// keepalives every mail connection wants: NAT and firewalls drop idle IMAP
+/// sessions silently otherwise, and an IDLE watcher never notices.
+pub(crate) async fn open_socket(
+    host: &str,
+    port: u16,
+    proxy: Option<&crate::proxy::ProxyConfig>,
+) -> Result<TcpStream> {
+    let tcp = match proxy {
+        Some(proxy) => crate::proxy::connect_through(proxy, host, port).await?,
+        None => connect_tcp(host, port).await?,
+    };
+    let sock_ref = socket2::SockRef::from(&tcp);
+    let keepalive = socket2::TcpKeepalive::new()
+        .with_time(std::time::Duration::from_secs(60))
+        .with_interval(std::time::Duration::from_secs(10));
+    let _ = sock_ref.set_tcp_keepalive(&keepalive);
+    Ok(tcp)
+}
+
 /// Wrap an established plaintext TCP socket in a TLS session. Used both by the
 /// implicit-TLS path above and by the STARTTLS upgrade, which hands us the raw
 /// socket after the cleartext negotiation completes.
-pub async fn upgrade_to_tls(host: &str, tcp: TcpStream) -> Result<TlsStream<TcpStream>> {
-    let connector = tls_connector()?;
+pub async fn upgrade_to_tls(
+    host: &str,
+    tcp: TcpStream,
+    cert_pin: Option<&str>,
+) -> Result<TlsStream<TcpStream>> {
+    let connector = crate::tls::connector(cert_pin)?;
     let server_name =
         rustls::pki_types::ServerName::try_from(host.to_string()).context("invalid server name")?;
-    tokio::time::timeout(CONNECT_TIMEOUT, connector.connect(server_name, tcp))
+    let result = tokio::time::timeout(CONNECT_TIMEOUT, connector.connect(server_name, tcp))
         .await
         .map_err(|_| anyhow::anyhow!("timed out"))
-        .context("tls handshake")?
-        .context("tls handshake")
+        .context("tls handshake")?;
+    // Certificate rejections come back tagged, so the account dialog can offer
+    // to show the certificate and pin it rather than dead-ending on a rustls
+    // error. See [`crate::tls::UntrustedCertificate`].
+    result.map_err(crate::tls::UntrustedCertificate::from_io)
 }
 
 pub struct XOAuth2Simple {
@@ -322,6 +369,26 @@ impl async_imap::Authenticator for XOAuth2Simple {
     }
 }
 
+/// Drive an IMAP session up to the point where the socket is ready for the TLS
+/// handshake, and hand back the raw socket. Used only by the certificate probe
+/// (see [`crate::tls::probe`]); no credentials are ever sent over it.
+pub(crate) async fn starttls_socket(tcp: TcpStream) -> Result<TcpStream> {
+    let mut client = async_imap::Client::new(Stream::Plain(tcp));
+    client
+        .read_response()
+        .await
+        .context("read IMAP greeting")?
+        .context("server closed before greeting")?;
+    client
+        .run_command_and_check_ok("STARTTLS", None)
+        .await
+        .context("STARTTLS")?;
+    match client.into_inner() {
+        Stream::Plain(tcp) => Ok(tcp),
+        Stream::Tls(_) => Err(anyhow!("STARTTLS requested on an already-TLS stream")),
+    }
+}
+
 pub async fn connect(creds: &Creds) -> Result<Session> {
     // STARTTLS connects in cleartext and upgrades after the greeting; implicit
     // TLS wraps the socket up front. Plaintext (neither flag) is for local test
@@ -332,6 +399,7 @@ pub async fn connect(creds: &Creds) -> Result<Session> {
         creds.port,
         implicit_tls,
         creds.proxy.resolve().as_ref(),
+        creds.cert_pin.as_deref(),
     )
     .await?;
     let mut client = async_imap::Client::new(stream);
@@ -358,7 +426,7 @@ pub async fn connect(creds: &Creds) -> Result<Session> {
             Stream::Plain(tcp) => tcp,
             Stream::Tls(_) => return Err(anyhow!("STARTTLS requested on an already-TLS stream")),
         };
-        let tls = upgrade_to_tls(&creds.host, tcp).await?;
+        let tls = upgrade_to_tls(&creds.host, tcp, creds.cert_pin.as_deref()).await?;
         client = async_imap::Client::new(Stream::Tls(Box::new(tls)));
     }
 

@@ -21,6 +21,7 @@ import { AppHotkeys } from './components/dialog/AppHotkeys'
 import { ShortcutsDialog } from './components/dialog/ShortcutsDialog'
 import { AppToast } from './components/toast/AppToast'
 import { AppConfirm } from './components/dialog/AppConfirm'
+import { CertificateTrustDialog } from './components/dialog/CertificateTrustDialog'
 import { MacTitleBar } from './components/titlebar/MacTitleBar'
 import { ConnectivityBanner } from './components/banner/ConnectivityBanner'
 import { UpdateBanner } from './components/banner/UpdateBanner'
@@ -114,6 +115,7 @@ export default function App() {
 
         <AppToast />
         <AppConfirm />
+        <CertificateTrustDialog />
       </main>
     </div>
   )

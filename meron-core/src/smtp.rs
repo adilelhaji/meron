@@ -30,6 +30,103 @@ async fn with_timeout<T>(
         .map_err(|_| anyhow::anyhow!("{what} timed out after {}s", limit.as_secs()))
 }
 
+/// Verify that the submission server presents a certificate we accept, without
+/// authenticating or sending anything. Run when an account is saved, because
+/// the IMAP validation next to it cannot speak for a second server that may
+/// have a certificate of its own.
+///
+/// Only certificate failures are reported: an unreachable or fussy submission
+/// server is left for the first real send, which is where it has always
+/// surfaced, so saving an account does not start failing on servers that reject
+/// probes.
+pub async fn check_certificate(creds: &Creds) -> Result<()> {
+    let host = if creds.smtp_host.is_empty() {
+        creds.host.as_str()
+    } else {
+        creds.smtp_host.as_str()
+    };
+    let port = if creds.smtp_port == 0 {
+        587
+    } else {
+        creds.smtp_port
+    };
+    let implicit_tls = creds.smtp_tls && !creds.smtp_starttls;
+    if !implicit_tls && !creds.smtp_starttls {
+        // Plaintext submission: no certificate to check.
+        return Ok(());
+    }
+    let proxy = creds.proxy.resolve();
+    let pin = creds.smtp_cert_pin.as_deref();
+    let outcome = async {
+        let tcp = crate::imap::open_socket(host, port, proxy.as_ref()).await?;
+        let tcp = if creds.smtp_starttls {
+            starttls_socket(tcp).await?
+        } else {
+            tcp
+        };
+        crate::imap::upgrade_to_tls(host, tcp, pin)
+            .await
+            .map(|_| ())
+    }
+    .await;
+    match outcome {
+        Ok(()) => Ok(()),
+        Err(err) if is_cert_failure(&err) => Err(as_smtp_cert_error(err)),
+        Err(err) => {
+            crate::mlog!(
+                crate::log::Level::Warn,
+                "net",
+                "smtp certificate check for {host}:{port} could not complete: {err:#}"
+            );
+            Ok(())
+        }
+    }
+}
+
+fn is_cert_failure(err: &anyhow::Error) -> bool {
+    err.downcast_ref::<crate::tls::UntrustedCertificate>()
+        .is_some()
+}
+
+/// Re-tag a certificate rejection with the submission server's marker. Both
+/// servers hand back the same typed error, and the UI has to know which one to
+/// probe and which pin to write.
+fn as_smtp_cert_error(err: anyhow::Error) -> anyhow::Error {
+    match err.downcast_ref::<crate::tls::UntrustedCertificate>() {
+        Some(untrusted) => anyhow::anyhow!(
+            "{}: {}",
+            crate::tls::UNTRUSTED_SMTP_CERT_MARKER,
+            untrusted.detail()
+        ),
+        None => err,
+    }
+}
+
+/// Speak SMTP far enough to reach the STARTTLS upgrade and return the raw
+/// socket. Used only by the certificate probe (see [`crate::tls::probe`]); no
+/// credentials are ever sent over it.
+pub(crate) async fn starttls_socket(tcp: tokio::net::TcpStream) -> Result<tokio::net::TcpStream> {
+    let transport = with_timeout(
+        SMTP_COMMAND_TIMEOUT,
+        "smtp greeting",
+        SmtpTransport::new(
+            SmtpClient::new(),
+            BufReader::new(crate::imap::Stream::Plain(tcp)),
+        ),
+    )
+    .await?
+    .context("smtp connect")?;
+    let inner = with_timeout(SMTP_COMMAND_TIMEOUT, "smtp starttls", transport.starttls())
+        .await?
+        .context("SMTP STARTTLS")?;
+    match inner.into_inner() {
+        crate::imap::Stream::Plain(tcp) => Ok(tcp),
+        crate::imap::Stream::Tls(_) => Err(anyhow::anyhow!(
+            "STARTTLS requested on an already-TLS stream"
+        )),
+    }
+}
+
 #[derive(serde::Deserialize, Debug)]
 pub struct AttachmentInput {
     pub filename: String,
@@ -279,7 +376,15 @@ pub async fn send(
     // STARTTLS connects in cleartext, then upgrades after EHLO; implicit TLS
     // wraps the socket up front. smtp_starttls takes precedence over smtp_tls.
     let implicit_tls = creds.smtp_tls && !creds.smtp_starttls;
-    let stream = connect_stream(host, port, implicit_tls, creds.proxy.resolve().as_ref()).await?;
+    let stream = connect_stream(
+        host,
+        port,
+        implicit_tls,
+        creds.proxy.resolve().as_ref(),
+        creds.smtp_cert_pin.as_deref(),
+    )
+    .await
+    .map_err(as_smtp_cert_error)?;
     let mut transport = with_timeout(
         SMTP_COMMAND_TIMEOUT,
         "smtp greeting",
@@ -303,7 +408,9 @@ pub async fn send(
                 ));
             }
         };
-        let tls = crate::imap::upgrade_to_tls(host, tcp).await?;
+        let tls = crate::imap::upgrade_to_tls(host, tcp, creds.smtp_cert_pin.as_deref())
+            .await
+            .map_err(as_smtp_cert_error)?;
         let upgraded = crate::imap::Stream::Tls(Box::new(tls));
         transport = with_timeout(
             SMTP_COMMAND_TIMEOUT,
@@ -463,7 +570,35 @@ fn bare_id(token: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{bare_addr, bare_id, build_message, parse_addrs, split_name_addr};
+    use super::{
+        as_smtp_cert_error, bare_addr, bare_id, build_message, parse_addrs, split_name_addr,
+    };
+
+    /// A send and a sync fail the same way inside rustls; only the marker tells
+    /// the UI which server to show and which pin to write. Without the re-tag a
+    /// refused submission server would pin the IMAP server instead.
+    #[test]
+    fn certificate_failures_from_submission_carry_the_smtp_marker() {
+        let refused = crate::tls::UntrustedCertificate::from_io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            rustls::Error::InvalidCertificate(rustls::CertificateError::Other(rustls::OtherError(
+                std::sync::Arc::new(std::io::Error::other("CaUsedAsEndEntity")),
+            ))),
+        ));
+        let tagged = as_smtp_cert_error(refused).to_string();
+        assert!(
+            tagged.starts_with(crate::tls::UNTRUSTED_SMTP_CERT_MARKER),
+            "{tagged}"
+        );
+        assert!(tagged.contains("CaUsedAsEndEntity"), "{tagged}");
+
+        // Anything else is passed through untouched.
+        let offline = anyhow::anyhow!("tcp connect: connection refused");
+        assert_eq!(
+            as_smtp_cert_error(offline).to_string(),
+            "tcp connect: connection refused"
+        );
+    }
 
     #[test]
     fn parse_addrs_splits_and_trims() {

@@ -696,6 +696,38 @@ pub(crate) fn set_mobile_account_proxy(data_dir: &str, params: &Value) -> Result
     result
 }
 
+/// Store certificate pins the user accepted for an account that already exists.
+/// The desktop sidecar has the same call; on mobile it is the only way a pin is
+/// ever set, since the failure surfaces on a sync rather than at save time.
+/// Omitting a key leaves that server's pin alone; an explicit null clears it.
+pub(crate) fn set_mobile_account_cert_pin(data_dir: &str, params: &Value) -> Result<Value, String> {
+    let id = req_account_pref_id(params)?;
+    let result = with_mobile_db(data_dir, |conn| {
+        let stored = store::load_accounts(&conn)
+            .map_err(|err| err.to_string())?
+            .into_iter()
+            .find(|(account, _)| account == &id)
+            .map(|(_, creds)| creds);
+        let cert_pin = match params.get("cert_pin") {
+            Some(_) => pin_param(params, "cert_pin"),
+            None => stored.as_ref().and_then(|creds| creds.cert_pin.clone()),
+        };
+        let smtp_cert_pin = match params.get("smtp_cert_pin") {
+            Some(_) => pin_param(params, "smtp_cert_pin"),
+            None => stored
+                .as_ref()
+                .and_then(|creds| creds.smtp_cert_pin.clone()),
+        };
+        store::set_account_cert_pins(&conn, &id, cert_pin.as_deref(), smtp_cert_pin.as_deref())
+            .map_err(|err| err.to_string())?;
+        Ok(json!({ "ok": true }))
+    });
+    if result.is_ok() {
+        crate::ffi::evict_engine_account(&id);
+    }
+    result
+}
+
 /// The app-wide proxy. Mobile keeps most preferences on the platform side, but
 /// this one has to live in the core store: the socket layer reads it, including
 /// from background syncs that never touch the UI process state.
@@ -717,6 +749,29 @@ pub(crate) fn set_mobile_proxy(data_dir: &str, params: &Value) -> Result<Value, 
         crate::proxy::set_global(crate::proxy::parse_global(&value));
         Ok(json!({ "ok": true }))
     })
+}
+
+/// Fetch the certificate a mail server presents so the account UI can show it
+/// and offer to pin it. The desktop sidecar has the same call in `main.rs`;
+/// both exist because a self-signed local bridge is unreachable without a pin.
+/// A certificate pin parameter: hex, normalized, with blank treated as absent.
+fn pin_param(params: &Value, key: &str) -> Option<String> {
+    Some(opt_str(params, key).to_ascii_lowercase()).filter(|pin| !pin.is_empty())
+}
+
+pub(crate) fn probe_mobile_cert(params: &Value) -> Result<Value, String> {
+    let host = req_str(params, "host")?;
+    let port = req_u16(params, "port").unwrap_or(993);
+    let protocol = opt_str(params, "protocol");
+    let starttls = params
+        .get("starttls")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let proxy = crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null));
+    let info = crate::ffi::engine_block_on(async move {
+        crate::tls::probe(&host, port, &protocol, starttls, proxy.resolve().as_ref()).await
+    })?;
+    Ok(json!({ "certificate": info }))
 }
 
 pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Result<Value, String> {
@@ -766,6 +821,8 @@ pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Res
         oauth_token_url: String::new(),
         oauth_scope: String::new(),
         proxy: crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null)),
+        cert_pin: pin_param(params, "cert_pin"),
+        smtp_cert_pin: pin_param(params, "smtp_cert_pin"),
     };
     let meta = AccountMeta {
         engine: "mail".to_string(),
@@ -775,8 +832,22 @@ pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Res
         avatar_url: String::new(),
         sender_name: opt_str(params, "sender_name"),
     };
+    // Reconnecting re-runs this call with the setup form's fields; anything the
+    // form does not carry (the account's proxy, accepted certificates) is kept
+    // from the stored account rather than reset. See [`OmittedSettings`].
+    let omitted = crate::imap::OmittedSettings {
+        proxy: params.get("proxy").is_none(),
+        cert_pin: params.get("cert_pin").is_none(),
+        smtp_cert_pin: params.get("smtp_cert_pin").is_none(),
+    };
 
     let result = with_mobile_db(data_dir, |conn| {
+        let mut creds = creds.clone();
+        if omitted.any()
+            && let Some(stored) = store::load_account(&conn, &id).map_err(|err| err.to_string())?
+        {
+            creds.carry_over(&stored, omitted);
+        }
         store::upsert_account(&conn, &id, &meta, &creds).map_err(|err| err.to_string())?;
         store_mobile_secret(&conn, &id, &creds)?;
         let mut account = store::list_accounts(&conn)

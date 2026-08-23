@@ -41,7 +41,7 @@ func (a *App) accountAddPassword(payload map[string]any) (any, error) {
 	}
 	imapTLS, imapStartTLS := selectedTLSMode(legacyTLS, imapExplicitTLS, req.StartTLS, req.IMAPPort)
 	smtpTLS, smtpStartTLS := selectedTLSMode(legacyTLS, req.SMTPTLS, req.SMTPStartTLS, req.SMTPPort)
-	if _, err := a.sidecar.Call("account.connect", map[string]any{
+	connect := map[string]any{
 		"id":            id,
 		"host":          req.IMAPHost,
 		"port":          req.IMAPPort,
@@ -57,7 +57,14 @@ func (a *App) accountAddPassword(payload map[string]any) (any, error) {
 		"display_name":  req.DisplayName,
 		"sender_name":   req.SenderName,
 		"provider":      "custom",
-	}); err != nil {
+	}
+	if pin := strings.TrimSpace(req.CertPin); pin != "" {
+		connect["cert_pin"] = pin
+	}
+	if pin := strings.TrimSpace(req.SMTPCertPin); pin != "" {
+		connect["smtp_cert_pin"] = pin
+	}
+	if _, err := a.sidecar.Call("account.connect", connect); err != nil {
 		return nil, err
 	}
 	_, _ = a.sidecar.Call("watch.start", map[string]any{"account": id})
@@ -80,6 +87,68 @@ func (a *App) accountAddPassword(payload map[string]any) (any, error) {
 		SMTPStartTLS:      smtpStartTLS,
 	}
 	return map[string]any{"account": account}, nil
+}
+
+// accountProbeCert fetches the certificate a mail server presents so the
+// account dialog can show it and let the user pin it. Servers with a
+// self-signed certificate (Proton Mail Bridge on 127.0.0.1, for one) are
+// unreachable until their exact certificate is accepted.
+func (a *App) accountProbeCert(payload map[string]any) (any, error) {
+	var req struct {
+		Host     string `json:"host"`
+		Port     uint16 `json:"port"`
+		Protocol string `json:"protocol"`
+		StartTLS bool   `json:"starttls"`
+		// The account's proxy choice, passed through untyped like everywhere
+		// else. Absent follows the app-wide proxy, which is also what a
+		// connection with no account override does.
+		Proxy any `json:"proxy"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.Host) == "" {
+		return nil, errors.New("server required")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("account.probeCert", map[string]any{
+		"host":     req.Host,
+		"port":     req.Port,
+		"protocol": req.Protocol,
+		"starttls": req.StartTLS,
+		"proxy":    req.Proxy,
+	})
+}
+
+// accountSetCertPin stores a certificate the user accepted for an account that
+// already exists — a send refused by a submission server whose certificate
+// cannot be validated, say. Only the server named by the payload is pinned; an
+// omitted key leaves that server's stored pin alone.
+func (a *App) accountSetCertPin(payload map[string]any) (any, error) {
+	var req struct {
+		ID          string `json:"id"`
+		CertPin     string `json:"cert_pin"`
+		SMTPCertPin string `json:"smtp_cert_pin"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.ID) == "" {
+		return nil, errors.New("account required")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	params := map[string]any{"id": req.ID}
+	if pin := strings.TrimSpace(req.CertPin); pin != "" {
+		params["cert_pin"] = pin
+	}
+	if pin := strings.TrimSpace(req.SMTPCertPin); pin != "" {
+		params["smtp_cert_pin"] = pin
+	}
+	return a.sidecar.Call("account.setCertPin", params)
 }
 
 func selectedTLSMode(legacyTLS bool, explicitTLS, explicitStartTLS *bool, port uint16) (bool, bool) {

@@ -26,6 +26,8 @@ object MobileCommand {
     const val AccountSetRssSyncInterval = "account.setRSSSyncInterval"
     const val AccountSetAliases = "account.setAliases"
     const val AccountSetProxy = "account.setProxy"
+    const val AccountProbeCert = "account.probeCert"
+    const val AccountSetCertPin = "account.setCertPin"
     const val AccountSetSignature = "account.setSignature"
     const val AppPrefsGet = "app.prefsGet"
     const val AppPrefsSet = "app.prefsSet"
@@ -457,6 +459,50 @@ data class AccountProxyParams(
         jsonObject(
             "id" to accountId.jsonString(),
             "proxy" to proxy.toJson(),
+        )
+}
+
+/**
+ * The server to fetch a certificate from, for a user who has to decide whether
+ * to trust it. [protocol] is "imap" or "smtp" — the two can be different
+ * daemons — and [starttls] picks the cleartext-then-upgrade form.
+ *
+ * [proxy] is the account's own proxy choice, so the probe takes the same route
+ * as the connection that failed; null follows the app-wide proxy, as a
+ * connection with no account override does.
+ */
+data class ProbeCertParams(
+    val host: String,
+    val port: Int,
+    val protocol: String,
+    val starttls: Boolean,
+    val proxy: ProxySpec? = null,
+) {
+    fun toJson(): String =
+        jsonObject(
+            "host" to host.jsonString(),
+            "port" to port.toString(),
+            "protocol" to protocol.jsonString(),
+            "starttls" to starttls.toString(),
+            "proxy" to proxy?.toJson(),
+        )
+}
+
+/**
+ * Pins for the certificates the user accepted on an existing account. A null
+ * pin leaves that server's stored pin alone; the core clears one only when the
+ * key is sent explicitly as null, which nothing does yet.
+ */
+data class AccountCertPinParams(
+    val accountId: String,
+    val certPin: String? = null,
+    val smtpCertPin: String? = null,
+) {
+    fun toJson(): String =
+        jsonObject(
+            "id" to accountId.jsonString(),
+            "cert_pin" to certPin?.jsonString(),
+            "smtp_cert_pin" to smtpCertPin?.jsonString(),
         )
 }
 
@@ -999,6 +1045,10 @@ class MobileMailCommandClient(
 
     suspend fun setAccountProxy(params: AccountProxyParams): String = core.invoke(MobileCommand.AccountSetProxy, params.toJson())
 
+    suspend fun probeCert(params: ProbeCertParams): String = core.invoke(MobileCommand.AccountProbeCert, params.toJson())
+
+    suspend fun setAccountCertPin(params: AccountCertPinParams): String = core.invoke(MobileCommand.AccountSetCertPin, params.toJson())
+
     suspend fun setAccountSignature(params: AccountSignatureParams): String = core.invoke(MobileCommand.AccountSetSignature, params.toJson())
 
     suspend fun getProxy(): String = core.invoke(MobileCommand.AppProxyGet)
@@ -1270,6 +1320,16 @@ fun setAccountProxyRequest(
     id: Long = 1,
     params: AccountProxyParams,
 ): CoreRequest = CoreRequest(id, MobileCommand.AccountSetProxy, params.toJson())
+
+fun probeCertRequest(
+    id: Long = 1,
+    params: ProbeCertParams,
+): CoreRequest = CoreRequest(id, MobileCommand.AccountProbeCert, params.toJson())
+
+fun setAccountCertPinRequest(
+    id: Long = 1,
+    params: AccountCertPinParams,
+): CoreRequest = CoreRequest(id, MobileCommand.AccountSetCertPin, params.toJson())
 
 fun setAccountSignatureRequest(
     id: Long = 1,

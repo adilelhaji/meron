@@ -240,8 +240,20 @@ fn creds_to_config(creds: &Creds) -> String {
         "oauth_token_url": creds.oauth_token_url,
         "oauth_scope": creds.oauth_scope,
         "proxy": creds.proxy.to_json(),
+        "cert_pin": creds.cert_pin,
+        "smtp_cert_pin": creds.smtp_cert_pin,
     })
     .to_string()
+}
+
+/// Pins are stored as hex strings; absent, null and empty all mean "no pin"
+/// (accounts written before pinning existed have no key at all).
+fn config_cert_pin(config: &serde_json::Value, key: &str) -> Option<String> {
+    config[key]
+        .as_str()
+        .map(str::trim)
+        .filter(|pin| !pin.is_empty())
+        .map(|pin| pin.to_ascii_lowercase())
 }
 
 fn config_to_creds(json: &str) -> Creds {
@@ -268,6 +280,8 @@ fn config_to_creds(json: &str) -> Creds {
         // Accounts written before proxy support have no key here, which parses
         // as "follow the app-wide setting".
         proxy: crate::proxy::ProxyChoice::from_json(&v["proxy"]),
+        cert_pin: config_cert_pin(&v, "cert_pin"),
+        smtp_cert_pin: config_cert_pin(&v, "smtp_cert_pin"),
     }
 }
 
@@ -351,6 +365,25 @@ pub fn set_account_proxy(
          SET config = json_set(config, '$.proxy', json(?2)), updated_at = ?3
          WHERE id = ?1",
         params![id, choice.to_json().to_string(), now_unix()],
+    )?;
+    Ok(())
+}
+
+/// Replace just the certificate pins in an account's connection `config`. Used
+/// when the user accepts a server certificate for an account that already
+/// exists, so the pin lands without re-entering the password. `None` clears the
+/// pin for that server.
+pub fn set_account_cert_pins(
+    conn: &Connection,
+    id: &str,
+    cert_pin: Option<&str>,
+    smtp_cert_pin: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE accounts
+         SET config = json_set(config, '$.cert_pin', ?2, '$.smtp_cert_pin', ?3), updated_at = ?4
+         WHERE id = ?1",
+        params![id, cert_pin, smtp_cert_pin, now_unix()],
     )?;
     Ok(())
 }
@@ -684,6 +717,20 @@ pub fn load_accounts(conn: &Connection) -> Result<Vec<(String, Creds)>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// One mail account's stored connection creds, or `None` when it does not
+/// exist yet. Used when saving an account has to preserve settings the caller
+/// did not resend (see [`crate::imap::Creds::preserving`]).
+pub fn load_account(conn: &Connection, id: &str) -> Result<Option<Creds>> {
+    let config: Option<String> = conn
+        .query_row(
+            "SELECT config FROM accounts WHERE id = ?1 AND engine = 'mail'",
+            params![id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(config.as_deref().map(config_to_creds))
+}
+
 /// All accounts (mail + rss) as bridge-shaped JSON for `account.list`. Field
 /// names match the desktop bridge's `Account` struct so the UI consumes them
 /// directly.
@@ -795,6 +842,8 @@ pub fn list_accounts(conn: &Connection) -> Result<Vec<serde_json::Value>> {
                 "aliases": p.aliases_json(),
                 "signature": p.signature_json(),
                 "proxy": c.proxy.to_json(),
+                "cert_pin": c.cert_pin,
+                "smtp_cert_pin": c.smtp_cert_pin,
             }));
         }
     }

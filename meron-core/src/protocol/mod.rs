@@ -136,6 +136,8 @@ pub fn dispatch_mobile_protocol_request(req: &Request, data_dir: &str) -> Result
         }
         "account.list" => list_mobile_accounts(data_dir),
         "account.addPassword" => add_mobile_password_account(data_dir, &req.params),
+        "account.probeCert" => probe_mobile_cert(&req.params),
+        "account.setCertPin" => set_mobile_account_cert_pin(data_dir, &req.params),
         "account.autodiscover" => autodiscover_mobile_account(&req.params),
         "account.addOAuth" => add_mobile_oauth_account(data_dir, &req.params),
         "account.exchangeOAuthCode" => exchange_mobile_oauth_code(data_dir, &req.params),

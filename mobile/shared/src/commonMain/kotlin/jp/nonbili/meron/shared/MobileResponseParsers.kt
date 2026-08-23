@@ -240,6 +240,33 @@ fun parseAutodiscoverResponse(responseJson: String): DiscoveredAccountSettings {
     )
 }
 
+/**
+ * A server certificate the user is asked to trust. [fingerprint] is the hex
+ * SHA-256 of the certificate, and the value pinned when they accept.
+ */
+data class ServerCertificate(
+    val fingerprint: String,
+    val subject: String,
+    val issuer: String,
+    val notBefore: String,
+    val notAfter: String,
+    val selfSigned: Boolean,
+)
+
+fun parseProbeCertResponse(responseJson: String): ServerCertificate? {
+    val certJson = responseJson.findJsonObjectProperty("certificate") ?: return null
+    val fingerprint = certJson.findJsonStringProperty("fingerprint").orEmpty()
+    if (fingerprint.isBlank()) return null
+    return ServerCertificate(
+        fingerprint = fingerprint,
+        subject = certJson.findJsonStringProperty("subject").orEmpty(),
+        issuer = certJson.findJsonStringProperty("issuer").orEmpty(),
+        notBefore = certJson.findJsonStringProperty("not_before").orEmpty(),
+        notAfter = certJson.findJsonStringProperty("not_after").orEmpty(),
+        selfSigned = certJson.findJsonBooleanProperty("self_signed") ?: false,
+    )
+}
+
 data class ThreadListPage(
     val threads: List<ThreadSummary>,
     val nextCursor: String,

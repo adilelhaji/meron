@@ -64,6 +64,7 @@ import jp.nonbili.meron.shared.MobileMailCommandClient
 import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.accountSummaryIsRss
 import jp.nonbili.meron.shared.threadIdIsRss
+import jp.nonbili.meron.shared.untrustedCertificateProtocol
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -979,9 +980,18 @@ internal fun MailRouteContent(
                             val accountLabel = mobileConnectivityAccountLabel(failure.accountId, coreAccounts)
                             val proxyEndpoint = mobileProxyEndpointFromSyncError(failure.message)
                             val authLike = isAuthError(failure.message)
+                            // A certificate we cannot validate is not a retryable
+                            // failure: nothing changes until the user looks at the
+                            // certificate and decides to trust it.
+                            val untrustedCert =
+                                failedAccount != null && untrustedCertificateProtocol(failure.message) != null
                             StatusBanner(
                                 message =
                                     when {
+                                        untrustedCert -> {
+                                            tr("accounts.certificate.title")
+                                        }
+
                                         proxyEndpoint != null && accountLabel != null -> {
                                             tr(
                                                 "connectivity.proxyFailedAccount",
@@ -1000,12 +1010,17 @@ internal fun MailRouteContent(
                                 isError = true,
                                 actionLabel =
                                     when {
+                                        untrustedCert -> tr("accounts.certificate.show")
                                         proxyEndpoint != null -> tr("settings.network.proxy")
                                         authLike && failedAccount != null -> "Reconnect"
                                         else -> tr("connectivity.retry")
                                     },
                                 onAction = {
                                     when {
+                                        untrustedCert -> {
+                                            showServerCertificate(failedAccount!!.id, failure.message)
+                                        }
+
                                         proxyEndpoint != null -> {
                                             previousTopScreen = Screen.Mail
                                             val customAccountProxy =
@@ -1032,15 +1047,24 @@ internal fun MailRouteContent(
 
                         errorBanner != null -> {
                             val authLike = isAuthError(errorBanner!!)
+                            // Send failures land here too, so this is where an
+                            // untrusted submission-server certificate shows up.
+                            val untrustedCert =
+                                selectedAccount != null && untrustedCertificateProtocol(errorBanner!!) != null
                             StatusBanner(
-                                message = errorBanner!!,
+                                message = if (untrustedCert) tr("accounts.certificate.title") else errorBanner!!,
                                 isError = true,
-                                actionLabel = if (authLike && selectedAccount != null) "Reconnect" else "Retry",
+                                actionLabel =
+                                    when {
+                                        untrustedCert -> tr("accounts.certificate.show")
+                                        authLike && selectedAccount != null -> "Reconnect"
+                                        else -> "Retry"
+                                    },
                                 onAction = {
-                                    if (authLike && selectedAccount != null) {
-                                        reconnectAccount(selectedAccount)
-                                    } else {
-                                        syncCoreThreads()
+                                    when {
+                                        untrustedCert -> showServerCertificate(selectedAccount!!.id, errorBanner!!)
+                                        authLike && selectedAccount != null -> reconnectAccount(selectedAccount)
+                                        else -> syncCoreThreads()
                                     }
                                 },
                                 onDismiss = { errorBanner = null },

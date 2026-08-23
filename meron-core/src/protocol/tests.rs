@@ -90,6 +90,36 @@ fn mobile_protocol_persists_password_account_metadata() {
     let _ = std::fs::remove_dir_all(data_dir);
 }
 
+/// Reconnecting an account re-runs `account.addPassword` with the setup form's
+/// fields. The form has no proxy or certificate entry, so a per-account proxy —
+/// and any certificate the user accepted — has to survive the save.
+#[test]
+fn mobile_protocol_reconnect_keeps_the_account_proxy_and_certificate_pins() {
+    let data_dir = unique_data_dir("account-reconnect");
+    let dir = data_dir.to_str().unwrap().to_string();
+    let unique = unique_test_suffix();
+    let email = format!("bridge+{unique}@example.com");
+    let add = format!(
+        r#"{{"id":70,"method":"account.addPassword","params":{{"email":"{email}","imap_host":"127.0.0.1","imap_port":1143,"smtp_host":"127.0.0.1","smtp_port":1025,"username":"{email}","password":"secret","tls":false,"starttls":true,"smtp_tls":false,"smtp_starttls":true,"cert_pin":"AA11","smtp_cert_pin":"BB22","proxy":{{"mode":"socks5","host":"127.0.0.1","port":9050}}}}}}"#
+    );
+    let added = invoke_mobile_protocol_json(&add, Some(&dir));
+    assert_eq!(added["result"]["account"]["cert_pin"], "aa11", "{added}");
+    assert_eq!(added["result"]["account"]["proxy"]["mode"], "socks5");
+
+    // The reconnect: same servers and a fresh password, nothing else.
+    let reconnect = format!(
+        r#"{{"id":71,"method":"account.addPassword","params":{{"email":"{email}","imap_host":"127.0.0.1","imap_port":1143,"smtp_host":"127.0.0.1","smtp_port":1025,"username":"{email}","password":"new-secret","tls":false,"starttls":true,"smtp_tls":false,"smtp_starttls":true}}}}"#
+    );
+    let reconnected = invoke_mobile_protocol_json(&reconnect, Some(&dir));
+    let account = &reconnected["result"]["account"];
+    assert_eq!(account["proxy"]["mode"], "socks5", "{reconnected}");
+    assert_eq!(account["proxy"]["port"], 9050, "{reconnected}");
+    assert_eq!(account["cert_pin"], "aa11", "{reconnected}");
+    assert_eq!(account["smtp_cert_pin"], "bb22", "{reconnected}");
+
+    let _ = std::fs::remove_dir_all(data_dir);
+}
+
 #[test]
 fn mobile_protocol_honors_explicit_password_account_security_modes() {
     let data_dir = unique_data_dir("account-security");
@@ -2922,6 +2952,8 @@ fn seed_mobile_account(data_dir: &std::path::Path, email: &str) {
         oauth_token_url: String::new(),
         oauth_scope: String::new(),
         proxy: crate::proxy::ProxyChoice::Global,
+        cert_pin: None,
+        smtp_cert_pin: None,
     };
     let meta = AccountMeta {
         engine: "mail".to_string(),

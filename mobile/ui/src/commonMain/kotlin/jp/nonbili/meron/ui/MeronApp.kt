@@ -1427,6 +1427,16 @@ private fun MeronMobileScreenContent(
             )
         }
 
+        certPrompt?.let { prompt ->
+            CertificateTrustDialog(
+                server = "${prompt.host}:${prompt.port}",
+                certificate = prompt.certificate,
+                busy = certPromptBusy,
+                onTrust = ::trustPromptedCertificate,
+                onDismiss = ::dismissCertificatePrompt,
+            )
+        }
+
         if (showAboutDialog) {
             AboutDialog(
                 appVersion = appVersion,

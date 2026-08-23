@@ -84,6 +84,8 @@ pub(crate) fn add_mobile_oauth_account(data_dir: &str, params: &Value) -> Result
         oauth_token_url,
         oauth_scope,
         proxy: crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null)),
+        cert_pin: None,
+        smtp_cert_pin: None,
     };
     let id = account_id(&email);
     let meta = AccountMeta {

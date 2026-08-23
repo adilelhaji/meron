@@ -609,6 +609,9 @@ internal fun MeronMobileState.syncCoreThreads(
             val message = contextual?.cause?.message ?: it.message ?: "Sync failed"
             syncError = MobileSyncError(failedAccountId, message)
             errorBanner = null
+            // A sync failure is retried by syncing; drop any send left over from
+            // an earlier certificate prompt so trusting cannot resume it.
+            pendingCertificateRetry = null
             status = "Sync failed: ${it.message}"
             Log.w("MailLoad", "sync failed account=$accountId folder=$requestedFolder initialThreadsLoaded=$initialThreadsLoaded syncing=$syncing", it)
         }

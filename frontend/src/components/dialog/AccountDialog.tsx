@@ -13,6 +13,7 @@ import { AccountDialogCustom } from './AccountDialogCustom'
 import { AccountProviderGrid } from './AccountProviderGrid'
 import { AccountProviderRail } from './AccountProviderRail'
 import { PROVIDERS } from './providerIcons'
+import { CertificateTrustPanel } from './CertificateTrustPanel'
 
 type AccountDialogProps = {
   variant?: 'dialog' | 'setup'
@@ -63,6 +64,13 @@ export function AccountDialog({ variant = 'dialog' }: AccountDialogProps) {
         </div>
 
         <AccountDialogError error={ctl.error} />
+        {ctl.certPrompt && (
+          <CertificateTrustPanel
+            prompt={ctl.certPrompt}
+            onTrust={ctl.trustCertificate}
+            onDismiss={ctl.dismissCertPrompt}
+          />
+        )}
 
         {!isOAuth && (
           <div className="flex gap-2 mt-1 select-none justify-stretch">
@@ -104,6 +112,13 @@ export function AccountDialog({ variant = 'dialog' }: AccountDialogProps) {
               <AccountDialogForm ctl={ctl} classes={classes} isSetup={false} />
             </div>
             <AccountDialogError error={ctl.error} />
+            {ctl.certPrompt && (
+              <CertificateTrustPanel
+                prompt={ctl.certPrompt}
+                onTrust={ctl.trustCertificate}
+                onDismiss={ctl.dismissCertPrompt}
+              />
+            )}
           </div>
         </div>
 

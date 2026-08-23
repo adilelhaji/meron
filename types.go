@@ -37,6 +37,10 @@ type Account struct {
 	// Proxy is passed through untyped: the engine owns its shape, and the
 	// bridge has no reason to interpret it.
 	Proxy any `json:"proxy,omitempty"`
+	// CertPin and SMTPCertPin are the server certificates this account
+	// accepted, if any, so a reconnect keeps them instead of re-asking.
+	CertPin     string `json:"cert_pin,omitempty"`
+	SMTPCertPin string `json:"smtp_cert_pin,omitempty"`
 }
 
 // Alias is a send-as identity for an account: an address the user owns plus an
@@ -107,6 +111,12 @@ type AddPasswordAccountRequest struct {
 	StartTLS     *bool  `json:"starttls"`
 	SMTPTLS      *bool  `json:"smtp_tls"`
 	SMTPStartTLS *bool  `json:"smtp_starttls"`
+	// Hex SHA-256 of the server certificates the user inspected and accepted,
+	// for servers whose certificate cannot be validated normally (a local
+	// bridge with a self-signed leaf). Empty for everything else, and separate
+	// per server: the two can be different daemons.
+	CertPin     string `json:"cert_pin"`
+	SMTPCertPin string `json:"smtp_cert_pin"`
 }
 
 type AddGmailOAuthRequest struct {
