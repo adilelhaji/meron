@@ -1,0 +1,3 @@
+- Prompt to inspect and pin mail server certificates that fail validation
+- Add account mark all as read action
+- Keep cross-folder thread messages distinct

@@ -63,6 +63,15 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.2.14" date="2026-08-23">
+      <description>
+        <ul>
+          <li>Prompt to inspect and pin mail server certificates that fail validation</li>
+          <li>Add account mark all as read action</li>
+          <li>Keep cross-folder thread messages distinct</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.13" date="2026-08-20">
       <description>
         <ul>
