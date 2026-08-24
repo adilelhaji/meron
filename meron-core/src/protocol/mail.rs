@@ -968,8 +968,10 @@ pub(crate) fn delete_mobile_thread(data_dir: &str, params: &Value) -> Result<Val
             store::delete_draft_sibling_copies(&conn, &parsed.account, &parsed.folder, &uids)
                 .map_err(|err| err.to_string())?;
         }
-        let deleted = store::delete_messages_by_uid(&conn, &parsed.account, &parsed.folder, &uids)
+        store::delete_messages_by_uid(&conn, &parsed.account, &parsed.folder, &uids)
             .map_err(|err| err.to_string())?;
+        // Report the successful server operation, not the racy local row count.
+        let deleted = uids.len();
         match delete_result {
             None => crate::mail_model::mutation_result(
                 json!({ "ok": true, "deleted": deleted, "permanent": true }),
@@ -1062,7 +1064,7 @@ pub(crate) fn archive_mobile_thread(data_dir: &str, params: &Value) -> Result<Va
             target_batch.uid_next,
         )
         .map_err(|err| err.to_string())?;
-        let moved = store::move_messages_by_uid(
+        store::move_messages_by_uid(
             &conn,
             &parsed.account,
             &parsed.folder,
@@ -1070,6 +1072,9 @@ pub(crate) fn archive_mobile_thread(data_dir: &str, params: &Value) -> Result<Va
             &uids,
         )
         .map_err(|err| err.to_string())?;
+        // The server MOVE succeeded for all resolved UIDs. A concurrent sync
+        // can remove a source cache row before this local reconciliation runs.
+        let moved = uids.len();
         let moved_thread_id = format_thread_id(&parsed.account, &target_folder, &parsed.thread_key);
         crate::mail_model::mutation_result(
             json!({
@@ -1146,7 +1151,7 @@ pub(crate) fn move_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
             target_batch.uid_next,
         )
         .map_err(|err| err.to_string())?;
-        let moved = store::move_messages_by_uid(
+        store::move_messages_by_uid(
             &conn,
             &parsed.account,
             &parsed.folder,
@@ -1154,6 +1159,8 @@ pub(crate) fn move_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
             &uids,
         )
         .map_err(|err| err.to_string())?;
+        // Report the successful server operation, not the racy local row count.
+        let moved = uids.len();
         let moved_thread_id = format_thread_id(&parsed.account, &target_folder, &parsed.thread_key);
         crate::mail_model::mutation_result(
             json!({

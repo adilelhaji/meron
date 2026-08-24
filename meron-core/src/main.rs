@@ -2124,7 +2124,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             // Mutating, so it never auto-retries.
             let trashed = delete_to_trash(engine, &account, &folder, &uids).await?;
 
-            let deleted = {
+            {
                 let db = engine.db.lock().unwrap();
                 // Discarding a draft must also drop hidden local copies sharing
                 // its Message-ID (stale autosaves the pane deduped away), or the
@@ -2132,8 +2132,11 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 if store::folder_role(&db, &account, &folder)? == "drafts" {
                     store::delete_draft_sibling_copies(&db, &account, &folder, &uids)?;
                 }
-                store::delete_messages_by_uid(&db, &account, &folder, &uids)?
-            };
+                store::delete_messages_by_uid(&db, &account, &folder, &uids)?;
+            }
+            // The server delete/move-to-Trash completed for every resolved UID.
+            // A concurrent source refresh may already have pruned the cache rows.
+            let deleted = uids.len();
             let result = match trashed.as_deref() {
                 None => json!({ "ok": true, "deleted": deleted, "permanent": true }),
                 Some(trash) => json!({ "ok": true, "deleted": deleted, "trash": trash }),
@@ -2236,7 +2239,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 })
                 .await?;
 
-            let moved = {
+            {
                 let db = engine.db.lock().unwrap();
                 store::ensure_folder(&db, &account, &target_folder)?;
                 store::upsert_messages(&db, &account, &target_folder, &target_batch.messages)?;
@@ -2247,8 +2250,12 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     target_batch.uidvalidity,
                     target_batch.uid_next,
                 )?;
-                store::delete_messages_by_uid(&db, &account, &folder, &uids)?
-            };
+                store::delete_messages_by_uid(&db, &account, &folder, &uids)?;
+            }
+            // The IMAP MOVE above completed for every resolved UID. A concurrent
+            // source-folder refresh may already have pruned those rows locally,
+            // so the cache DELETE count is not the number moved on the server.
+            let moved = uids.len();
             mail_model::mutation_result(
                 json!({ "ok": true, "moved": moved, "source_folder": folder, "target_folder": target_folder }),
                 &engine.db.lock().unwrap(),

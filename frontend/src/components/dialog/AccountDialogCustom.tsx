@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, Eye, EyeOff, Info, RefreshCw } from 'lucide-react'
+import { ChevronDown, ChevronRight, Eye, EyeOff, Info, RefreshCw } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { Field } from '../field/Field'
 import { securityAfterPortEdit, type MailSecurity } from './accountSecurity'
@@ -216,18 +216,21 @@ function SecurityField({
   return (
     <label className="flex flex-col gap-1.5 w-full">
       <span className={`pl-0.5 ${labelClassName ?? 'text-[0.6875rem] font-semibold text-secondary'}`}>{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value as MailSecurity)}
-        className={
-          inputClassName ??
-          'w-full text-xs py-2 px-3.5 rounded-xl border border-border bg-raised text-primary focus:ring-1 focus:ring-accent focus:border-transparent focus:bg-chats transition-all outline-none'
-        }
-      >
-        <option value="tls">TLS</option>
-        <option value="starttls">STARTTLS</option>
-        <option value="none">{noneLabel}</option>
-      </select>
+      <span className="relative flex items-center">
+        <select
+          value={value}
+          onChange={(event) => onChange(event.target.value as MailSecurity)}
+          className={`${
+            inputClassName ??
+            'w-full text-xs py-2 px-3.5 rounded-xl border border-border bg-raised text-primary focus:ring-1 focus:ring-accent focus:border-transparent focus:bg-chats transition-all outline-none'
+          } appearance-none pr-10 cursor-pointer`}
+        >
+          <option value="tls">TLS</option>
+          <option value="starttls">STARTTLS</option>
+          <option value="none">{noneLabel}</option>
+        </select>
+        <ChevronDown size={14} aria-hidden="true" className="pointer-events-none absolute right-3 text-secondary" />
+      </span>
     </label>
   )
 }
