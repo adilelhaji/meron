@@ -1,0 +1,4 @@
+- Edit account server settings from settings
+- Keep sent quick replies visible and clear
+- Reconcile sent replies by envelope
+- Fix empty folders with Proton Mail Bridge
