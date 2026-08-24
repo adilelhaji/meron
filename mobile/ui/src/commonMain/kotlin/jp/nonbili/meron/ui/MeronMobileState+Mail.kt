@@ -192,6 +192,7 @@ import jp.nonbili.meron.shared.ThreadSummary
 import jp.nonbili.meron.shared.accountSendIdentities
 import jp.nonbili.meron.shared.accountSummaryIsRss
 import jp.nonbili.meron.shared.attachmentToDraftAttachment
+import jp.nonbili.meron.shared.bareAddress
 import jp.nonbili.meron.shared.buildOAuthAuthorizationUrl
 import jp.nonbili.meron.shared.defaultOAuthRedirectUri
 import jp.nonbili.meron.shared.detectReplyFromIdentity
@@ -233,6 +234,7 @@ import jp.nonbili.meron.shared.recipientTail
 import jp.nonbili.meron.shared.replaceRecipientTail
 import jp.nonbili.meron.shared.requireCoreOk
 import jp.nonbili.meron.shared.rewriteMediaRefsToCid
+import jp.nonbili.meron.shared.splitAddressList
 import jp.nonbili.meron.shared.threadIdIsRss
 import jp.nonbili.meron.shared.toReplyMailParams
 import jp.nonbili.meron.shared.toSaveDraftParams
@@ -981,6 +983,9 @@ internal fun MeronMobileState.hydrateQuickReplyFromTailDraft(
     val tail = mergedMessages.lastOrNull() ?: return
     if (!folderIsDrafts(tail.folderId)) return
     val normalizedTailId = tail.messageId.normalizedComposeDraftId()
+    // A draft a send already consumed, whose discard has not come back yet: it
+    // holds the text we just sent, not a reply left unfinished.
+    if (normalizedTailId.isNotBlank() && normalizedTailId in quickReplyConsumedDraftIds) return
     if (quickReplyDraftId.isNotBlank() && quickReplyDraftId.normalizedComposeDraftId() == normalizedTailId) return
     quickReplyBody = tail.body
     ++quickReplyGeneration
@@ -1057,7 +1062,7 @@ internal fun MeronMobileState.retryOpenThreadLoad() {
     }
 }
 
-private fun mergeLocalSendMessages(
+internal fun mergeLocalSendMessages(
     current: List<MessageBody>,
     refreshed: List<MessageBody>,
 ): List<MessageBody> {
@@ -1066,7 +1071,7 @@ private fun mergeLocalSendMessages(
         refreshed
             .mapNotNull { it.messageId.normalizedMessageId().takeIf(String::isNotBlank) }
             .toSet()
-    val local =
+    val unresolved =
         current.filter { message ->
             val localSend = message.id.startsWith("local-send-")
             val localDraft = message.id.startsWith("local-draft-")
@@ -1075,9 +1080,100 @@ private fun mergeLocalSendMessages(
             val messageId = message.messageId.normalizedMessageId()
             messageId.isBlank() || messageId !in refreshedMessageIds
         }
+    // Fallback candidates: outgoing, non-draft rows this read newly revealed. A
+    // message we were already showing before the send cannot be its server
+    // copy, and a draft — even one holding this very reply — is not a sent copy.
+    val knownIds = current.map { it.id }.toSet()
+    val candidates = refreshed.filter { it.outgoing && it.id !in knownIds && !folderIsDrafts(it.folderId) }
+    val paired = pairLocalSendsWithServerCopies(unresolved.filter { it.id.startsWith("local-send-") }, candidates)
+    val local = unresolved.filter { it.id !in paired }
     if (local.isEmpty()) return refreshed
     return (refreshed + local).sortedBy { it.dateEpochSeconds }
 }
+
+// How far the server's Date header may sit from the moment we rendered the
+// bubble and still be the same message — enough for a slow submission plus
+// modest clock skew, short enough not to swallow a genuinely later reply.
+private const val SENT_COPY_MATCH_WINDOW_SECONDS = 600L
+
+// Match optimistic bubbles to the server's copies of them when the Message-ID
+// we generated did not come back. Proton Bridge replaces that id with one of
+// its own (`@protonmail.internalid`), so identity has to come from the
+// envelope: same sender, same subject, same recipients, and a send time close
+// to when we rendered the bubble.
+//
+// Two replies into one thread share every one of those fields, so pairing is
+// decided globally rather than by first match: every plausible pair is ranked
+// by whether the content matches and then by how far apart the two times are,
+// and pairs are taken best-first. That keeps a copy arriving out of order from
+// claiming the wrong bubble — which would hide one reply and show the other
+// twice — while still settling on time alone when a server reflows the body it
+// stored and no content match exists.
+//
+// Returns the ids of the bubbles that found a copy.
+private fun pairLocalSendsWithServerCopies(
+    locals: List<MessageBody>,
+    candidates: List<MessageBody>,
+): Set<String> {
+    val ranked =
+        locals
+            .flatMap { local ->
+                candidates
+                    .filter { candidate -> isPlausibleSentCopy(local, candidate) }
+                    .map { candidate ->
+                        Triple(
+                            local.id to candidate.id,
+                            if (local.contentSignature() == candidate.contentSignature()) 0 else 1,
+                            abs(candidate.dateEpochSeconds - local.dateEpochSeconds),
+                        )
+                    }
+            }.sortedWith(compareBy({ it.second }, { it.third }))
+
+    val pairedLocals = mutableSetOf<String>()
+    val claimed = mutableSetOf<String>()
+    for ((pair, _, _) in ranked) {
+        val (localId, candidateId) = pair
+        if (localId in pairedLocals || candidateId in claimed) continue
+        pairedLocals += localId
+        claimed += candidateId
+    }
+    return pairedLocals
+}
+
+// The envelope test every pair must clear before ranking.
+private fun isPlausibleSentCopy(
+    local: MessageBody,
+    candidate: MessageBody,
+): Boolean {
+    if (bareAddress(candidate.fromAddr).lowercase() != bareAddress(local.fromAddr).lowercase()) return false
+    if (candidate.subject.trim() != local.subject.trim()) return false
+    if (candidate.recipientKey() != local.recipientKey()) return false
+    return abs(candidate.dateEpochSeconds - local.dateEpochSeconds) <= SENT_COPY_MATCH_WINDOW_SECONDS
+}
+
+// What distinguishes two replies that share an envelope: what they say and what
+// they carry. Whitespace-insensitive, since a server may rewrap the body it
+// stored — a mismatch demotes a pair rather than rejecting it.
+private fun MessageBody.contentSignature(): String {
+    val normalizedBody =
+        body
+            .split(whitespaceRun)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .lowercase()
+    val files = attachments.map { it.filename.trim().lowercase() }.sorted().joinToString("|")
+    return "$files\u0000$normalizedBody"
+}
+
+private val whitespaceRun = Regex("\\s+")
+
+// Order-independent set of the bare To/Cc addresses, for envelope comparison.
+private fun MessageBody.recipientKey(): String =
+    (splitAddressList(to) + splitAddressList(cc))
+        .map { bareAddress(it).lowercase() }
+        .filter { it.isNotBlank() }
+        .sorted()
+        .joinToString(",")
 
 private fun String.normalizedMessageId(): String = trim().trim('<', '>').lowercase()
 

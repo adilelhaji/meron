@@ -588,7 +588,14 @@ function normalizeQuickReplyDraftId(value: string): string {
 }
 
 mail$.messages.onChange(({ value }) => {
-  for (const tempId of quickReplySendHydrationGuards.keys()) {
+  for (const [tempId, guard] of quickReplySendHydrationGuards) {
+    // A guard whose send is still in flight outlives its bubble: on success the
+    // pending payload is dropped *before* the post-send draft discard resolves,
+    // and a refresh landing in that window can already have swapped the bubble
+    // for the canonical Sent copy. Dropping the guard there would let the
+    // still-persisted server draft hydrate the just-cleared composer — the very
+    // race the guard exists to close.
+    if (guard.inFlight) continue
     if (!value.some((message) => message.id === tempId) && !getPendingSend(tempId)) {
       quickReplySendHydrationGuards.delete(tempId)
     }

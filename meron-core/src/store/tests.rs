@@ -1610,7 +1610,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 7);
+    assert_eq!(version, 8);
 
     for table in [
         "accounts",
@@ -1642,7 +1642,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 7);
+    assert_eq!(version, 8);
 }
 
 #[test]
@@ -1670,7 +1670,7 @@ fn concurrent_first_open_runs_migrations_once() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 7);
+    assert_eq!(version, 8);
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -2474,6 +2474,140 @@ fn thread_key_inheritance_matches_parent_message_id_case_insensitively() {
         })
         .unwrap();
     assert_eq!(child_key, "Root@Mail.example");
+}
+
+#[test]
+fn thread_key_inheritance_settles_a_reply_cached_before_its_parent() {
+    use crate::imap::MessageHeader;
+    let conn = test_conn();
+
+    // Newest-first sync: the reply lands while the message its key names is
+    // still unknown, so nothing can be inherited yet.
+    upsert_messages(
+        &conn,
+        "acct",
+        "INBOX",
+        &[MessageHeader {
+            uid: 2,
+            subject: "Re: test".into(),
+            date: 200,
+            thread_key: "first-reply@local".into(),
+            message_id: "second-reply@local".into(),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+
+    // The parent arrives with the canonical root, and hands it down.
+    upsert_messages(
+        &conn,
+        "acct",
+        "INBOX",
+        &[MessageHeader {
+            uid: 1,
+            subject: "Re: test".into(),
+            date: 100,
+            thread_key: "root@mail.example".into(),
+            message_id: "First-Reply@Local".into(),
+            ..Default::default()
+        }],
+    )
+    .unwrap();
+
+    let child_key: String = conn
+        .query_row("SELECT thread_key FROM messages WHERE uid = 2", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(child_key, "root@mail.example");
+}
+
+#[test]
+fn thread_key_inheritance_terminates_on_a_reference_cycle() {
+    use crate::imap::MessageHeader;
+    let conn = test_conn();
+
+    // Two messages naming each other: whatever key they settle on, the walk
+    // must stop rather than trade keys back and forth.
+    upsert_messages(
+        &conn,
+        "acct",
+        "INBOX",
+        &[
+            MessageHeader {
+                uid: 1,
+                subject: "test".into(),
+                date: 100,
+                thread_key: "b@local".into(),
+                message_id: "a@local".into(),
+                ..Default::default()
+            },
+            MessageHeader {
+                uid: 2,
+                subject: "Re: test".into(),
+                date: 200,
+                thread_key: "a@local".into(),
+                message_id: "b@local".into(),
+                ..Default::default()
+            },
+        ],
+    )
+    .unwrap();
+
+    let keys: Vec<String> = conn
+        .prepare("SELECT thread_key FROM messages ORDER BY uid")
+        .unwrap()
+        .query_map([], |row| row.get(0))
+        .unwrap()
+        .collect::<rusqlite::Result<_>>()
+        .unwrap();
+    assert_eq!(keys.len(), 2);
+}
+
+/// The inheritance lookups match rows on `lower(json_extract(...))` and
+/// `lower(thread_key)`, which only hit an index when the query spells the
+/// expression exactly as `MESSAGES_THREAD_KEY_INDEXES_DDL` does. Without them
+/// every upserted reply scans the account's whole message cache, so guard the
+/// access path, not just the result.
+#[test]
+fn thread_key_lookups_use_their_expression_indexes() {
+    let conn = test_conn();
+    let plan_of = |sql: &str| -> String {
+        conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(3))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+            .join("\n")
+    };
+
+    let by_message_id = plan_of(
+        "SELECT thread_key FROM messages
+         WHERE account = 'acct'
+           AND lower(COALESCE(json_extract(json, '$.message_id'), '')) = 'x'
+           AND COALESCE(thread_key, '') <> ''
+         ORDER BY date ASC, uid ASC
+         LIMIT 1",
+    );
+    assert!(
+        by_message_id.contains("messages_message_id_idx"),
+        "message-id lookup fell back to a scan: {by_message_id}"
+    );
+
+    let by_thread_key = plan_of(
+        "SELECT id FROM messages
+         WHERE account = 'acct'
+           AND uid <> 0
+           AND lower(COALESCE(thread_key, '')) = 'x'
+           AND thread_key <> 'y'
+           AND thread_key NOT LIKE 'uid:%'
+           AND thread_key NOT LIKE 'gmthrid:%'",
+    );
+    assert!(
+        by_thread_key.contains("messages_thread_key_idx"),
+        "thread-key lookup fell back to a scan: {by_thread_key}"
+    );
 }
 
 #[test]

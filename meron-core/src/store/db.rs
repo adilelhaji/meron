@@ -83,6 +83,21 @@ CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF subject, from_name, fro
 END;
 ";
 
+/// Thread-key inheritance (migration v8) looks a message up by its cached
+/// Message-ID, and looks up the rows whose thread key names one — both compared
+/// case-insensitively, and neither a plain column, since the id lives in the
+/// `json` catch-all. Without these expression indexes every reply upsert scanned
+/// the account's whole message cache, `json_extract`ing each row. The index
+/// expressions must stay character-identical to the ones in
+/// `store::resolve_message_thread_key` / `store::reconcile_thread_keys_from`, or
+/// SQLite won't match a query to them.
+const MESSAGES_THREAD_KEY_INDEXES_DDL: &str = "
+CREATE INDEX IF NOT EXISTS messages_message_id_idx
+  ON messages(account, lower(COALESCE(json_extract(json, '$.message_id'), '')));
+CREATE INDEX IF NOT EXISTS messages_thread_key_idx
+  ON messages(account, lower(COALESCE(thread_key, '')));
+";
+
 /// Recipient search index (migration v6). `To`/`Cc` live in the `json` catch-all,
 /// which FTS can't index, so `messages.recipients` mirrors them as flat text
 /// (see `store::recipients_index_text`). It gets its own FTS table rather than a
@@ -469,6 +484,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 7 {
         migrate_v7(&tx)?;
     }
+    if version < 8 {
+        migrate_v8(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -555,6 +573,14 @@ fn migrate_v6(conn: &Connection) -> Result<()> {
 fn migrate_v7(conn: &Connection) -> Result<()> {
     conn.execute_batch(MAIL_SEARCH_HITS_DDL)?;
     conn.execute_batch("PRAGMA user_version = 7;")?;
+    Ok(())
+}
+
+/// Access paths for thread-key inheritance, which until now scanned the whole
+/// account cache per upserted reply. See `MESSAGES_THREAD_KEY_INDEXES_DDL`.
+fn migrate_v8(conn: &Connection) -> Result<()> {
+    conn.execute_batch(MESSAGES_THREAD_KEY_INDEXES_DDL)?;
+    conn.execute_batch("PRAGMA user_version = 8;")?;
     Ok(())
 }
 

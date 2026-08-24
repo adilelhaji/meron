@@ -678,6 +678,70 @@ describe('quick reply draft sharing', () => {
     expect(compose$.quickReplyDraftSaved.get()).toBe(false)
   })
 
+  it('keeps the consumed draft guarded while the post-send discard is still in flight', async () => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      message_id: 'root@example.com',
+      date: 1000,
+    })
+    const draft = message({
+      id: 'draft-row',
+      account_id: 'acc-1',
+      folder_id: 'Drafts',
+      thread_id: 't-1',
+      message_id: 'reply-draft@example.com',
+      body: 'Consumed reply',
+      date: 2000,
+    })
+    mail$.threads.set([thread])
+    mail$.messages.set([thread, draft])
+    ui$.selectedThread.set('t-1')
+    compose$.composer.set('Consumed reply')
+    compose$.quickReplyDraftId.set('reply-draft@example.com')
+    compose$.quickReplyDraftSaved.set(true)
+    compose$.quickReplySignature.set(null)
+    settings$.signature.set('')
+
+    let releaseDiscard!: () => void
+    ;(window as any).go.main.App.Invoke = async (command: string, payload: unknown) => {
+      calls.push({ command, payload })
+      if (command === 'mail.allocateIdentity') return { message_id: 'sent@example.com' }
+      if (command === 'mail.discardDraft') {
+        await new Promise<void>((resolve) => (releaseDiscard = resolve))
+      }
+      if (command === 'mail.folderList') return { folders: [] }
+      if (command === 'mail.threadList') return { threads: [] }
+      return {}
+    }
+
+    await sendReply()
+
+    // SMTP has returned, so the pending payload is gone and a refresh can
+    // already have swapped the optimistic bubble for the canonical Sent copy —
+    // while the server draft this reply consumed is still there, and still the
+    // conversation tail. The guard has to outlive its bubble until the discard
+    // resolves, or the just-sent text lands back in the cleared composer.
+    const sentCopy = message({
+      id: 'sent-row',
+      account_id: 'acc-1',
+      folder_id: 'Sent',
+      thread_id: 't-1',
+      message_id: 'sent@example.com',
+      date: 1500,
+    })
+    mail$.messages.set([thread, sentCopy, draft])
+
+    expect(compose$.composer.get()).toBe('')
+    expect(compose$.quickReplyDraftId.get()).toBe('')
+
+    releaseDiscard()
+    await new Promise((resolve) => setTimeout(resolve, 0))
+  })
+
   it('allows a different draft to hydrate after the sent draft cleanup settles', async () => {
     const thread = message({
       id: 'root',

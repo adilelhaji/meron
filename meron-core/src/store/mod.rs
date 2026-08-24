@@ -225,6 +225,9 @@ pub fn upsert_messages(
     messages: &[MessageHeader],
 ) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
+    // The Message-IDs this batch cached: the only ids whose arrival can hand a
+    // canonical thread key down to rows already in the cache.
+    let mut upserted_ids: HashSet<String> = HashSet::new();
     for m in messages {
         // Store recipient lists as JSON. Skip empty lists so a later flag-only
         // resync (which carries no envelope) can't clobber recipients we already
@@ -247,6 +250,10 @@ pub fn upsert_messages(
         }
         let extra_json = Value::Object(extra).to_string();
         let thread_key = resolve_message_thread_key(&tx, account, &m.thread_key)?;
+        let message_id = m.message_id.trim().to_lowercase();
+        if !message_id.is_empty() {
+            upserted_ids.insert(message_id);
+        }
         tx.execute(
             "INSERT INTO messages(account, folder, msg_id, uid, subject, from_name, from_addr, date, seen, starred, thread_key, json, recipients)
              VALUES(?1, ?2, ?3, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
@@ -278,7 +285,7 @@ pub fn upsert_messages(
             ],
         )?;
     }
-    reconcile_account_thread_keys(&tx, account)?;
+    reconcile_thread_keys_from(&tx, account, upserted_ids)?;
     tx.commit()?;
     Ok(())
 }
@@ -298,59 +305,84 @@ fn resolve_message_thread_key(
     // key through its cached Message-ID keeps later replies in that same root,
     // even when their immediate In-Reply-To names a different message. Proton
     // Bridge exposes exactly this shape after a reply round trip.
-    let inherited = conn
+    Ok(cached_thread_key_of(conn, account, &key.to_lowercase())?
+        .unwrap_or_else(|| thread_key.to_string()))
+}
+
+/// The thread key of the cached message with this (lowercased) Message-ID, or
+/// `None` when we haven't cached it. Duplicate copies of one message — the same
+/// id in several folders — resolve to the oldest row, so the answer doesn't
+/// depend on which folder synced last.
+fn cached_thread_key_of(
+    conn: &rusqlite::Transaction<'_>,
+    account: &str,
+    message_id: &str,
+) -> Result<Option<String>> {
+    Ok(conn
         .query_row(
             "SELECT thread_key FROM messages
              WHERE account = ?1
-               AND lower(COALESCE(json_extract(json, '$.message_id'), '')) = lower(?2)
+               AND lower(COALESCE(json_extract(json, '$.message_id'), '')) = ?2
                AND COALESCE(thread_key, '') <> ''
              ORDER BY date ASC, uid ASC
              LIMIT 1",
-            params![account, key],
+            params![account, message_id],
             |row| row.get::<_, String>(0),
         )
-        .optional()?;
-
-    Ok(inherited.unwrap_or_else(|| thread_key.to_string()))
+        .optional()?)
 }
 
-fn reconcile_account_thread_keys(conn: &rusqlite::Transaction<'_>, account: &str) -> Result<()> {
-    // A fresh folder sync may upsert a reply before the referenced row whose
-    // Message-ID reveals the canonical root key. Re-run the same key inheritance
-    // over the complete account cache until multi-hop chains settle.
-    for _ in 0..16 {
-        let changed = conn.execute(
-            "UPDATE messages AS child
-                SET thread_key = (
-                    SELECT parent.thread_key
-                      FROM messages parent
-                     WHERE parent.account = child.account
-                       AND lower(COALESCE(json_extract(parent.json, '$.message_id'), '')) =
-                           lower(child.thread_key)
-                       AND COALESCE(parent.thread_key, '') <> ''
-                       AND parent.thread_key <> child.thread_key
-                     ORDER BY parent.date ASC, parent.uid ASC
-                     LIMIT 1
-                )
-              WHERE child.account = ?1
-                AND child.uid <> 0
-                AND COALESCE(child.thread_key, '') <> ''
-                AND child.thread_key NOT LIKE 'uid:%'
-                AND child.thread_key NOT LIKE 'gmthrid:%'
-                AND EXISTS (
-                    SELECT 1
-                      FROM messages parent
-                     WHERE parent.account = child.account
-                       AND lower(COALESCE(json_extract(parent.json, '$.message_id'), '')) =
-                           lower(child.thread_key)
-                       AND COALESCE(parent.thread_key, '') <> ''
-                       AND parent.thread_key <> child.thread_key
-                )",
-            params![account],
-        )?;
-        if changed == 0 {
-            break;
+/// Hand the canonical thread key down to rows that named a message we only just
+/// cached.
+///
+/// A fresh folder sync may upsert a reply before the referenced row whose
+/// Message-ID reveals the root key, so `resolve_message_thread_key` alone can't
+/// settle those. Walking out from the ids this batch wrote — rather than
+/// re-scanning the account cache — keeps the work proportional to the batch:
+/// each newly cached id fixes the rows that name it, and each row so fixed
+/// becomes the next id to walk out from, since its own children inherited
+/// through it. `seen` stops the walk from revisiting an id, so a reference cycle
+/// (two messages naming each other) terminates instead of flip-flopping.
+fn reconcile_thread_keys_from(
+    conn: &rusqlite::Transaction<'_>,
+    account: &str,
+    seeds: HashSet<String>,
+) -> Result<()> {
+    let mut seen = seeds;
+    let mut pending: Vec<String> = seen.iter().cloned().collect();
+
+    while !pending.is_empty() {
+        let mut next: Vec<String> = Vec::new();
+        for parent_id in pending.drain(..) {
+            let Some(canonical) = cached_thread_key_of(conn, account, &parent_id)? else {
+                continue;
+            };
+            let mut stmt = conn.prepare_cached(
+                "SELECT id, lower(COALESCE(json_extract(json, '$.message_id'), ''))
+                   FROM messages
+                  WHERE account = ?1
+                    AND uid <> 0
+                    AND lower(COALESCE(thread_key, '')) = ?2
+                    AND thread_key <> ?3
+                    AND thread_key NOT LIKE 'uid:%'
+                    AND thread_key NOT LIKE 'gmthrid:%'",
+            )?;
+            let children = stmt
+                .query_map(params![account, parent_id, canonical], |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            for (id, child_message_id) in children {
+                conn.execute(
+                    "UPDATE messages SET thread_key = ?1 WHERE id = ?2",
+                    params![canonical, id],
+                )?;
+                if !child_message_id.is_empty() && seen.insert(child_message_id.clone()) {
+                    next.push(child_message_id);
+                }
+            }
         }
+        pending = next;
     }
     Ok(())
 }

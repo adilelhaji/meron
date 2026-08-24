@@ -1391,6 +1391,15 @@ internal fun MeronMobileState.retryQuickReplySend(pending: PendingQuickReplySend
 }
 
 private suspend fun MeronMobileState.dispatchQuickReplySend(pending: PendingQuickReplySend) {
+    // Claim the draft this reply consumed for as long as the send is settling,
+    // so reopening the conversation before the discard returns cannot hydrate
+    // the sent text back into the reply bar.
+    val consumedDraftId =
+        pending.draftOwner
+            ?.draftId
+            ?.normalizedComposeDraftId()
+            .orEmpty()
+    if (consumedDraftId.isNotBlank()) quickReplyConsumedDraftIds += consumedDraftId
     runCatching {
         withContext(ioDispatcher) {
             val client = MobileMailCommandClient(core)
@@ -1409,6 +1418,7 @@ private suspend fun MeronMobileState.dispatchQuickReplySend(pending: PendingQuic
                 }.isSuccess
             if (discarded) removeDiscardedDraftFromOpenThread(owner.draftId, owner.threadId)
         }
+        if (consumedDraftId.isNotBlank()) quickReplyConsumedDraftIds -= consumedDraftId
         if (pendingQuickReplySend == pending) pendingQuickReplySend = null
         if (pendingCertificateRetry == PendingCertificateRetry.QuickReply(pending)) pendingCertificateRetry = null
         quickReplySendInFlight = false
@@ -1431,6 +1441,8 @@ private suspend fun MeronMobileState.dispatchQuickReplySend(pending: PendingQuic
         syncCoreThreads(syncFirst = false)
         if (threadStillOpen) runCatching { reloadCurrentThreadMessages() }.onFailure { }
     }.onFailure {
+        // A failed send leaves the draft as the safety net it was written to be.
+        if (consumedDraftId.isNotBlank()) quickReplyConsumedDraftIds -= consumedDraftId
         quickReplySendInFlight = false
         val message = it.message ?: "Send failed"
         status = "Reply failed: $message"

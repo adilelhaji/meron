@@ -259,6 +259,71 @@ class ComposeSaveLifecycleTest {
         }
 
     @Test
+    fun reopeningTheThreadWhileTheSentDraftIsBeingDiscardedKeepsTheReplyBarClear() =
+        runBlocking {
+            val core = SaveCore().apply { holdDiscard = CompletableDeferred() }
+            val state = state(core, this)
+            prepareQuickReply(state)
+            state.quickReplyDraftId = "reply-draft@example.com"
+            state.quickReplyDraftSaved = true
+            state.onQuickReplyBodyChange("Reply")
+
+            state.sendQuickReply()
+            core.sendFinished.await()
+            core.discardFinished.await()
+
+            // The user backs out to another conversation and comes straight
+            // back. Reopening resets the reply bar, and the read still returns
+            // the consumed draft — the discard has not landed yet — as the
+            // conversation tail.
+            state.quickReplyThreadId = "other"
+            state.quickReplyBody = ""
+            state.quickReplyDraftId = ""
+            state.quickReplyDraftSaved = false
+            state.quickReplyThreadId = "thread"
+            state.hydrateQuickReplyFromTailDraft("thread", state.messages + consumedDraft())
+
+            assertEquals("", state.quickReplyBody)
+            assertEquals("", state.quickReplyDraftId)
+
+            core.holdDiscard!!.complete(Unit)
+            withTimeout(1_000) {
+                while (state.quickReplySendInFlight) yield()
+            }
+            assertTrue(state.quickReplyConsumedDraftIds.isEmpty())
+        }
+
+    @Test
+    fun aFailedSendLeavesItsDraftReachableAgain() =
+        runBlocking {
+            val core = SaveCore().apply { sendFails = true }
+            val state = state(core, this)
+            prepareQuickReply(state)
+            state.quickReplyDraftId = "reply-draft@example.com"
+            state.quickReplyDraftSaved = true
+            state.onQuickReplyBodyChange("Reply")
+
+            state.sendQuickReply()
+            core.sendFinished.await()
+            withTimeout(1_000) {
+                while (state.quickReplySendInFlight) yield()
+            }
+
+            assertTrue(state.quickReplyConsumedDraftIds.isEmpty())
+            assertTrue(core.discardPayloads.isEmpty())
+
+            state.quickReplyThreadId = "other"
+            state.quickReplyBody = ""
+            state.quickReplyDraftId = ""
+            state.quickReplyDraftSaved = false
+            state.quickReplyThreadId = "thread"
+            state.hydrateQuickReplyFromTailDraft("thread", state.messages + consumedDraft())
+
+            assertEquals("Reply", state.quickReplyBody)
+            assertEquals("reply-draft@example.com", state.quickReplyDraftId)
+        }
+
+    @Test
     fun existingIdAutosaveCannotResurrectAfterDiscard() =
         runBlocking {
             val core = SaveCore()
@@ -400,6 +465,19 @@ class ComposeSaveLifecycleTest {
             appSignatureLoaded = true
         }
 
+    /** The server copy of the quick reply just sent, still sitting in Drafts. */
+    private fun consumedDraft(): MessageBody =
+        MessageBody(
+            id = "draft-row",
+            folderId = "Drafts",
+            from = "A",
+            fromAddr = "a@example.com",
+            to = "sender@example.com",
+            subject = "Re: Subject",
+            body = "Reply",
+            messageId = "reply-draft@example.com",
+        )
+
     private fun prepareQuickReply(state: MeronMobileState) {
         state.selectedCoreThread =
             ThreadSummary(id = "thread", accountId = "a", folder = "INBOX", subject = "Subject", sender = "sender@example.com")
@@ -431,6 +509,8 @@ class ComposeSaveLifecycleTest {
         var saveCalls = 0
         var sendCalls = 0
         var discardFails = false
+        var sendFails = false
+        var holdDiscard: CompletableDeferred<Unit>? = null
         var allocationCalls = 0
 
         override suspend fun invoke(
@@ -459,6 +539,9 @@ class ComposeSaveLifecycleTest {
                 MobileCommand.DiscardDraft -> {
                     discardPayloads += payloadJson
                     discardFinished.complete(Unit)
+                    // Set by tests that need the post-send discard to stay in
+                    // flight while they act; nothing to wait on otherwise.
+                    holdDiscard?.await()
                     if (discardFails) throw RuntimeException("discard failed")
                     "{}"
                 }
@@ -466,6 +549,7 @@ class ComposeSaveLifecycleTest {
                 MobileCommand.Send -> {
                     sendCalls++
                     sendFinished.complete(Unit)
+                    if (sendFails) throw RuntimeException("send failed")
                     "{}"
                 }
 

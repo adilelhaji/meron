@@ -263,6 +263,15 @@ internal class MeronMobileState(
     // Debounce bookkeeping for autosaving the quick-reply draft as the user
     // types; not UI state, so a plain var rather than mutableStateOf.
     var quickReplyAutosaveJob: Job? = null
+
+    // Server drafts a quick reply has consumed by sending, held while that send
+    // settles. The copy on the server outlives the send until its discard
+    // returns, and reopening the conversation in that window would otherwise
+    // hydrate the just-sent text straight back into the reply bar. Normalized
+    // draft ids; dropped once the send lifecycle finishes, so a discard that
+    // genuinely failed leaves its draft reachable again. Not UI state, so a
+    // plain set rather than mutableStateOf.
+    val quickReplyConsumedDraftIds = mutableSetOf<String>()
     var status by mutableStateOf("")
     var syncing by mutableStateOf(false)
     var showUnreadBadges by mutableStateOf(loadAppBoolean(prefs, SHOW_UNREAD_BADGES_PREF, true))
