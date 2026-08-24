@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { ChevronDown, Columns3 } from 'lucide-react'
+import { ChevronDown, Columns3, Rss } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
@@ -7,6 +7,7 @@ import { accounts$ } from '../../states/accounts'
 import { mail$ } from '../../states/mail'
 import { kanbanColumnKey, type KanbanColumn } from '../../states/kanban'
 import { accountLabel, folderLabel, mergeLabelFolders, useFoldersByAccount } from '../../lib/kanbanData'
+import { isRssAccount } from '../../lib/threadActions'
 import { Avatar } from '../avatar/Avatar'
 
 // Custom dropdown component for the search scope selector
@@ -86,6 +87,7 @@ export function SearchScopeDropdown({
             const columnAccountLabel = columnAccount
               ? columnAccount.display_name || columnAccount.email || columnAccount.id
               : ''
+            const columnIsRss = isRssAccount(columnAccount, column.accountId)
 
             return (
               <button
@@ -101,9 +103,10 @@ export function SearchScopeDropdown({
               >
                 <Avatar
                   name={columnAccountLabel || accountLabel(column.accountId, accounts)}
-                  email={columnAccount?.email}
+                  email={columnIsRss ? undefined : columnAccount?.email}
                   src={columnAccount?.avatar_url}
                   size={18}
+                  fallback={columnIsRss ? <Rss size={10} /> : undefined}
                 />
                 <div className="min-w-0 flex-1 text-left">
                   <div className="truncate font-semibold">{folderLabel(column, folders, accounts, t)}</div>

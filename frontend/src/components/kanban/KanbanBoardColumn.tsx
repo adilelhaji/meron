@@ -3,7 +3,7 @@ import type { CSSProperties, MouseEvent as ReactMouseEvent } from 'react'
 import { useTranslation } from '../../lib/i18n'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Loader2, Minus, Pause } from 'lucide-react'
+import { Loader2, Minus, Pause, Rss } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { clsx } from '../../lib/utils'
 import { accounts$ } from '../../states/accounts'
@@ -316,9 +316,10 @@ function KanbanColumnContent({
           <div className="relative shrink-0">
             <Avatar
               name={columnAccountLabel || accountLabel(column.accountId, accounts)}
-              email={columnAccount?.email}
+              email={isRss ? undefined : columnAccount?.email}
               src={columnAccount?.avatar_url}
               size={26}
+              fallback={isRss ? <Rss size={13} /> : undefined}
               className={isPaused ? 'grayscale opacity-40' : undefined}
             />
             {isPaused && (

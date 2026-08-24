@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { MouseEvent as ReactMouseEvent } from 'react'
-import { Loader2, Pause } from 'lucide-react'
+import { Loader2, Pause, Rss } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { clsx } from '../../lib/utils'
@@ -19,6 +19,7 @@ import {
   mergeLabelFolders,
   useFoldersByAccount,
 } from '../../lib/kanbanData'
+import { isRssAccount } from '../../lib/threadActions'
 import { Avatar } from '../avatar/Avatar'
 import type { ColumnWrapper } from './KanbanBoardColumn'
 
@@ -54,6 +55,7 @@ export function KanbanColumnMinimized({
   const columnAccount = column.accountId !== 'unified' ? accounts.find((a) => a.id === column.accountId) : undefined
   const columnAccountLabel = columnAccount ? columnAccount.display_name || columnAccount.email || columnAccount.id : ''
   const isPaused = !!columnAccount?.paused
+  const isRss = isRssAccount(columnAccount, column.accountId)
   const label = folderLabel(column, labelFolders, accounts, t)
 
   // WebKitGTK (Wails on Linux) can mis-measure the intrinsic size of vertical-rl
@@ -104,9 +106,10 @@ export function KanbanColumnMinimized({
       <div className="relative shrink-0">
         <Avatar
           name={columnAccountLabel || accountLabel(column.accountId, accounts)}
-          email={columnAccount?.email}
+          email={isRss ? undefined : columnAccount?.email}
           src={columnAccount?.avatar_url}
           size={26}
+          fallback={isRss ? <Rss size={13} /> : undefined}
           className={isPaused ? 'grayscale opacity-40' : undefined}
         />
         {isPaused && (
