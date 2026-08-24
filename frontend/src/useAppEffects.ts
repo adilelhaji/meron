@@ -3,7 +3,15 @@ import { useValue } from '@legendapp/state/react'
 import { boot } from './boot'
 import { invoke } from './lib/bridge'
 import { ui$, showToast } from './states/ui'
-import { mail$, loadFolders, loadThreads, loadThread, findLocalThread, refreshAccountFoldersCache } from './states/mail'
+import {
+  mail$,
+  loadFolders,
+  loadThreads,
+  loadThread,
+  findLocalThread,
+  refreshAccountFoldersCache,
+  inboxUnread,
+} from './states/mail'
 import { openMailtoCompose, openThreadTabById } from './states/compose'
 import { accounts$ } from './states/accounts'
 import { kanban$ } from './states/kanban'
@@ -11,6 +19,8 @@ import { setSyncError, clearSyncErrorFor } from './states/connectivity'
 import { settings$, applyDocumentLanguage } from './states/settings'
 import { applyUpdateStatus, loadUpdateStatus, runUpdateCheck } from './states/update'
 import type { UpdateStatus } from './lib/update'
+import { useFoldersByAccount } from './lib/kanbanData'
+import { setTrayUnread } from './lib/trayUnread'
 import i18n, { resolveI18nLanguageFromWebLocale, t, translationTemplate } from './lib/i18n'
 
 const SEARCH_DEBOUNCE_MS = 300
@@ -28,8 +38,7 @@ const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000
 // App stays a layout shell.
 export function useAppEffects() {
   const accounts = useValue(accounts$)
-  const folders = useValue(mail$.folders)
-  const threads = useValue(mail$.threads)
+  const foldersByAccount = useFoldersByAccount()
   const selectedAccount = useValue(ui$.selectedAccount)
   const selectedFolder = useValue(ui$.selectedFolder)
   const selectedThread = useValue(ui$.selectedThread)
@@ -257,34 +266,12 @@ export function useAppEffects() {
     // The tray mirrors INBOX unread only — that's the mail that raises new-mail
     // notifications. Other folders/labels (e.g. a "Notification" folder) carry
     // their own unread counts but must not keep the tray badge lit after the
-    // inbox is read.
-    const localInboxUnread = folders.some((folder) => folder.role === 'inbox' && folder.unread > 0)
-
-    if (localInboxUnread || accounts.length === 0) {
-      void invoke('tray.setUnread', { unread: localInboxUnread }).catch(() => {})
-      return
-    }
-
-    let cancelled = false
-    void Promise.all(
-      accounts.map((account) =>
-        invoke<{ folders: { role: string; unread: number }[] }>('mail.folderList', {
-          account_id: account.id,
-          refresh: false,
-        }).catch(() => ({ folders: [] })),
-      ),
-    ).then((results) => {
-      if (cancelled) return
-      const unread = results.some((result) =>
-        result.folders.some((folder) => folder.role === 'inbox' && folder.unread > 0),
-      )
-      void invoke('tray.setUnread', { unread }).catch(() => {})
-    })
-
-    return () => {
-      cancelled = true
-    }
-  }, [accounts, folders, threads])
+    // inbox is read. Use the exact per-account cache that renders the sidebar;
+    // launching separate folder queries here allowed a slow, stale result to
+    // overwrite a newer unread event and leave the two indicators disagreeing.
+    const unread = accounts.some((account) => inboxUnread(foldersByAccount[account.id]) > 0)
+    setTrayUnread(unread)
+  }, [accounts, foldersByAccount])
 
   useEffect(() => {
     const eventsOn = (window as any).runtime?.EventsOn
@@ -322,8 +309,8 @@ export function useAppEffects() {
       clearSyncErrorFor(detail?.account ?? null)
       // New mail arrived somewhere, so the tray should reflect unread immediately —
       // independent of which account/folder is selected. Clearing back to "read" is
-      // handled by the reactive tray effect once folders/threads refresh.
-      void invoke('tray.setUnread', { unread: true }).catch(() => {})
+      // handled by the reactive tray effect once the folder cache refreshes.
+      setTrayUnread(true)
       // Keep the side navigation's per-account (and unified) unread badges honest for
       // *every* account, not just the selected one. get_folders recomputes unread
       // live, so this cache-only refresh picks up the new mail even when the

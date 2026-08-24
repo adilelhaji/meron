@@ -382,8 +382,16 @@ impl Engine {
     }
 
     /// Return a healthy session to the pool, or drop it if the account is
-    /// already at `MAX_POOLED` (the transient-overflow case).
+    /// paused or already at `MAX_POOLED` (the transient-overflow case).
+    ///
+    /// The paused check must happen here, not only when `account.setPaused`
+    /// clears the pool: a background sync can already have a session checked
+    /// out when the account is paused and otherwise return that old session
+    /// after the clear.
     pub fn return_pooled(&self, account: &str, session: imap::Session) {
+        if self.is_paused(account) {
+            return;
+        }
         pool_return(
             &mut self.pool.lock().unwrap(),
             account,
