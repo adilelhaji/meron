@@ -33,6 +33,7 @@ mail-builder = "0.4.4"
 base64 = "0.22.1"
 ureq = { version = "3.3.0", features = ["socks-proxy"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
+ews = "0.1.1"
 feed-rs = "2.3.1"
 quick-xml = "0.37.5"
 scraper = "0.27.0"

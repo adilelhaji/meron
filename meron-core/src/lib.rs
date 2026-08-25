@@ -8,6 +8,7 @@
 pub mod backup;
 pub mod changelog;
 pub mod engine;
+pub mod exchange;
 pub mod ffi;
 pub mod imap;
 pub mod log;
