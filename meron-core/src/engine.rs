@@ -838,9 +838,29 @@ pub fn cached_archive_folder_from_folders(
         .or_else(|| find_role_folder(folders, "archive", imap::looks_like_archive, current))
 }
 
-/// Per-folder cap for each piggybacked companion sync, so one slow mailbox
-/// can't hold the post-sync tail (and the emit that follows it) indefinitely.
-const COMPANION_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
+const DEFAULT_BACKGROUND_SYNC_TIMEOUT_SECS: u64 = 30;
+const MAX_BACKGROUND_SYNC_TIMEOUT_SECS: u64 = 24 * 60 * 60;
+
+fn parse_background_sync_timeout(value: Option<&str>) -> Duration {
+    value
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|&secs| (1..=MAX_BACKGROUND_SYNC_TIMEOUT_SECS).contains(&secs))
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(DEFAULT_BACKGROUND_SYNC_TIMEOUT_SECS))
+}
+
+/// Per-folder sync budget, shared by background syncs and each piggybacked
+/// companion sync so one slow mailbox can't hold the post-sync tail (and the
+/// emit that follows it) indefinitely. The 30s default suits direct IMAP
+/// servers; slow gateways (e.g. DavMail bridging Exchange EWS) can need more,
+/// so it can be overridden with `MERON_SYNC_TIMEOUT` (seconds, up to one day).
+pub fn background_sync_timeout() -> Duration {
+    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        let value = std::env::var("MERON_SYNC_TIMEOUT").ok();
+        parse_background_sync_timeout(value.as_deref())
+    })
+}
 
 /// The companion mailboxes (Sent, then Drafts) to piggyback onto a sync of
 /// another folder, each paired with its role label for the caller's logs.
@@ -889,7 +909,7 @@ pub async fn sync_companion_folders(
     let mut outcomes = Vec::new();
     for (role, companion) in companion_folders(sent, drafts) {
         let result = match tokio::time::timeout(
-            COMPANION_SYNC_TIMEOUT,
+            background_sync_timeout(),
             sync_messages(engine, account, &companion, limit),
         )
         .await
@@ -1780,8 +1800,8 @@ pub fn attach_html(message: &mut parse::Message, load_remote_images: bool) {
 mod tests {
     use super::{
         Pooled, cached_archive_folder_from_folders, cached_search_mail_page, companion_folders,
-        find_role_folder, limit_prefetch_uids, pool_return, pool_take, record_search_folder_result,
-        should_append_sent_copy, thread_gap_search_folders,
+        find_role_folder, limit_prefetch_uids, parse_background_sync_timeout, pool_return,
+        pool_take, record_search_folder_result, should_append_sent_copy, thread_gap_search_folders,
     };
     use rusqlite::{Connection, params};
     use std::collections::HashMap;
@@ -1947,6 +1967,24 @@ mod tests {
     #[test]
     pub fn companion_folders_empty_when_neither_resolves() {
         assert_eq!(companion_folders(None, None), Vec::new());
+    }
+
+    #[test]
+    pub fn background_sync_timeout_rejects_unsupported_values() {
+        assert_eq!(
+            parse_background_sync_timeout(Some("300")),
+            Duration::from_secs(300)
+        );
+        for value in [None, Some("0"), Some("invalid"), Some("86401")] {
+            assert_eq!(
+                parse_background_sync_timeout(value),
+                Duration::from_secs(30)
+            );
+        }
+        assert_eq!(
+            parse_background_sync_timeout(Some("18446744073709551615")),
+            Duration::from_secs(30)
+        );
     }
 
     #[test]
