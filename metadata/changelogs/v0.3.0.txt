@@ -1,0 +1,3 @@
+- Retry transient background sync failures
+- Show RSS icon on feed column avatars
+- Initialize WebKit spell checking on the GTK main loop
