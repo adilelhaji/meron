@@ -838,9 +838,22 @@ pub fn cached_archive_folder_from_folders(
         .or_else(|| find_role_folder(folders, "archive", imap::looks_like_archive, current))
 }
 
-/// Per-folder cap for each piggybacked companion sync, so one slow mailbox
-/// can't hold the post-sync tail (and the emit that follows it) indefinitely.
-const COMPANION_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
+/// Per-folder sync budget, shared by background syncs and each piggybacked
+/// companion sync so one slow mailbox can't hold the post-sync tail (and the
+/// emit that follows it) indefinitely. The 30s default suits direct IMAP
+/// servers; slow gateways (e.g. DavMail bridging Exchange EWS) can need more,
+/// so it can be overridden with `MERON_SYNC_TIMEOUT` (seconds).
+pub fn background_sync_timeout() -> Duration {
+    static TIMEOUT: std::sync::OnceLock<Duration> = std::sync::OnceLock::new();
+    *TIMEOUT.get_or_init(|| {
+        std::env::var("MERON_SYNC_TIMEOUT")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .filter(|&secs| secs > 0)
+            .map(Duration::from_secs)
+            .unwrap_or(Duration::from_secs(30))
+    })
+}
 
 /// The companion mailboxes (Sent, then Drafts) to piggyback onto a sync of
 /// another folder, each paired with its role label for the caller's logs.
@@ -889,7 +902,7 @@ pub async fn sync_companion_folders(
     let mut outcomes = Vec::new();
     for (role, companion) in companion_folders(sent, drafts) {
         let result = match tokio::time::timeout(
-            COMPANION_SYNC_TIMEOUT,
+            background_sync_timeout(),
             sync_messages(engine, account, &companion, limit),
         )
         .await
