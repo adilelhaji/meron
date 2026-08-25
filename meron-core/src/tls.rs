@@ -15,8 +15,11 @@
 //! a rotated bridge certificate re-prompts instead of silently connecting.
 //! [`probe`] fetches the certificate for that prompt.
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
+use std::task::{Context as TaskContext, Poll};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use rustls::client::WebPkiServerVerifier;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -313,7 +316,7 @@ async fn probe_with_timeout(
     timeout: std::time::Duration,
 ) -> Result<CertInfo> {
     tokio::time::timeout(timeout, async {
-        let tcp = crate::imap::open_socket(host, port, proxy).await?;
+        let tcp = open_socket(host, port, proxy).await?;
         let tcp = if starttls {
             match protocol {
                 "smtp" => crate::smtp::starttls_socket(tcp).await?,
@@ -439,4 +442,172 @@ mod tests {
         let net_err = std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused");
         assert!(!is_cert_error(&net_err));
     }
+}
+
+// ---------------------------------------------------------------------------
+// Connection plumbing shared by the IMAP, SMTP, and EWS backends: the
+// Plain/TLS stream wrapper, TCP connect with keepalives and per-address
+// timeouts, and the implicit-TLS / STARTTLS upgrade path. Moved here from
+// imap.rs so protocol backends stay independent of each other.
+// ---------------------------------------------------------------------------
+
+/// Connection stream: implicit TLS (port 993 etc.) or plaintext (e.g. a local
+/// test server on 3143). One enum so the async-imap `Session` type is uniform.
+/// STARTTLS upgrade is not yet supported.
+#[derive(Debug)]
+pub enum Stream {
+    Plain(TcpStream),
+    Tls(Box<TlsStream<TcpStream>>),
+}
+
+impl AsyncRead for Stream {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Stream::Plain(s) => Pin::new(s).poll_read(cx, buf),
+            Stream::Tls(s) => Pin::new(s.as_mut()).poll_read(cx, buf),
+        }
+    }
+}
+
+impl AsyncWrite for Stream {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        match self.get_mut() {
+            Stream::Plain(s) => Pin::new(s).poll_write(cx, buf),
+            Stream::Tls(s) => Pin::new(s.as_mut()).poll_write(cx, buf),
+        }
+    }
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Stream::Plain(s) => Pin::new(s).poll_flush(cx),
+            Stream::Tls(s) => Pin::new(s.as_mut()).poll_flush(cx),
+        }
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
+        match self.get_mut() {
+            Stream::Plain(s) => Pin::new(s).poll_shutdown(cx),
+            Stream::Tls(s) => Pin::new(s.as_mut()).poll_shutdown(cx),
+        }
+    }
+}
+
+/// Cap on the DNS lookup and on the TLS handshake, each. Without it a sick
+/// resolver (getaddrinfo retrying across nameservers) can hold a sync for the
+/// better part of a minute before erroring; failing fast surfaces the error
+/// banner while a retry is still worth offering.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Cap per resolved address: one black-hole address (typically an unroutable
+/// IPv6 route ahead of a fine IPv4 one) must not eat the whole connect budget.
+const CONNECT_ATTEMPT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Resolve `host` and connect to each address in resolver order with a short
+/// per-attempt cap. Logs slow stages so a stalling first sync can be traced to
+/// DNS vs TCP from device logs alone.
+pub(crate) async fn connect_tcp(host: &str, port: u16) -> Result<TcpStream> {
+    let dns_started = std::time::Instant::now();
+    let addrs: Vec<std::net::SocketAddr> =
+        tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::lookup_host((host, port)))
+            .await
+            .map_err(|_| anyhow!("timed out"))
+            .context("dns lookup")?
+            .context("dns lookup")?
+            .collect();
+    let dns_ms = dns_started.elapsed().as_millis();
+    if dns_ms > 1_000 {
+        crate::mlog!(
+            crate::log::Level::Warn,
+            "net",
+            "slow DNS for {host}: {dns_ms}ms"
+        );
+    }
+    let mut last_err = anyhow!("dns lookup: no addresses for {host}");
+    for addr in addrs {
+        let attempt_started = std::time::Instant::now();
+        match tokio::time::timeout(CONNECT_ATTEMPT_TIMEOUT, TcpStream::connect(addr)).await {
+            Ok(Ok(tcp)) => return Ok(tcp),
+            Ok(Err(err)) => last_err = anyhow::Error::new(err).context(format!("connect {addr}")),
+            Err(_) => {
+                crate::mlog!(
+                    crate::log::Level::Warn,
+                    "net",
+                    "connect to {addr} timed out after {}ms",
+                    attempt_started.elapsed().as_millis()
+                );
+                last_err = anyhow!("connect {addr}: timed out");
+            }
+        }
+    }
+    Err(last_err.context("tcp connect"))
+}
+
+/// Open a TCP connection, optionally wrapped in implicit TLS. Shared by the
+/// IMAP and SMTP paths.
+///
+/// `proxy` is the account's resolved proxy (see [`crate::proxy`]); `None`
+/// connects directly. TLS is negotiated with the real destination host either
+/// way, so the tunnel never terminates the mail server's certificate.
+pub async fn connect_stream(
+    host: &str,
+    port: u16,
+    tls: bool,
+    proxy: Option<&crate::proxy::ProxyConfig>,
+    cert_pin: Option<&str>,
+) -> Result<Stream> {
+    let tcp = open_socket(host, port, proxy).await?;
+    if tls {
+        Ok(Stream::Tls(Box::new(
+            upgrade_to_tls(host, tcp, cert_pin).await?,
+        )))
+    } else {
+        Ok(Stream::Plain(tcp))
+    }
+}
+
+/// Connect the TCP socket (directly or through the proxy) and set the
+/// keepalives every mail connection wants: NAT and firewalls drop idle IMAP
+/// sessions silently otherwise, and an IDLE watcher never notices.
+pub(crate) async fn open_socket(
+    host: &str,
+    port: u16,
+    proxy: Option<&crate::proxy::ProxyConfig>,
+) -> Result<TcpStream> {
+    let tcp = match proxy {
+        Some(proxy) => crate::proxy::connect_through(proxy, host, port).await?,
+        None => connect_tcp(host, port).await?,
+    };
+    let sock_ref = socket2::SockRef::from(&tcp);
+    let keepalive = socket2::TcpKeepalive::new()
+        .with_time(std::time::Duration::from_secs(60))
+        .with_interval(std::time::Duration::from_secs(10));
+    let _ = sock_ref.set_tcp_keepalive(&keepalive);
+    Ok(tcp)
+}
+
+/// Wrap an established plaintext TCP socket in a TLS session. Used both by the
+/// implicit-TLS path above and by the STARTTLS upgrade, which hands us the raw
+/// socket after the cleartext negotiation completes.
+pub async fn upgrade_to_tls(
+    host: &str,
+    tcp: TcpStream,
+    cert_pin: Option<&str>,
+) -> Result<TlsStream<TcpStream>> {
+    let connector = connector(cert_pin)?;
+    let server_name =
+        rustls::pki_types::ServerName::try_from(host.to_string()).context("invalid server name")?;
+    let result = tokio::time::timeout(CONNECT_TIMEOUT, connector.connect(server_name, tcp))
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out"))
+        .context("tls handshake")?;
+    // Certificate rejections come back tagged, so the account dialog can offer
+    // to show the certificate and pin it rather than dead-ending on a rustls
+    // error. See [`crate::tls::UntrustedCertificate`].
+    result.map_err(UntrustedCertificate::from_io)
 }
