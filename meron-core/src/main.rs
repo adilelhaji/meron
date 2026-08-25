@@ -28,8 +28,8 @@ use meron_core::engine::*;
 use meron_core::engine::{Engine, EngineHost};
 use meron_core::protocol::{Request, ping_response, ready_event};
 use meron_core::{
-    backup, changelog, imap, mail_model, parse, proxy, rss, secrets, smtp, store, thread_list,
-    thread_read, unified,
+    backup, changelog, exchange, imap, mail_model, parse, proxy, rss, secrets, smtp, store,
+    thread_list, thread_read, unified,
 };
 
 /// Shared, serialized writer so responses and events never interleave on stdout.
@@ -1443,17 +1443,30 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             // can be slow or network-dependent, and later sync/watch calls will
             // surface any mailbox access failure.
             if p.get("validate").and_then(Value::as_bool).unwrap_or(true) {
-                let mut session =
-                    tokio::time::timeout(Duration::from_secs(20), imap::connect(&creds))
+                if creds.is_ews() {
+                    // Exchange carries mail and submission over one HTTPS
+                    // endpoint, so a single round trip validates both.
+                    let config = exchange::EwsConfig {
+                        url: creds.ews_url.clone(),
+                        username: creds.user.clone(),
+                        password: creds.password.clone(),
+                    };
+                    tokio::time::timeout(Duration::from_secs(20), exchange::validate(config))
                         .await
-                        .map_err(|_| anyhow::anyhow!("IMAP validation timed out"))??;
-                let _ = session.logout().await;
-                // The submission server can be a different daemon with a
-                // certificate of its own; a save that only validated IMAP would
-                // hand the user an account that fails at the first send.
-                tokio::time::timeout(Duration::from_secs(20), smtp::check_certificate(&creds))
-                    .await
-                    .unwrap_or(Ok(()))?;
+                        .map_err(|_| anyhow::anyhow!("Exchange validation timed out"))??;
+                } else {
+                    let mut session =
+                        tokio::time::timeout(Duration::from_secs(20), imap::connect(&creds))
+                            .await
+                            .map_err(|_| anyhow::anyhow!("IMAP validation timed out"))??;
+                    let _ = session.logout().await;
+                    // The submission server can be a different daemon with a
+                    // certificate of its own; a save that only validated IMAP would
+                    // hand the user an account that fails at the first send.
+                    tokio::time::timeout(Duration::from_secs(20), smtp::check_certificate(&creds))
+                        .await
+                        .unwrap_or(Ok(()))?;
+                }
             }
             let meta = store::AccountMeta {
                 engine: "mail".to_string(),

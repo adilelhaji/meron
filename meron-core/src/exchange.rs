@@ -334,6 +334,18 @@ fn single_message<T>(mut messages: Vec<T>) -> anyhow::Result<T> {
     Ok(messages.remove(0))
 }
 
+/// Proves an Exchange account works before it is stored: one round trip that
+/// exercises the endpoint URL, the credentials and the SOAP schema together.
+///
+/// The IMAP path validates by opening a session and checking the submission
+/// server's certificate; neither applies here, since EWS carries mail and
+/// submission over the one HTTPS endpoint.
+pub async fn validate(config: EwsConfig) -> anyhow::Result<()> {
+    let client = EwsClient::new(config);
+    tokio::task::spawn_blocking(move || client.folder_hierarchy(None)).await??;
+    Ok(())
+}
+
 /// Ceiling on one `SyncFolderItems` round, which the protocol caps at 512.
 /// Envelope details for the round's items are then fetched in one further
 /// call, so a folder's first sync costs two round trips per batch.
