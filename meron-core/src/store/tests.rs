@@ -2776,6 +2776,7 @@ fn proxy_test_creds(proxy: crate::proxy::ProxyChoice) -> crate::imap::Creds {
         proxy,
         cert_pin: None,
         smtp_cert_pin: None,
+        ews_url: String::new(),
     }
 }
 

@@ -823,6 +823,8 @@ pub(crate) fn add_mobile_password_account(data_dir: &str, params: &Value) -> Res
         proxy: crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null)),
         cert_pin: pin_param(params, "cert_pin"),
         smtp_cert_pin: pin_param(params, "smtp_cert_pin"),
+        // Mobile account setup is IMAP-only; Exchange is a desktop path.
+        ews_url: String::new(),
     };
     let meta = AccountMeta {
         engine: "mail".to_string(),

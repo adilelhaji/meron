@@ -334,6 +334,182 @@ fn single_message<T>(mut messages: Vec<T>) -> anyhow::Result<T> {
     Ok(messages.remove(0))
 }
 
+/// Ceiling on one `SyncFolderItems` round, which the protocol caps at 512.
+/// Envelope details for the round's items are then fetched in one further
+/// call, so a folder's first sync costs two round trips per batch.
+const SYNC_BATCH: u16 = 512;
+
+/// An authenticated Exchange session for one account.
+///
+/// The EWS client is blocking (`ureq`, as everywhere else in the core), so
+/// every operation hops onto a blocking thread. The store handle is needed on
+/// the same path: Exchange addresses messages by opaque item ids while the
+/// rest of the core addresses them by `u32` uid, and the correspondence lives
+/// in the database — see [`crate::store::map_ews_item`].
+pub struct EwsSession {
+    client: std::sync::Arc<EwsClient>,
+    account: String,
+    db: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
+    /// Folder wire name to its Exchange id, hydrated by `list_folders`.
+    /// Exchange addresses folders by id, the core by name.
+    folders: std::collections::HashMap<String, EwsId>,
+}
+
+impl EwsSession {
+    pub fn new(
+        config: EwsConfig,
+        account: &str,
+        db: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
+    ) -> Self {
+        Self {
+            client: std::sync::Arc::new(EwsClient::new(config)),
+            account: account.to_string(),
+            db,
+            folders: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Lists the mailbox's folders, refreshing the name-to-id map every call.
+    ///
+    /// The hierarchy is re-enumerated from scratch rather than resumed from a
+    /// stored sync state: the map is per-session and must be complete, and a
+    /// delta round would only report what changed since another session.
+    pub async fn list_folders(&mut self) -> anyhow::Result<Vec<crate::imap::Folder>> {
+        let client = self.client.clone();
+        let round =
+            tokio::task::spawn_blocking(move || client.folder_hierarchy(None)).await??;
+
+        let mut folders = Vec::new();
+        self.folders.clear();
+        for change in round.changes.inner {
+            let ::ews::sync_folder_hierarchy::Change::Create { folder } = change else {
+                // A from-scratch round reports every folder as a creation;
+                // updates and deletions only appear in delta rounds.
+                continue;
+            };
+            // Only generic mail folders: a mailbox's calendar, contacts, tasks
+            // and search folders are separate Exchange folder classes and are
+            // not mail the client can list, open or sync.
+            let ::ews::Folder::Folder {
+                folder_id,
+                display_name,
+                unread_count,
+                ..
+            } = folder
+            else {
+                continue;
+            };
+            let (Some(id), Some(name)) = (folder_id.as_ref(), display_name.as_ref()) else {
+                continue;
+            };
+            self.folders
+                .insert(name.clone(), (id.id.clone(), id.change_key.clone()));
+            folders.push(crate::imap::Folder {
+                name: name.clone(),
+                // Exchange folder names are already Unicode; there is no
+                // modified-UTF-7 layer to decode as there is on IMAP.
+                display_name: name.clone(),
+                delimiter: Some("/".to_string()),
+                unread: unread_count.unwrap_or_default(),
+                special_use: None,
+                role: String::new(),
+            });
+        }
+        Ok(folders)
+    }
+
+    /// Enumerates a folder and returns its most recent messages as envelopes,
+    /// under the local uids their items map to.
+    ///
+    /// The sync state is deliberately not consumed here: this mirrors IMAP's
+    /// `fetch_recent`, whose contract is "the newest N messages as they stand
+    /// now", and the caller reconciles against the cache. Resuming from a
+    /// stored state is what the incremental path will use once the engine
+    /// drives EWS deltas directly.
+    pub async fn fetch_recent(
+        &mut self,
+        folder: &str,
+        limit: u32,
+    ) -> anyhow::Result<crate::imap::RecentBatch> {
+        let folder_ref = self.folder_ref(folder).await?;
+        let client = self.client.clone();
+        let round = tokio::task::spawn_blocking(move || {
+            client.item_sync(&folder_ref, None, SYNC_BATCH)
+        })
+        .await??;
+
+        // A from-scratch round lists the folder in server order, oldest first;
+        // the newest `limit` are the tail.
+        let mut item_ids = Vec::new();
+        for change in round.changes.inner {
+            if let ::ews::sync_folder_items::Change::Create { item } = change
+                && let Some(id) = item.inner_message().item_id.as_ref()
+            {
+                item_ids.push((id.id.clone(), id.change_key.clone()));
+            }
+        }
+        let start = item_ids.len().saturating_sub(limit as usize);
+        let wanted = item_ids.split_off(start);
+
+        let envelopes = if wanted.is_empty() {
+            Vec::new()
+        } else {
+            let client = self.client.clone();
+            tokio::task::spawn_blocking(move || client.fetch_envelopes(&wanted)).await??
+        };
+
+        let messages = self.assign_uids(folder, envelopes)?;
+        Ok(crate::imap::RecentBatch {
+            // Exchange has no UIDVALIDITY: item ids are stable for the life of
+            // the item, so the cache is never invalidated wholesale the way an
+            // IMAP UIDVALIDITY bump does. A fixed 1 keeps the stored value
+            // meaningful ("never reset") instead of fabricating a changing one.
+            uidvalidity: 1,
+            uid_next: messages.iter().map(|m| m.uid).max().unwrap_or(0) + 1,
+            messages,
+        })
+    }
+
+    /// Resolves each envelope's item to its local uid, minting uids for items
+    /// seen for the first time, and projects them onto message headers.
+    fn assign_uids(
+        &self,
+        folder: &str,
+        envelopes: Vec<EwsEnvelope>,
+    ) -> anyhow::Result<Vec<crate::imap::MessageHeader>> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        envelopes
+            .into_iter()
+            .map(|envelope| {
+                let uid = crate::store::map_ews_item(
+                    &conn,
+                    &self.account,
+                    folder,
+                    &envelope.item_id,
+                    envelope.change_key.as_deref(),
+                )?;
+                Ok(envelope.into_header(uid, folder))
+            })
+            .collect()
+    }
+
+    /// The Exchange id for a folder name, listing the hierarchy once if the
+    /// map has not been hydrated yet.
+    async fn folder_ref(&mut self, folder: &str) -> anyhow::Result<EwsId> {
+        if let Some(reference) = self.folders.get(folder) {
+            return Ok(reference.clone());
+        }
+        self.list_folders().await?;
+        self.folders
+            .get(folder)
+            .cloned()
+            .with_context(|| format!("no Exchange folder named {folder}"))
+    }
+}
+
 /// The properties an envelope fetch asks for, beyond the id the base shape
 /// already carries.
 ///
@@ -843,6 +1019,150 @@ mod tests {
         // Without any id at all the message is unusable and must fail loud.
         let anonymous = ::ews::Message::default();
         assert!(EwsEnvelope::from_message(&anonymous).is_err());
+    }
+
+    /// Hierarchy reply mixing a mail folder with the calendar and contacts
+    /// folders every Exchange mailbox also carries.
+    const MIXED_HIERARCHY_RESPONSE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Header/>
+  <s:Body>
+    <m:SyncFolderHierarchyResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <m:ResponseMessages>
+        <m:SyncFolderHierarchyResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:SyncState>aGllcg==</m:SyncState>
+          <m:IncludesLastFolderInRange>true</m:IncludesLastFolderInRange>
+          <m:Changes>
+            <t:Create>
+              <t:Folder>
+                <t:FolderId Id="AAMkINBOX=" ChangeKey="CK-INBOX"/>
+                <t:DisplayName>Inbox</t:DisplayName>
+                <t:UnreadCount>5</t:UnreadCount>
+              </t:Folder>
+            </t:Create>
+            <t:Create>
+              <t:CalendarFolder>
+                <t:FolderId Id="AAMkCAL=" ChangeKey="CK-CAL"/>
+                <t:DisplayName>Calendar</t:DisplayName>
+              </t:CalendarFolder>
+            </t:Create>
+            <t:Create>
+              <t:ContactsFolder>
+                <t:FolderId Id="AAMkCON=" ChangeKey="CK-CON"/>
+                <t:DisplayName>Contacts</t:DisplayName>
+              </t:ContactsFolder>
+            </t:Create>
+            <t:Create>
+              <t:Folder>
+                <t:FolderId Id="AAMkSENT=" ChangeKey="CK-SENT"/>
+                <t:DisplayName>Sent Items</t:DisplayName>
+              </t:Folder>
+            </t:Create>
+          </m:Changes>
+        </m:SyncFolderHierarchyResponseMessage>
+      </m:ResponseMessages>
+    </m:SyncFolderHierarchyResponse>
+  </s:Body>
+</s:Envelope>"#;
+
+    type TestDb = std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>;
+
+    fn test_db() -> TestDb {
+        std::sync::Arc::new(std::sync::Mutex::new(
+            crate::store::open_in_memory_for_test().expect("open store"),
+        ))
+    }
+
+    fn test_session(url: String) -> (EwsSession, TestDb) {
+        let db = test_db();
+        let session = EwsSession::new(
+            EwsConfig {
+                url,
+                username: "u".to_string(),
+                password: "p".to_string(),
+            },
+            "acct",
+            db.clone(),
+        );
+        (session, db)
+    }
+
+    #[tokio::test]
+    async fn listing_folders_keeps_mail_and_drops_calendar_and_contacts() {
+        let (url, server) = serve_soap_once(MIXED_HIERARCHY_RESPONSE);
+        let (mut session, _db) = test_session(url);
+
+        let folders = session.list_folders().await.expect("list should succeed");
+        let names: Vec<&str> = folders.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["Inbox", "Sent Items"],
+            "calendar and contacts are not mail folders"
+        );
+        assert_eq!(folders[0].unread, 5);
+        // Exchange names are already Unicode: no modified-UTF-7 decoding step.
+        assert_eq!(folders[0].display_name, "Inbox");
+
+        server.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn folder_lookup_fails_loud_for_an_unknown_name() {
+        let (url, server) = serve_soap_once(MIXED_HIERARCHY_RESPONSE);
+        let (mut session, _db) = test_session(url);
+
+        let Err(error) = session.fetch_recent("No Such Folder", 10).await else {
+            panic!("an unknown folder must not resolve");
+        };
+        assert!(
+            error.to_string().contains("No Such Folder"),
+            "unhelpful error: {error}"
+        );
+
+        server.join().expect("server thread");
+    }
+
+    #[test]
+    fn session_uid_assignment_is_stable_across_syncs() {
+        let db = test_db();
+        let session = EwsSession::new(
+            EwsConfig {
+                url: "http://127.0.0.1:1".to_string(),
+                username: "u".to_string(),
+                password: "p".to_string(),
+            },
+            "acct",
+            db,
+        );
+
+        let envelope = |id: &str| EwsEnvelope {
+            item_id: id.to_string(),
+            change_key: Some("CK".to_string()),
+            subject: "s".to_string(),
+            from_name: String::new(),
+            from_addr: String::new(),
+            date: 0,
+            seen: true,
+            message_id: String::new(),
+            in_reply_to: String::new(),
+            references_root: String::new(),
+            to: Vec::new(),
+            cc: Vec::new(),
+        };
+
+        let first = session
+            .assign_uids("INBOX", vec![envelope("AAMkA="), envelope("AAMkB=")])
+            .expect("assignment should succeed");
+        assert_eq!(first.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![1, 2]);
+        assert_eq!(first[0].folder, "INBOX");
+
+        // A later sync seeing the same items must reuse their uids, or every
+        // cached row and open thread would point at the wrong message.
+        let second = session
+            .assign_uids("INBOX", vec![envelope("AAMkB="), envelope("AAMkC=")])
+            .expect("assignment should succeed");
+        assert_eq!(second.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![2, 3]);
     }
 
     /// Minimal single-request HTTP/1.1 server: accepts one connection, reads

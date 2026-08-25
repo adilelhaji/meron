@@ -242,6 +242,7 @@ fn creds_to_config(creds: &Creds) -> String {
         "proxy": creds.proxy.to_json(),
         "cert_pin": creds.cert_pin,
         "smtp_cert_pin": creds.smtp_cert_pin,
+        "ews_url": creds.ews_url,
     })
     .to_string()
 }
@@ -282,6 +283,7 @@ fn config_to_creds(json: &str) -> Creds {
         proxy: crate::proxy::ProxyChoice::from_json(&v["proxy"]),
         cert_pin: config_cert_pin(&v, "cert_pin"),
         smtp_cert_pin: config_cert_pin(&v, "smtp_cert_pin"),
+        ews_url: v["ews_url"].as_str().unwrap_or("").to_string(),
     }
 }
 

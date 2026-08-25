@@ -58,6 +58,18 @@ pub struct Creds {
     /// different daemons with different certificates — a local bridge serves one
     /// certificate on both ports, but nothing guarantees that in general.
     pub smtp_cert_pin: Option<String>,
+    /// Full EWS endpoint URL when this account speaks Exchange Web Services
+    /// instead of IMAP/SMTP, e.g. `https://mail.example.org/EWS/Exchange.asmx`.
+    /// Empty for IMAP accounts, which is what decides the protocol at connect
+    /// time — see [`crate::backend::connect`].
+    pub ews_url: String,
+}
+
+impl Creds {
+    /// Whether this account is served by the Exchange backend.
+    pub fn is_ews(&self) -> bool {
+        !self.ews_url.is_empty()
+    }
 }
 
 /// Which settings a save left out of its parameters, and so must be carried

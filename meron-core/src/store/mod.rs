@@ -1759,6 +1759,15 @@ pub fn set_folder_state(
 
 /// The folder's last EWS synchronization state, or `None` before the first
 /// round (which enumerates the folder from scratch).
+/// An in-memory store with the schema applied, for tests in modules that
+/// cannot reach the private `db` module.
+#[cfg(test)]
+pub(crate) fn open_in_memory_for_test() -> Result<Connection> {
+    let conn = Connection::open_in_memory()?;
+    db::run_migrations(&conn)?;
+    Ok(conn)
+}
+
 pub fn get_folder_sync_state(
     conn: &Connection,
     account: &str,

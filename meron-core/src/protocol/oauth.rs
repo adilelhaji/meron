@@ -86,6 +86,8 @@ pub(crate) fn add_mobile_oauth_account(data_dir: &str, params: &Value) -> Result
         proxy: crate::proxy::ProxyChoice::from_json(params.get("proxy").unwrap_or(&Value::Null)),
         cert_pin: None,
         smtp_cert_pin: None,
+        // Mobile account setup is IMAP-only; Exchange is a desktop path.
+        ews_url: String::new(),
     };
     let id = account_id(&email);
     let meta = AccountMeta {

@@ -47,7 +47,10 @@ fn oauth_defaults() -> OAuthDefaults {
 /// Reads serve from SQLite; syncs reconnect to IMAP and refresh stored rows.
 pub struct Engine {
     pub accounts: Mutex<HashMap<String, imap::Creds>>,
-    pub db: std::sync::Mutex<rusqlite::Connection>,
+    /// Shared so protocol backends that keep their own server-side identity
+    /// mapping (see [`crate::exchange`]) can reach the store from a session,
+    /// which is created outside the engine's borrow.
+    pub db: std::sync::Arc<std::sync::Mutex<rusqlite::Connection>>,
     /// Accounts with a live IDLE task, to avoid spawning duplicates.
     /// Keyed by `account\nfolder` because IMAP IDLE watches one selected mailbox
     /// per connection.
@@ -210,7 +213,7 @@ impl Engine {
         }
         Ok(Self {
             accounts: Mutex::new(accounts),
-            db: std::sync::Mutex::new(conn),
+            db: std::sync::Arc::new(std::sync::Mutex::new(conn)),
             watched: std::sync::Mutex::new(HashSet::new()),
             syncing: std::sync::Mutex::new(HashSet::new()),
             gap_attempts: std::sync::Mutex::new(HashMap::new()),
@@ -474,7 +477,7 @@ impl Engine {
         pool_debug(account, "fresh-connect");
         let creds = self.ensure_valid_creds(account).await?;
         let connect_started = std::time::Instant::now();
-        let mut session = backend::connect(&creds).await?;
+        let mut session = backend::connect(&creds, account, self.db.clone()).await?;
         let connect_ms = connect_started.elapsed().as_millis();
         if connect_ms > 2_000 {
             crate::mlog!(
@@ -570,7 +573,7 @@ impl Engine {
         pool_debug(account, "fresh-connect");
         let creds = self.ensure_valid_creds(account).await?;
         let connect_started = std::time::Instant::now();
-        let mut session = backend::connect(&creds).await?;
+        let mut session = backend::connect(&creds, account, self.db.clone()).await?;
         let connect_ms = connect_started.elapsed().as_millis();
         if connect_ms > 2_000 {
             crate::mlog!(

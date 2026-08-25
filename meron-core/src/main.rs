@@ -1403,6 +1403,14 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 // that webpki rejects (see `account.probeCert`).
                 cert_pin: cert_pin_param(p, "cert_pin"),
                 smtp_cert_pin: cert_pin_param(p, "smtp_cert_pin"),
+                // Present only for Exchange accounts, and what routes them to
+                // the EWS backend; see `backend::connect`.
+                ews_url: p
+                    .get("ews_url")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string(),
             };
             // A reconnect resends the setup form, which has no field for the
             // account's proxy or the certificates it accepted. Carry those over
