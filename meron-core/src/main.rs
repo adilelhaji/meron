@@ -2471,19 +2471,23 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 );
             }
 
-            let target_batch = engine
+            engine
                 .with_write_session(&account, |session| {
                     let folder = folder.clone();
                     let target_folder = target_folder.clone();
                     let uids = uids.clone();
                     Box::pin(async move {
-                        imap::move_to_folder(session, &folder, &target_folder, &uids).await?;
-                        imap::fetch_recent(session, &target_folder, 50.max(uids.len() as u32))
-                            .await
-                            .context("refresh target folder after move")
+                        imap::move_to_folder(session, &folder, &target_folder, &uids).await
                     })
                 })
                 .await?;
+            // Read-only refresh, on its own session: the MOVE has landed and
+            // must not be retried, and a message the target folder holds that we
+            // cannot parse must not sink the whole move.
+            let target_batch =
+                fetch_recent_resilient(engine, &account, &target_folder, 50.max(uids.len() as u32))
+                    .await
+                    .context("refresh target folder after move")?;
 
             {
                 let db = engine.db.lock().unwrap();
@@ -2580,7 +2584,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             }
 
             let copied = raw_messages.len();
-            let target_batch = engine
+            engine
                 .with_write_session(&target_account, |session| {
                     let target_folder = target_folder.clone();
                     let raw_messages = raw_messages.clone();
@@ -2588,16 +2592,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         for message in &raw_messages {
                             imap::append_copied_message(session, &target_folder, message).await?;
                         }
-                        imap::fetch_recent(
-                            session,
-                            &target_folder,
-                            50.max(raw_messages.len() as u32),
-                        )
-                        .await
-                        .context("refresh target folder after copy")
+                        anyhow::Ok(())
                     })
                 })
                 .await?;
+            // Read-only refresh, on its own session; see the move handler above.
+            let target_batch = fetch_recent_resilient(
+                engine,
+                &target_account,
+                &target_folder,
+                50.max(raw_messages.len() as u32),
+            )
+            .await
+            .context("refresh target folder after copy")?;
 
             {
                 let db = engine.db.lock().unwrap();

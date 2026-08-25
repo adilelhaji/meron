@@ -269,7 +269,7 @@ pub(crate) fn save_mobile_draft(data_dir: &str, params: &Value) -> Result<Value,
         let saved_id = draft_id.clone();
         let local_draft_id = draft_id.clone();
         let saved_bytes = raw.len();
-        let (drafts_folder, batch) =
+        let drafts_folder =
             crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
                 let raw = raw.clone();
                 let saved_id = saved_id.clone();
@@ -278,10 +278,18 @@ pub(crate) fn save_mobile_draft(data_dir: &str, params: &Value) -> Result<Value,
                         .await?
                         .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
                     imap::replace_draft(session, &drafts, &raw, &saved_id).await?;
-                    let batch = imap::fetch_recent(session, &drafts, DRAFT_SYNC_LIMIT).await?;
-                    anyhow::Ok((drafts, batch))
+                    anyhow::Ok(drafts)
                 })
             }))?;
+        // Read-only refresh, on its own session: the draft is already written
+        // and must not be retried, and a draft we cannot parse must not make the
+        // save look like it failed.
+        let batch = crate::ffi::engine_block_on(crate::engine::fetch_recent_resilient(
+            &engine,
+            &account_id,
+            &drafts_folder,
+            DRAFT_SYNC_LIMIT,
+        ))?;
         store::upsert_messages(&conn, &account_id, &drafts_folder, &batch.messages)
             .map_err(|err| err.to_string())?;
         let keep_uid = batch
@@ -1033,19 +1041,20 @@ pub(crate) fn archive_mobile_thread(data_dir: &str, params: &Value) -> Result<Va
         let op_folder = parsed.folder.clone();
         let op_target = target_folder.clone();
         let op_uids = uids.clone();
-        let target_batch = crate::ffi::engine_block_on(engine.with_write_session(
+        crate::ffi::engine_block_on(engine.with_write_session(&parsed.account, move |session| {
+            let source = op_folder.clone();
+            let target = op_target.clone();
+            let uids = op_uids.clone();
+            Box::pin(async move { imap::move_to_folder(session, &source, &target, &uids).await })
+        }))?;
+        // Read-only refresh, on its own session: the MOVE has landed and must
+        // not be retried, and a message in the target folder that we cannot
+        // parse must not sink the whole move.
+        let target_batch = crate::ffi::engine_block_on(crate::engine::fetch_recent_resilient(
+            &engine,
             &parsed.account,
-            move |session| {
-                let source = op_folder.clone();
-                let target = op_target.clone();
-                let uids = op_uids.clone();
-                Box::pin(async move {
-                    imap::move_to_folder(session, &source, &target, &uids).await?;
-                    let batch =
-                        imap::fetch_recent(session, &target, 50.max(uids.len() as u32)).await?;
-                    anyhow::Ok(batch)
-                })
-            },
+            &target_folder,
+            50.max(uids.len() as u32),
         ))?;
         store::ensure_folder(&conn, &parsed.account, &target_folder)
             .map_err(|err| err.to_string())?;
@@ -1120,19 +1129,20 @@ pub(crate) fn move_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
         let op_folder = parsed.folder.clone();
         let op_target = target_folder.clone();
         let op_uids = uids.clone();
-        let target_batch = crate::ffi::engine_block_on(engine.with_write_session(
+        crate::ffi::engine_block_on(engine.with_write_session(&parsed.account, move |session| {
+            let source = op_folder.clone();
+            let target = op_target.clone();
+            let uids = op_uids.clone();
+            Box::pin(async move { imap::move_to_folder(session, &source, &target, &uids).await })
+        }))?;
+        // Read-only refresh, on its own session: the MOVE has landed and must
+        // not be retried, and a message in the target folder that we cannot
+        // parse must not sink the whole move.
+        let target_batch = crate::ffi::engine_block_on(crate::engine::fetch_recent_resilient(
+            &engine,
             &parsed.account,
-            move |session| {
-                let source = op_folder.clone();
-                let target = op_target.clone();
-                let uids = op_uids.clone();
-                Box::pin(async move {
-                    imap::move_to_folder(session, &source, &target, &uids).await?;
-                    let batch =
-                        imap::fetch_recent(session, &target, 50.max(uids.len() as u32)).await?;
-                    anyhow::Ok(batch)
-                })
-            },
+            &target_folder,
+            50.max(uids.len() as u32),
         ))?;
         store::ensure_folder(&conn, &parsed.account, &target_folder)
             .map_err(|err| err.to_string())?;
@@ -1221,21 +1231,22 @@ pub(crate) fn copy_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
         ))?;
         let copied = raw_messages.len();
         let target_folder_op = target_folder.clone();
-        let batch = crate::ffi::engine_block_on(engine.with_write_session(
+        crate::ffi::engine_block_on(engine.with_write_session(&target_account, move |session| {
+            let target = target_folder_op.clone();
+            let raw_messages = raw_messages.clone();
+            Box::pin(async move {
+                for message in &raw_messages {
+                    imap::append_copied_message(session, &target, message).await?;
+                }
+                anyhow::Ok(())
+            })
+        }))?;
+        // Read-only refresh, on its own session; see the move handlers above.
+        let batch = crate::ffi::engine_block_on(crate::engine::fetch_recent_resilient(
+            &engine,
             &target_account,
-            move |session| {
-                let target = target_folder_op.clone();
-                let raw_messages = raw_messages.clone();
-                Box::pin(async move {
-                    for message in &raw_messages {
-                        imap::append_copied_message(session, &target, message).await?;
-                    }
-                    let batch =
-                        imap::fetch_recent(session, &target, 50.max(raw_messages.len() as u32))
-                            .await?;
-                    anyhow::Ok(batch)
-                })
-            },
+            &target_folder,
+            50.max(copied as u32),
         ))?;
         store::ensure_folder(&conn, &target_account, &target_folder)
             .map_err(|err| err.to_string())?;

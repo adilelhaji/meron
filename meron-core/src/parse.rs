@@ -1,7 +1,6 @@
 //! MIME parsing helpers built on `mailparse`.
 //!
-//! Two jobs: decode RFC 2047 encoded-words in header fragments (used for
-//! ENVELOPE-derived list views, where async-imap hands us raw bytes), and turn
+//! Two jobs: decode RFC 2047 encoded-words in bare header fragments, and turn
 //! a full RFC822 message into a readable summary + body for the reader view.
 
 use html_to_markdown_rs::{ConversionOptions, convert};
@@ -127,7 +126,8 @@ pub struct Attachment {
     pub key: Option<String>,
 }
 
-/// Decode an RFC 2047 header fragment (e.g. an ENVELOPE subject) by letting
+/// Decode a bare RFC 2047 header fragment — one that arrives without its field
+/// name, so `MailHeaderMap` cannot be used — by letting
 /// `mailparse` parse a synthetic header line — its `get_value()` decodes
 /// encoded-words and charsets for us.
 pub fn decode_words(raw: &str) -> String {

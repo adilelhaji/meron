@@ -662,6 +662,187 @@ pub struct SyncMessagesResult {
     pub messages: Vec<imap::MessageHeader>,
 }
 
+/// Rebuild what the batched sync would have produced, for a folder holding at
+/// least one message whose FETCH response cannot be parsed. Establishes the
+/// window with [`recover_recent_batch`], then re-runs the best-effort flag
+/// reconciliation and UID listing that the failed attempt never reached.
+async fn sync_state_isolating_unparseable(
+    engine: &Arc<Engine>,
+    account: &str,
+    folder: &str,
+    limit: u32,
+    prior_modseq: u64,
+    prior_validity: u32,
+) -> anyhow::Result<(
+    imap::RecentBatch,
+    Option<imap::FlagSync>,
+    Option<std::collections::HashSet<u32>>,
+)> {
+    let batch = recover_recent_batch(engine, account, folder, limit).await?;
+    let uidvalidity = batch.uidvalidity;
+    let (flag_sync, server_uids) = engine
+        .with_read_session(account, |session| {
+            let folder = folder.to_string();
+            Box::pin(async move {
+                let validity_matches = prior_validity != 0 && prior_validity == uidvalidity;
+                let flag_sync = imap::sync_flags(session, &folder, prior_modseq, validity_matches)
+                    .await
+                    .ok();
+                let server_uids = imap::list_all_uids(session, &folder).await.ok();
+                anyhow::Ok((flag_sync, server_uids))
+            })
+        })
+        .await
+        .unwrap_or((None, None));
+    Ok((batch, flag_sync, server_uids))
+}
+
+/// [`imap::fetch_recent`] for one folder, recovering from messages whose FETCH
+/// response cannot be parsed instead of failing the whole batch. Prefer this to
+/// calling `imap::fetch_recent` inside a session closure.
+///
+/// Read-only, so it must not share a session with a mutating command: a wedged
+/// connection has to be discarded, and a mutation that already reached the
+/// server must never be retried. Run the mutation first, then call this.
+pub async fn fetch_recent_resilient(
+    engine: &Arc<Engine>,
+    account: &str,
+    folder: &str,
+    limit: u32,
+) -> anyhow::Result<imap::RecentBatch> {
+    let attempt = engine
+        .with_read_session(account, |session| {
+            let folder = folder.to_string();
+            Box::pin(async move { imap::fetch_recent(session, &folder, limit).await })
+        })
+        .await;
+    match attempt {
+        Ok(batch) => Ok(batch),
+        Err(err) if imap::is_unparseable_response(&err) => {
+            crate::mlog!(
+                crate::log::Level::Warn,
+                "mail.sync",
+                "account={account} folder={folder}: unparseable FETCH response, \
+                 re-reading the window message by message: {err:#}"
+            );
+            recover_recent_batch(engine, account, folder, limit).await
+        }
+        Err(err) => Err(err),
+    }
+}
+
+/// Re-read the recent window of `folder` while working around messages whose
+/// FETCH response cannot be parsed. Establishes the window as UIDs (a
+/// `UID SEARCH` reply is immune to the failure), then reads it in ranges that
+/// exclude the offending messages.
+async fn recover_recent_batch(
+    engine: &Arc<Engine>,
+    account: &str,
+    folder: &str,
+    limit: u32,
+) -> anyhow::Result<imap::RecentBatch> {
+    let (uidvalidity, uid_next, uids) = engine
+        .with_read_session(account, |session| {
+            let folder = folder.to_string();
+            Box::pin(async move { imap::recent_uids(session, &folder, limit).await })
+        })
+        .await?;
+    let (messages, skipped) =
+        fetch_headers_isolating_unparseable(engine, account, folder, uids).await?;
+    if !skipped.is_empty() {
+        crate::mlog!(
+            crate::log::Level::Warn,
+            "mail.sync",
+            "account={account} folder={folder}: {} of {} messages skipped as unreadable: {skipped:?}",
+            skipped.len(),
+            messages.len() + skipped.len()
+        );
+    }
+    Ok(imap::RecentBatch {
+        uidvalidity,
+        uid_next,
+        messages,
+    })
+}
+
+/// Ceiling on FETCH attempts one poison-message recovery may spend. A run with
+/// a single bad message costs about `2 * log2(window)` attempts; this only
+/// bites when a folder is riddled with them, where the right answer is to store
+/// what we have rather than reconnect dozens of times.
+const ISOLATION_ATTEMPT_LIMIT: usize = 32;
+
+/// Fetch headers for `uids`, working around messages whose FETCH response the
+/// IMAP parser rejects (see [`imap::is_unparseable_response`]).
+///
+/// Such a response wedges the connection it arrived on, so it cannot be skipped
+/// mid-stream — the session has to go and the range has to be re-fetched
+/// without it. This halves any failing range until the offending message sits
+/// alone, drops just that one, and keeps its neighbours. Every attempt runs
+/// through `with_read_session`, which discards the failed session and hands the
+/// retry a fresh connection.
+///
+/// Returns the headers it could read plus the UIDs it gave up on. A genuine
+/// network or server error aborts, since retrying narrower ranges would not
+/// help.
+async fn fetch_headers_isolating_unparseable(
+    engine: &Arc<Engine>,
+    account: &str,
+    folder: &str,
+    uids: Vec<u32>,
+) -> anyhow::Result<(Vec<imap::MessageHeader>, Vec<u32>)> {
+    let mut pending = vec![uids];
+    let mut out: Vec<imap::MessageHeader> = Vec::new();
+    let mut skipped: Vec<u32> = Vec::new();
+    let mut attempts = 0usize;
+
+    while let Some(chunk) = pending.pop() {
+        if chunk.is_empty() {
+            continue;
+        }
+        if attempts >= ISOLATION_ATTEMPT_LIMIT {
+            let abandoned: usize = pending.iter().map(Vec::len).sum::<usize>() + chunk.len();
+            crate::mlog!(
+                crate::log::Level::Warn,
+                "mail.sync",
+                "account={account} folder={folder}: giving up isolating unparseable \
+                 messages after {attempts} fetches, {abandoned} UIDs left unread"
+            );
+            break;
+        }
+        attempts += 1;
+        let result = engine
+            .with_read_session(account, |session| {
+                let folder = folder.to_string();
+                let chunk = chunk.clone();
+                Box::pin(async move { imap::fetch_headers_by_uid(session, &folder, &chunk).await })
+            })
+            .await;
+        match result {
+            Ok(headers) => out.extend(headers),
+            Err(err) if !imap::is_unparseable_response(&err) => return Err(err),
+            Err(err) if chunk.len() == 1 => {
+                crate::mlog!(
+                    crate::log::Level::Warn,
+                    "mail.sync",
+                    "account={account} folder={folder}: skipping uid={}, its FETCH \
+                     response could not be parsed: {err:#}",
+                    chunk[0]
+                );
+                skipped.push(chunk[0]);
+            }
+            Err(_) => {
+                // Push the tail first so the halves are attempted in UID order.
+                let mid = chunk.len() / 2;
+                pending.push(chunk[mid..].to_vec());
+                pending.push(chunk[..mid].to_vec());
+            }
+        }
+    }
+
+    out.sort_unstable_by_key(|header| std::cmp::Reverse(header.uid));
+    Ok((out, skipped))
+}
+
 pub async fn sync_messages(
     engine: &Arc<Engine>,
     account: &str,
@@ -680,7 +861,7 @@ pub async fn sync_messages(
         (modseq, validity)
     };
 
-    let (batch, flag_sync, server_uids) = engine
+    let attempt = engine
         .with_read_session(account, |session| {
             let folder = folder.to_string();
             Box::pin(async move {
@@ -699,7 +880,31 @@ pub async fn sync_messages(
                 anyhow::Ok((batch, flag_sync, server_uids))
             })
         })
-        .await?;
+        .await;
+    // A message whose FETCH response we cannot parse takes the whole batch down
+    // with it, and does so again on every later sync. Re-read the window a
+    // narrower range at a time so the rest of the folder still syncs.
+    let (batch, flag_sync, server_uids) = match attempt {
+        Ok(state) => state,
+        Err(err) if imap::is_unparseable_response(&err) => {
+            crate::mlog!(
+                crate::log::Level::Warn,
+                "mail.sync",
+                "account={account} folder={folder}: unparseable FETCH response, \
+                 re-reading the window message by message: {err:#}"
+            );
+            sync_state_isolating_unparseable(
+                engine,
+                account,
+                folder,
+                limit,
+                prior_modseq,
+                prior_validity,
+            )
+            .await?
+        }
+        Err(err) => return Err(err),
+    };
 
     let synced_messages = batch.messages.clone();
     let count = synced_messages.len();
@@ -1528,7 +1733,7 @@ pub async fn append_to_sent(engine: &Arc<Engine>, account: &str, raw: &[u8]) -> 
 
     // APPEND is mutating, so this never auto-retries (a drop after the server
     // accepted the message must not re-APPEND a duplicate copy).
-    let (sent, batch) = engine
+    let sent = engine
         .with_write_session(account, |session| {
             let raw = raw.to_vec();
             Box::pin(async move {
@@ -1538,15 +1743,16 @@ pub async fn append_to_sent(engine: &Arc<Engine>, account: &str, raw: &[u8]) -> 
                 if should_append {
                     imap::append_to_sent(session, &sent, &raw).await?;
                 }
-                // Refresh local Sent-folder envelopes so the new row is queryable
-                // by the cross-folder thread view immediately. For Gmail/Outlook
-                // defaults, this picks up the provider-created Sent copy instead
-                // of uploading a duplicate.
-                let batch = imap::fetch_recent(session, &sent, 20).await?;
-                anyhow::Ok((sent, batch))
+                anyhow::Ok(sent)
             })
         })
         .await?;
+    // Refresh local Sent-folder envelopes so the new row is queryable by the
+    // cross-folder thread view immediately. For Gmail/Outlook defaults, this
+    // picks up the provider-created Sent copy instead of uploading a duplicate.
+    // Read-only, so it runs on its own session: the APPEND above has already
+    // landed and must not be retried alongside it.
+    let batch = fetch_recent_resilient(engine, account, &sent, 20).await?;
     {
         let db = engine.db.lock().unwrap();
         store::upsert_messages(&db, account, &sent, &batch.messages)?;
@@ -1568,7 +1774,7 @@ pub async fn append_to_drafts(
     // it runs as the retryable preflight — an autosave used to surface that dead
     // socket to the user as "Draft autosave failed: LIST: Broken pipe".
     let drafts_slot: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
-    let (drafts, batch) = engine
+    let drafts = engine
         .with_preflighted_write_session(
             account,
             |session| {
@@ -1589,14 +1795,15 @@ pub async fn append_to_drafts(
                     let drafts = { slot.lock().unwrap().clone() }
                         .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
                     imap::replace_draft(session, &drafts, &raw, &message_id).await?;
-                    // Refresh local Drafts envelopes so an autosaved reply appears in
-                    // the existing cross-folder thread view immediately.
-                    let batch = imap::fetch_recent(session, &drafts, 20).await?;
-                    anyhow::Ok((drafts, batch))
+                    anyhow::Ok(drafts)
                 })
             },
         )
         .await?;
+    // Refresh local Drafts envelopes so an autosaved reply appears in the
+    // existing cross-folder thread view immediately. Read-only, and the draft
+    // is already written, so it runs on its own session.
+    let batch = fetch_recent_resilient(engine, account, &drafts, 20).await?;
     {
         let db = engine.db.lock().unwrap();
         store::upsert_messages(&db, account, &drafts, &batch.messages)?;

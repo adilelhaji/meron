@@ -621,6 +621,52 @@ pub async fn delete_folders(session: &mut Session, names: &[String]) -> Result<V
     Ok(removed)
 }
 
+/// Whether `err` is a FETCH response our IMAP parser could not read, as opposed
+/// to a network or server failure.
+///
+/// This matters because such a response is unrecoverable *on that connection*:
+/// async-imap reports the parse failure without consuming the offending bytes
+/// from its read buffer, so every later poll re-parses them and fails again.
+/// The only way forward is to drop the session and re-fetch a range that
+/// excludes the message — see `fetch_headers_isolating_unparseable` in
+/// `engine.rs`.
+///
+/// Detection is by message text because async-imap surfaces the failure as a
+/// plain `io::Error::other`, with no variant to match on. The substring is the
+/// literal from its `ImapStream::decode`; if the pinned fork moves, this needs
+/// rechecking (`unparseable_response_marker_matches_async_imap` covers it).
+pub fn is_unparseable_response(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.to_string().contains(UNPARSEABLE_RESPONSE_MARKER))
+    })
+}
+
+const UNPARSEABLE_RESPONSE_MARKER: &str = " during parsing of ";
+
+/// SELECT `folder` and return `(UIDVALIDITY, UIDNEXT, uids)`, where `uids` holds
+/// the most recent `limit` messages newest first — the same window
+/// [`fetch_recent`] covers, but established without fetching any message.
+///
+/// Used by the poison-message recovery path, which needs the window as UIDs it
+/// can subdivide. A `UID SEARCH` reply is a list of bare numbers, so it cannot
+/// itself hit the parse failure that sent us down this path.
+pub async fn recent_uids(
+    session: &mut Session,
+    folder: &str,
+    limit: u32,
+) -> Result<(u32, u32, Vec<u32>)> {
+    let mailbox = session.select(folder).await.context("SELECT")?;
+    let uidvalidity = mailbox.uid_validity.unwrap_or(0);
+    let uid_next = mailbox.uid_next.unwrap_or(0);
+    let set: HashSet<u32> = session.uid_search("ALL").await.context("UID SEARCH ALL")?;
+    let mut uids: Vec<u32> = set.into_iter().collect();
+    uids.sort_unstable_by(|a, b| b.cmp(a));
+    uids.truncate(limit.max(1) as usize);
+    Ok((uidvalidity, uid_next, uids))
+}
+
 /// Fetch the most recent `limit` messages in `folder` as envelope summaries,
 /// newest first. This is the capability Delta Chat core refuses to give us:
 /// reading mail that already existed before setup.
@@ -658,19 +704,12 @@ pub async fn fetch_recent(session: &mut Session, folder: &str, limit: u32) -> Re
         let starred = fetch
             .flags()
             .any(|flag| matches!(flag, async_imap::types::Flag::Flagged));
-        let mut ef = match fetch.envelope() {
-            Some(envelope) => envelope_fields(envelope),
-            None => EnvelopeFields::default(),
-        };
-        if let Some(subject) = fetch.header().and_then(header_subject) {
-            ef.subject = subject;
-        }
-        let references_root = fetch.header().and_then(references_root).unwrap_or_default();
+        let ef = fetch.header().map(header_fields).unwrap_or_default();
         let thread_key = thread_key(
             fetch.gmail_thread_id().copied(),
             &ef.message_id,
             &ef.in_reply_to,
-            &references_root,
+            &ef.references_root,
             uid,
         );
         out.push(MessageHeader {
@@ -824,19 +863,12 @@ pub async fn fetch_by_message_ids(
         let starred = fetch
             .flags()
             .any(|flag| matches!(flag, async_imap::types::Flag::Flagged));
-        let mut ef = match fetch.envelope() {
-            Some(envelope) => envelope_fields(envelope),
-            None => EnvelopeFields::default(),
-        };
-        if let Some(subject) = fetch.header().and_then(header_subject) {
-            ef.subject = subject;
-        }
-        let references_root = fetch.header().and_then(references_root).unwrap_or_default();
+        let ef = fetch.header().map(header_fields).unwrap_or_default();
         let thread_key = thread_key(
             fetch.gmail_thread_id().copied(),
             &ef.message_id,
             &ef.in_reply_to,
-            &references_root,
+            &ef.references_root,
             uid,
         );
         let media = parse::MediaCtx {
@@ -916,19 +948,12 @@ pub async fn fetch_headers_by_uid(
         let starred = fetch
             .flags()
             .any(|flag| matches!(flag, async_imap::types::Flag::Flagged));
-        let mut ef = match fetch.envelope() {
-            Some(envelope) => envelope_fields(envelope),
-            None => EnvelopeFields::default(),
-        };
-        if let Some(subject) = fetch.header().and_then(header_subject) {
-            ef.subject = subject;
-        }
-        let references_root = fetch.header().and_then(references_root).unwrap_or_default();
+        let ef = fetch.header().map(header_fields).unwrap_or_default();
         let thread_key = thread_key(
             fetch.gmail_thread_id().copied(),
             &ef.message_id,
             &ef.in_reply_to,
-            &references_root,
+            &ef.references_root,
             uid,
         );
         out.push(MessageHeader {
@@ -1613,81 +1638,118 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
     (y + i64::from(m <= 2), m, d)
 }
 
-/// Parsed envelope fields. A named struct rather than a tuple because there are
-/// enough of them (and the recipient lists) that positional destructuring at the
-/// call sites would be error-prone.
+/// Message fields parsed out of the fetched RFC822 header. A named struct
+/// rather than a tuple because there are enough of them (and the recipient
+/// lists) that positional destructuring at the call sites would be error-prone.
 #[derive(Default)]
-struct EnvelopeFields {
+struct HeaderFields {
     subject: String,
     from_name: String,
     from_addr: String,
     date: i64,
     message_id: String,
     in_reply_to: String,
+    /// First id of the `References` header, i.e. the thread root.
+    references_root: String,
     to: Vec<Recipient>,
     cc: Vec<Recipient>,
 }
 
-fn envelope_fields(envelope: &async_imap::imap_proto::Envelope) -> EnvelopeFields {
-    let subject = envelope
-        .subject
-        .as_ref()
-        .map(|raw| parse::decode_words(&String::from_utf8_lossy(raw)))
-        .unwrap_or_default();
-    let date = envelope
-        .date
-        .as_ref()
-        .map(|raw| parse::parse_date_to_epoch(&String::from_utf8_lossy(raw)))
-        .unwrap_or_default();
-    let (from_name, from_addr) = envelope
-        .from
-        .as_ref()
-        .and_then(|list| list.first())
-        .map(address_fields)
-        .unwrap_or_default();
-    let message_id = envelope
-        .message_id
-        .as_ref()
-        .map(|raw| normalize_message_id(&String::from_utf8_lossy(raw)))
-        .unwrap_or_default();
-    let in_reply_to = envelope
-        .in_reply_to
-        .as_ref()
-        .map(|raw| normalize_message_id(&String::from_utf8_lossy(raw)))
-        .unwrap_or_default();
-    EnvelopeFields {
-        subject,
+/// Everything the message list needs, parsed from `RFC822.HEADER`.
+///
+/// The IMAP `ENVELOPE` carries the same fields, but imap-proto rejects any
+/// quoted string holding a byte outside `0x01..=0x7F`, so a single message whose
+/// server emitted a raw 8-bit display name (rather than a literal or an RFC 2047
+/// encoded-word) fails to parse. async-imap leaves that response in its buffer
+/// unconsumed, wedging the connection, and the next sync refetches the same
+/// range and wedges again — one message stalls the whole folder forever. The
+/// header arrives as a literal, copied out by length with no parsing, so it
+/// cannot hit that. It is also what we already trusted over the envelope for the
+/// subject: imap-proto hands back quoted-string contents without unescaping, so
+/// an envelope subject containing double quotes arrived as `\"...\"` and, being
+/// part of the compound thread key, split the conversation into a duplicate
+/// thread.
+fn header_fields(header: &[u8]) -> HeaderFields {
+    let Ok((headers, _)) = mailparse::parse_headers(header) else {
+        return HeaderFields::default();
+    };
+    let headers = headers.as_slice();
+    let mut from = header_addrs(headers, "From");
+    let (from_name, from_addr) = if from.is_empty() {
+        (String::new(), String::new())
+    } else {
+        let first = from.remove(0);
+        (first.name, first.addr)
+    };
+    HeaderFields {
+        subject: headers.get_first_value("Subject").unwrap_or_default(),
         from_name,
         from_addr,
-        date,
-        message_id,
-        in_reply_to,
-        to: address_list(envelope.to.as_deref()),
-        cc: address_list(envelope.cc.as_deref()),
+        date: headers
+            .get_first_value("Date")
+            .map(|raw| parse::parse_date_to_epoch(&raw))
+            .unwrap_or_default(),
+        message_id: headers
+            .get_first_value("Message-ID")
+            .map(|raw| normalize_message_id(&raw))
+            .unwrap_or_default(),
+        in_reply_to: headers
+            .get_first_value("In-Reply-To")
+            .as_deref()
+            .and_then(first_message_id)
+            .unwrap_or_default(),
+        references_root: headers
+            .get_first_value("References")
+            .as_deref()
+            .and_then(first_message_id)
+            .unwrap_or_default(),
+        to: header_addrs(headers, "To"),
+        cc: header_addrs(headers, "Cc"),
     }
 }
 
-/// Convert an envelope address list (`To`/`Cc`) into recipients, dropping
-/// entries that yield no email address.
-fn address_list(list: Option<&[async_imap::imap_proto::Address]>) -> Vec<Recipient> {
-    list.into_iter()
-        .flatten()
-        .map(|addr| {
-            let (name, addr) = address_fields(addr);
-            Recipient { name, addr }
-        })
-        .filter(|r| !r.addr.is_empty())
-        .collect()
+/// Flatten one address header into recipients, expanding RFC 5322 groups and
+/// dropping entries that yield no email address. A header that fails to parse
+/// contributes nothing rather than failing the message.
+fn header_addrs(headers: &[mailparse::MailHeader<'_>], key: &str) -> Vec<Recipient> {
+    let Some(header) = headers.get_first_header(key) else {
+        return Vec::new();
+    };
+    let Ok(list) = mailparse::addrparse_header(header) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in list.iter() {
+        match entry {
+            mailparse::MailAddr::Single(info) => push_recipient(&mut out, info),
+            mailparse::MailAddr::Group(group) => {
+                for info in &group.addrs {
+                    push_recipient(&mut out, info);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn push_recipient(out: &mut Vec<Recipient>, info: &mailparse::SingleInfo) {
+    if info.addr.is_empty() {
+        return;
+    }
+    out.push(Recipient {
+        name: info.display_name.clone().unwrap_or_default(),
+        addr: info.addr.clone(),
+    });
 }
 
 /// FETCH item list. Adds `X-GM-THRID` on Gmail so messages thread by Gmail's
 /// server-side thread id, and `BODY.PEEK[]` when the full message is wanted.
 fn fetch_items(gmail: bool, body: bool) -> &'static str {
     match (gmail, body) {
-        (true, true) => "(UID FLAGS ENVELOPE RFC822.HEADER X-GM-MSGID X-GM-THRID BODY.PEEK[])",
-        (true, false) => "(UID FLAGS ENVELOPE RFC822.HEADER X-GM-MSGID X-GM-THRID)",
-        (false, true) => "(UID FLAGS ENVELOPE RFC822.HEADER BODY.PEEK[])",
-        (false, false) => "(UID FLAGS ENVELOPE RFC822.HEADER)",
+        (true, true) => "(UID FLAGS RFC822.HEADER X-GM-MSGID X-GM-THRID BODY.PEEK[])",
+        (true, false) => "(UID FLAGS RFC822.HEADER X-GM-MSGID X-GM-THRID)",
+        (false, true) => "(UID FLAGS RFC822.HEADER BODY.PEEK[])",
+        (false, false) => "(UID FLAGS RFC822.HEADER)",
     }
 }
 
@@ -1760,61 +1822,30 @@ fn normalize_message_id(value: &str) -> String {
         .to_string()
 }
 
-fn references_root(header: &[u8]) -> Option<String> {
-    let (headers, _) = mailparse::parse_headers(header).ok()?;
-    headers
-        .get_first_value("References")
-        .as_deref()
-        .and_then(first_message_id)
-}
-
-/// Subject parsed from the fetched RFC822 header, preferred over the ENVELOPE
-/// subject: imap-proto hands back IMAP quoted-string contents without
-/// unescaping, so an envelope subject containing double quotes arrives as
-/// `\"...\"`. Since the subject is part of the compound thread key, that
-/// artifact splits the conversation into a duplicate thread.
-fn header_subject(header: &[u8]) -> Option<String> {
-    let (headers, _) = mailparse::parse_headers(header).ok()?;
-    headers.get_first_value("Subject").filter(|s| !s.is_empty())
-}
-
+/// The first RFC message id in a header value that may hold several, such as
+/// `References` (thread root first) or an `In-Reply-To` carrying more than one.
+///
+/// Angle brackets decide where the id starts, not whitespace: RFC 822 allowed a
+/// leading phrase, and senders still emit `In-Reply-To: Your message of Tuesday
+/// <parent@example.com>`. Splitting on whitespace first would take `Your` as the
+/// id and, absent `References`, thread every such message together. Only a value
+/// with no brackets at all falls back to its first whitespace-separated token.
 fn first_message_id(value: &str) -> Option<String> {
+    if value.contains('<') {
+        let id = normalize_message_id(value);
+        return (!id.is_empty()).then_some(id);
+    }
     value
         .split_whitespace()
         .map(normalize_message_id)
         .find(|id| !id.is_empty())
 }
 
-fn address_fields(addr: &async_imap::imap_proto::Address) -> (String, String) {
-    let name = addr
-        .name
-        .as_ref()
-        .map(|raw| parse::decode_words(&String::from_utf8_lossy(raw)))
-        .unwrap_or_default();
-    let mailbox = addr
-        .mailbox
-        .as_ref()
-        .map(|raw| String::from_utf8_lossy(raw).into_owned())
-        .unwrap_or_default();
-    let host = addr
-        .host
-        .as_ref()
-        .map(|raw| String::from_utf8_lossy(raw).into_owned())
-        .unwrap_or_default();
-    let email = if !mailbox.is_empty() && !host.is_empty() {
-        format!("{mailbox}@{host}")
-    } else {
-        mailbox
-    };
-    (name, email)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        civil_from_days, first_message_id, header_subject, imap_quote, looks_like_drafts,
-        message_id_search_criteria, normalize_message_id, references_root, search_criteria,
-        thread_key,
+        civil_from_days, first_message_id, header_fields, imap_quote, looks_like_drafts,
+        message_id_search_criteria, normalize_message_id, search_criteria, thread_key,
     };
 
     #[test]
@@ -1828,27 +1859,145 @@ mod tests {
     }
 
     #[test]
-    fn references_root_uses_first_id_of_folded_header() {
+    fn header_fields_reads_references_root_from_folded_header() {
         // A reply-to-a-reply: References spans two folded lines, root first.
         let header = b"Subject: Re: test mailo 1\r\nReferences: <CAJ7M84+root@mail.gmail.com>\r\n\t<meron-second@mailo.com>\r\nIn-Reply-To: <meron-second@mailo.com>\r\n\r\n";
-        assert_eq!(
-            references_root(header).as_deref(),
-            Some("CAJ7M84+root@mail.gmail.com")
-        );
+        let ef = header_fields(header);
+        assert_eq!(ef.references_root, "CAJ7M84+root@mail.gmail.com");
+        assert_eq!(ef.in_reply_to, "meron-second@mailo.com");
     }
 
     #[test]
-    fn header_subject_decodes_and_falls_back() {
-        let header = b"Subject: A \"quoted\" title\r\nFrom: x@y\r\n\r\n";
+    fn header_fields_decodes_subject_and_tolerates_absence() {
+        // Quotes arrive verbatim; the envelope handed them back still escaped.
+        let ef = header_fields(b"Subject: A \"quoted\" title\r\nFrom: x@y\r\n\r\n");
+        assert_eq!(ef.subject, "A \"quoted\" title");
+        let ef = header_fields(b"Subject: =?UTF-8?B?SGVsbMO2?=\r\n\r\n");
+        assert_eq!(ef.subject, "Hell\u{f6}");
+        // No / empty Subject header, and no header at all.
+        assert!(header_fields(b"From: x@y\r\n\r\n").subject.is_empty());
+        assert!(header_fields(b"Subject:\r\n\r\n").subject.is_empty());
+        assert!(header_fields(b"").subject.is_empty());
+    }
+
+    #[test]
+    fn header_fields_parses_addresses_including_8bit_and_groups() {
+        // The raw 8-bit display name that made the ENVELOPE unparseable.
+        let header = "From: \"M\u{fc}ller\" <support@example.com>\r\nTo: a@x.com, Bob <b@x.com>\r\nCc: Team: c@x.com, d@x.com;\r\nDate: Sun, 12 Jul 2026 17:01:36 +0000\r\nMessage-ID: <abc@x.com>\r\n\r\n".as_bytes();
+        let ef = header_fields(header);
+        assert_eq!(ef.from_name, "M\u{fc}ller");
+        assert_eq!(ef.from_addr, "support@example.com");
+        assert_eq!(ef.message_id, "abc@x.com");
+        assert_ne!(ef.date, 0);
         assert_eq!(
-            header_subject(header).as_deref(),
-            Some("A \"quoted\" title")
+            ef.to.iter().map(|r| r.addr.as_str()).collect::<Vec<_>>(),
+            ["a@x.com", "b@x.com"]
         );
-        let encoded = b"Subject: =?UTF-8?B?SGVsbMO2?=\r\n\r\n";
-        assert_eq!(header_subject(encoded).as_deref(), Some("Hellö"));
-        // No / empty Subject header: caller keeps the envelope subject.
-        assert_eq!(header_subject(b"From: x@y\r\n\r\n"), None);
-        assert_eq!(header_subject(b"Subject:\r\n\r\n"), None);
+        assert_eq!(ef.to[1].name, "Bob");
+        // A group list contributes its members, not the group name.
+        assert_eq!(
+            ef.cc.iter().map(|r| r.addr.as_str()).collect::<Vec<_>>(),
+            ["c@x.com", "d@x.com"]
+        );
+    }
+
+    /// Minimal IMAP server: greets, accepts any login, reports a one-message
+    /// INBOX, and answers FETCH with `fetch_reply`, in which `{tag}` stands for
+    /// the command tag. A `fetch_reply` with no `{tag}` is never completed: the
+    /// server hangs up after writing it, standing in for a dropped connection.
+    async fn serve_canned(listener: tokio::net::TcpListener, fetch_reply: &'static str) {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let Ok((sock, _)) = listener.accept().await else {
+            return;
+        };
+        let (reader, mut writer) = sock.into_split();
+        if writer.write_all(b"* OK IMAP4rev1 ready\r\n").await.is_err() {
+            return;
+        }
+        let mut lines = tokio::io::BufReader::new(reader).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let mut parts = line.splitn(2, ' ');
+            let tag = parts.next().unwrap_or_default().to_string();
+            let cmd = parts
+                .next()
+                .unwrap_or_default()
+                .split(' ')
+                .next()
+                .unwrap_or_default()
+                .to_uppercase();
+            let reply = match cmd.as_str() {
+                "CAPABILITY" => {
+                    format!("* CAPABILITY IMAP4rev1\r\n{tag} OK CAPABILITY completed\r\n")
+                }
+                "SELECT" => format!(
+                    "* 1 EXISTS\r\n* OK [UIDVALIDITY 42] ok\r\n* OK [UIDNEXT 1692] ok\r\n\
+                     {tag} OK [READ-WRITE] SELECT completed\r\n"
+                ),
+                "FETCH" if !fetch_reply.contains("{tag}") => {
+                    let _ = writer.write_all(fetch_reply.as_bytes()).await;
+                    return;
+                }
+                "FETCH" => fetch_reply.replace("{tag}", &tag),
+                _ => format!("{tag} OK {cmd} completed\r\n"),
+            };
+            if writer.write_all(reply.as_bytes()).await.is_err() {
+                return;
+            }
+        }
+    }
+
+    async fn fetch_recent_against(fetch_reply: &'static str) -> anyhow::Error {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(serve_canned(listener, fetch_reply));
+
+        let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let mut client = async_imap::Client::new(super::Stream::Plain(tcp));
+        client.read_response().await.unwrap().unwrap();
+        let mut session = client.login("u", "p").await.map_err(|(e, _)| e).unwrap();
+        match super::fetch_recent(&mut session, "INBOX", 50).await {
+            Ok(batch) => panic!(
+                "canned reply should not produce a batch ({} messages)",
+                batch.messages.len()
+            ),
+            Err(err) => err,
+        }
+    }
+
+    /// The marker `is_unparseable_response` looks for is a string emitted by our
+    /// pinned async-imap fork, so pin it against the real thing rather than
+    /// against a hand-built error.
+    #[tokio::test]
+    async fn unparseable_response_marker_matches_async_imap() {
+        // A raw 8-bit byte inside an IMAP quoted string: imap-proto's `quoted`
+        // only accepts 0x01..=0x7F, so it rejects the whole response. This is
+        // the shape from the original report; any response the parser refuses
+        // would do.
+        let err = fetch_recent_against(
+            "* 1 FETCH (UID 1691 FLAGS (\\Seen) ENVELOPE (\"Sun, 12 Jul 2026 17:01:36 +0000\" \
+             \"Re: caf\u{e9}\" NIL NIL NIL NIL NIL NIL NIL \"<c@d>\"))\r\n\
+             {tag} OK FETCH completed\r\n",
+        )
+        .await;
+        assert!(
+            super::is_unparseable_response(&err),
+            "should be recognised as unparseable: {err:#}"
+        );
+    }
+
+    /// A network failure must not be mistaken for a poison message —
+    /// re-fetching narrower ranges would just repeat the refusal.
+    #[tokio::test]
+    async fn a_dropped_connection_is_not_treated_as_unparseable() {
+        // Server hangs up part-way through a perfectly well-formed response.
+        let err = fetch_recent_against("* 1 FETCH (UID 1691 FLAGS (\\See").await;
+        assert!(
+            !super::is_unparseable_response(&err),
+            "a dropped connection should not look unparseable: {err:#}"
+        );
+        let err = anyhow::anyhow!(std::io::Error::from(std::io::ErrorKind::ConnectionReset))
+            .context("FETCH item");
+        assert!(!super::is_unparseable_response(&err));
     }
 
     #[test]
@@ -1874,6 +2023,27 @@ mod tests {
             Some("Root@h")
         );
         assert_eq!(first_message_id("   ").as_deref(), None);
+        // RFC 822 phrase before the id: brackets win over whitespace, or the
+        // id would come out as "Your" and thread unrelated mail together.
+        assert_eq!(
+            first_message_id("Your message of Tuesday <parent@example.com>").as_deref(),
+            Some("parent@example.com")
+        );
+        // No brackets anywhere: fall back to the first token.
+        assert_eq!(
+            first_message_id("bare@host trailing-junk").as_deref(),
+            Some("bare@host")
+        );
+    }
+
+    #[test]
+    fn header_fields_reads_a_phrase_prefixed_in_reply_to() {
+        let header = b"In-Reply-To: Your message of Tuesday <parent@example.com>\r\n\r\n";
+        let ef = header_fields(header);
+        assert_eq!(ef.in_reply_to, "parent@example.com");
+        // Same obsolete syntax in References must not poison the thread root.
+        let header = b"References: Your message of Tuesday <root@example.com>\r\n\r\n";
+        assert_eq!(header_fields(header).references_root, "root@example.com");
     }
 
     #[test]
