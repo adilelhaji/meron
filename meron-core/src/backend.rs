@@ -168,21 +168,24 @@ impl Session {
     ) -> Result<parse::Message> {
         match self {
             Session::Imap(session) => imap::read_message(session, folder, uid, media).await,
-            Session::Ews(_) => ews_unsupported("read_message"),
+            Session::Ews(session) => session.read_message(folder, uid, media).await,
         }
     }
 
     pub async fn prepare_flag_update(&mut self, folder: &str) -> Result<()> {
         match self {
             Session::Imap(session) => imap::prepare_flag_update(session, folder).await,
-            Session::Ews(_) => ews_unsupported("prepare_flag_update"),
+            Session::Ews(session) => {
+                session.prepare_flag_update(folder);
+                Ok(())
+            }
         }
     }
 
     pub async fn store_seen(&mut self, uids: &[u32], seen: bool) -> Result<()> {
         match self {
             Session::Imap(session) => imap::store_seen(session, uids, seen).await,
-            Session::Ews(_) => ews_unsupported("store_seen"),
+            Session::Ews(session) => session.store_seen(uids, seen).await,
         }
     }
 
@@ -203,7 +206,9 @@ impl Session {
             Session::Imap(session) => {
                 imap::move_to_folder(session, source_folder, dest_folder, uids).await
             }
-            Session::Ews(_) => ews_unsupported("move_to_folder"),
+            Session::Ews(session) => {
+                session.move_to_folder(source_folder, dest_folder, uids).await
+            }
         }
     }
 
@@ -234,7 +239,7 @@ impl Session {
     pub async fn expunge_uids(&mut self, folder: &str, uids: &[u32]) -> Result<()> {
         match self {
             Session::Imap(session) => imap::expunge_uids(session, folder, uids).await,
-            Session::Ews(_) => ews_unsupported("expunge_uids"),
+            Session::Ews(session) => session.expunge_uids(folder, uids).await,
         }
     }
 
@@ -322,7 +327,9 @@ impl Session {
             Session::Imap(session) => {
                 imap::fetch_bodies(session, folder, uids, media_root, account).await
             }
-            Session::Ews(_) => ews_unsupported("fetch_bodies"),
+            Session::Ews(session) => {
+                session.fetch_bodies(folder, uids, media_root, account).await
+            }
         }
     }
 

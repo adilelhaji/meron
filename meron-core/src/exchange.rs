@@ -353,6 +353,10 @@ pub struct EwsSession {
     /// Folder wire name to its Exchange id, hydrated by `list_folders`.
     /// Exchange addresses folders by id, the core by name.
     folders: std::collections::HashMap<String, EwsId>,
+    /// Folder named by the last `prepare_flag_update`. IMAP's flag calls carry
+    /// no folder because they act on the selected mailbox; EWS addresses items
+    /// by id, so the session remembers what was selected to resolve them.
+    selected: Option<String>,
 }
 
 impl EwsSession {
@@ -366,6 +370,7 @@ impl EwsSession {
             account: account.to_string(),
             db,
             folders: std::collections::HashMap::new(),
+            selected: None,
         }
     }
 
@@ -468,6 +473,161 @@ impl EwsSession {
             uid_next: messages.iter().map(|m| m.uid).max().unwrap_or(0) + 1,
             messages,
         })
+    }
+
+    /// Downloads one message and parses it into the renderable form.
+    ///
+    /// Reading a message must not mark it read — the explicit mark-read path
+    /// does that — and EWS `GetItem` has no read side effect, so this is the
+    /// equivalent of IMAP's `BODY.PEEK`.
+    pub async fn read_message(
+        &mut self,
+        folder: &str,
+        uid: u32,
+        media: &crate::parse::MediaCtx,
+    ) -> anyhow::Result<crate::parse::Message> {
+        let mut fetched = self.fetch_raw(folder, &[uid]).await?;
+        let (_, raw) = fetched
+            .pop()
+            .with_context(|| format!("message uid {uid} not found in {folder}"))?;
+        Ok(crate::parse::parse_message(&raw, Some(media)))
+    }
+
+    /// Downloads and parses a batch of messages, one call for the batch.
+    pub async fn fetch_bodies(
+        &mut self,
+        folder: &str,
+        uids: &[u32],
+        media_root: std::path::PathBuf,
+        account: &str,
+    ) -> anyhow::Result<Vec<(u32, crate::parse::Message)>> {
+        let fetched = self.fetch_raw(folder, uids).await?;
+        Ok(fetched
+            .into_iter()
+            .map(|(uid, raw)| {
+                let media = crate::parse::MediaCtx {
+                    root: media_root.clone(),
+                    account: account.to_string(),
+                    folder: folder.to_string(),
+                    uid,
+                };
+                (uid, crate::parse::parse_message(&raw, Some(&media)))
+            })
+            .collect())
+    }
+
+    /// Records the folder a following flag update applies to.
+    ///
+    /// The IMAP backend uses this preflight to SELECT the mailbox and to let a
+    /// dead pooled connection be replaced before any write reaches the server.
+    /// EWS is stateless per call, so this only has to remember the folder.
+    pub fn prepare_flag_update(&mut self, folder: &str) {
+        self.selected = Some(folder.to_string());
+    }
+
+    /// Sets or clears the read flag on messages in the folder named by the
+    /// preceding [`Self::prepare_flag_update`].
+    pub async fn store_seen(&mut self, uids: &[u32], seen: bool) -> anyhow::Result<()> {
+        let folder = self
+            .selected
+            .clone()
+            .context("no folder selected for the flag update")?;
+        let items = self.items_for_uids(&folder, uids)?;
+        if items.is_empty() {
+            return Ok(());
+        }
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || client.set_read(&items, seen)).await?
+    }
+
+    /// Moves messages between folders. Exchange reissues item ids on move, so
+    /// the source mappings are dropped; the destination's next sync mints new
+    /// uids for the arrivals.
+    pub async fn move_to_folder(
+        &mut self,
+        source_folder: &str,
+        dest_folder: &str,
+        uids: &[u32],
+    ) -> anyhow::Result<()> {
+        let destination = self.folder_ref(dest_folder).await?;
+        let items = self.items_for_uids(source_folder, uids)?;
+        if items.is_empty() {
+            return Ok(());
+        }
+        let client = self.client.clone();
+        let moved = items.clone();
+        tokio::task::spawn_blocking(move || client.move_items(&destination, &moved)).await??;
+        self.forget_items(source_folder, &items)
+    }
+
+    /// Deletes messages to Deleted Items, the closest equivalent of the
+    /// IMAP delete-and-expunge the callers of this perform.
+    pub async fn expunge_uids(&mut self, folder: &str, uids: &[u32]) -> anyhow::Result<()> {
+        let items = self.items_for_uids(folder, uids)?;
+        if items.is_empty() {
+            return Ok(());
+        }
+        let client = self.client.clone();
+        let deleted = items.clone();
+        tokio::task::spawn_blocking(move || client.delete_items(&deleted, false)).await??;
+        self.forget_items(folder, &items)
+    }
+
+    /// Fetches raw MIME for a set of uids, pairing each result back to the uid
+    /// its item maps to.
+    async fn fetch_raw(
+        &mut self,
+        folder: &str,
+        uids: &[u32],
+    ) -> anyhow::Result<Vec<(u32, Vec<u8>)>> {
+        let items = self.items_for_uids(folder, uids)?;
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let client = self.client.clone();
+        let wanted = items.clone();
+        let fetched =
+            tokio::task::spawn_blocking(move || client.fetch_mime(&wanted)).await??;
+
+        // Map results back by item id: EWS does not promise response order.
+        let uid_of: std::collections::HashMap<&str, u32> = items
+            .iter()
+            .zip(uids.iter().copied())
+            .map(|((id, _), uid)| (id.as_str(), uid))
+            .collect();
+        Ok(fetched
+            .into_iter()
+            .filter_map(|(id, raw)| uid_of.get(id.id.as_str()).map(|uid| (*uid, raw)))
+            .collect())
+    }
+
+    /// Resolves uids to their Exchange items, skipping any the map does not
+    /// know — an unmapped uid is one this account never synced.
+    fn items_for_uids(&self, folder: &str, uids: &[u32]) -> anyhow::Result<Vec<EwsId>> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        let mut items = Vec::new();
+        for uid in uids {
+            if let Some(item) = crate::store::ews_item_for_uid(&conn, &self.account, folder, *uid)? {
+                items.push(item);
+            }
+        }
+        Ok(items)
+    }
+
+    /// Drops mappings for items that left the folder, so their uids are not
+    /// resolved again.
+    fn forget_items(&self, folder: &str, items: &[EwsId]) -> anyhow::Result<()> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        for (id, _) in items {
+            crate::store::forget_ews_item(&conn, &self.account, folder, id)?;
+        }
+        Ok(())
     }
 
     /// Resolves each envelope's item to its local uid, minting uids for items
@@ -1267,5 +1427,138 @@ mod tests {
             }
             other => panic!("expected a Create change, got {other:?}"),
         }
+    }
+
+    /// Two messages, returned in the opposite order to the request — which
+    /// EWS is free to do.
+    const TWO_MIME_RESPONSE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Header/>
+  <s:Body>
+    <m:GetItemResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items>
+            <t:Message>
+              <t:MimeContent CharacterSet="UTF-8">U3ViamVjdDogc2Vjb25kDQoNCmJvZHkgdHdv</t:MimeContent>
+              <t:ItemId Id="AAMkB=" ChangeKey="CK-B"/>
+            </t:Message>
+            <t:Message>
+              <t:MimeContent CharacterSet="UTF-8">U3ViamVjdDogZmlyc3QNCg0KYm9keSBvbmU=</t:MimeContent>
+              <t:ItemId Id="AAMkA=" ChangeKey="CK-A"/>
+            </t:Message>
+          </m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages>
+    </m:GetItemResponse>
+  </s:Body>
+</s:Envelope>"#;
+
+    /// A success reply for a write operation. `payload` carries whatever the
+    /// operation's response message is required to contain — MoveItem echoes
+    /// an `Items` element, DeleteItem returns nothing.
+    fn ok_response(operation: &str, payload: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Header/>
+  <s:Body>
+    <m:{operation}Response xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <m:ResponseMessages>
+        <m:{operation}ResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          {payload}
+        </m:{operation}ResponseMessage>
+      </m:ResponseMessages>
+    </m:{operation}Response>
+  </s:Body>
+</s:Envelope>"#
+        )
+    }
+
+    #[tokio::test]
+    async fn fetch_bodies_pairs_each_message_with_its_own_uid() {
+        let (url, server) = serve_soap_once(TWO_MIME_RESPONSE);
+        let (mut session, db) = test_session(url);
+        {
+            let conn = db.lock().unwrap();
+            assert_eq!(
+                crate::store::map_ews_item(&conn, "acct", "INBOX", "AAMkA=", None).unwrap(),
+                1
+            );
+            assert_eq!(
+                crate::store::map_ews_item(&conn, "acct", "INBOX", "AAMkB=", None).unwrap(),
+                2
+            );
+        }
+
+        let bodies = session
+            .fetch_bodies("INBOX", &[1, 2], std::env::temp_dir(), "acct")
+            .await
+            .expect("fetch should succeed");
+
+        // The server answered B before A; pairing must follow item ids, not
+        // response order, or every body would render under the wrong message.
+        let by_uid: std::collections::HashMap<u32, String> = bodies
+            .into_iter()
+            .map(|(uid, message)| (uid, message.subject))
+            .collect();
+        assert_eq!(by_uid.get(&1).map(String::as_str), Some("first"));
+        assert_eq!(by_uid.get(&2).map(String::as_str), Some("second"));
+
+        server.join().expect("server thread");
+    }
+
+    #[tokio::test]
+    async fn storing_a_flag_without_a_selected_folder_fails_loud() {
+        let (mut session, db) = test_session("http://127.0.0.1:1".to_string());
+        {
+            let conn = db.lock().unwrap();
+            crate::store::map_ews_item(&conn, "acct", "INBOX", "AAMkA=", None).unwrap();
+        }
+
+        // No prepare_flag_update ran, so there is no folder to resolve uids
+        // against; silently doing nothing would leave the UI showing a flag
+        // the server never received.
+        let error = session
+            .store_seen(&[1], true)
+            .await
+            .expect_err("a flag update with no selected folder must fail");
+        assert!(
+            error.to_string().contains("no folder selected"),
+            "unhelpful error: {error}"
+        );
+    }
+
+    #[tokio::test]
+    async fn moving_messages_drops_their_source_mappings() {
+        let (url, server) = serve_soap_once(Box::leak(
+            ok_response("MoveItem", "<m:Items/>").into_boxed_str(),
+        ));
+        let (mut session, db) = test_session(url);
+        {
+            let conn = db.lock().unwrap();
+            crate::store::map_ews_item(&conn, "acct", "INBOX", "AAMkA=", Some("CK-A")).unwrap();
+        }
+        // Pre-seed the folder map so the move needs no hierarchy round trip.
+        session
+            .folders
+            .insert("Archive".to_string(), ("AAMkARCH=".to_string(), None));
+
+        session
+            .move_to_folder("INBOX", "Archive", &[1])
+            .await
+            .expect("move should succeed");
+
+        // Exchange reissues item ids on move, so the source mapping is stale;
+        // the destination's next sync mints a fresh uid for the arrival.
+        let conn = db.lock().unwrap();
+        assert_eq!(
+            crate::store::ews_item_for_uid(&conn, "acct", "INBOX", 1).unwrap(),
+            None
+        );
+
+        server.join().expect("server thread");
     }
 }
