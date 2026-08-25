@@ -3103,3 +3103,40 @@ fn folder_sync_state_round_trips_and_is_folder_scoped() {
         Some("c3RhdGUy".to_string())
     );
 }
+
+#[test]
+fn cached_unseen_since_covers_only_recent_unread_mail() {
+    let conn = test_conn();
+    let now = 1787562900_i64;
+    let day = 24 * 60 * 60;
+    for (uid, seen, date) in [
+        (1_u32, false, now - day),          // recent, unread
+        (2, true, now - day),               // recent, already read
+        (3, false, now - 30 * day),         // unread but old
+        (4, false, now - 2 * day),          // recent, unread
+    ] {
+        conn.execute(
+            "INSERT INTO messages(account, folder, msg_id, uid, seen, date)
+             VALUES('acct', 'INBOX', ?1, ?2, ?3, ?4)",
+            params![uid.to_string(), uid, seen as i64, date],
+        )
+        .unwrap();
+    }
+    // Another account's unread mail must not leak into the prefetch set.
+    conn.execute(
+        "INSERT INTO messages(account, folder, msg_id, uid, seen, date)
+         VALUES('other', 'INBOX', '9', 9, 0, ?1)",
+        params![now - day],
+    )
+    .unwrap();
+
+    assert_eq!(
+        cached_unseen_uids_since(&conn, "acct", "INBOX", now - 7 * day).unwrap(),
+        vec![1, 4]
+    );
+    // A window that reaches back far enough picks up the older one too.
+    assert_eq!(
+        cached_unseen_uids_since(&conn, "acct", "INBOX", now - 60 * day).unwrap(),
+        vec![1, 3, 4]
+    );
+}

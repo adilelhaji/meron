@@ -336,7 +336,7 @@ impl Session {
     pub async fn search_prefetch_uids(&mut self, folder: &str, days: u32) -> Result<Vec<u32>> {
         match self {
             Session::Imap(session) => imap::search_prefetch_uids(session, folder, days).await,
-            Session::Ews(_) => ews_unsupported("search_prefetch_uids"),
+            Session::Ews(session) => session.search_prefetch_uids(folder, days),
         }
     }
 }

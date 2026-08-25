@@ -1757,6 +1757,33 @@ pub fn set_folder_state(
     Ok(())
 }
 
+/// Cached uids of unread messages in `folder` newer than `since` (epoch
+/// seconds), oldest first.
+///
+/// Backs body prefetch for backends that cannot ask the server this: EWS
+/// exposes no restricted search short of hand-written SOAP, so the answer
+/// comes from the cache the sync just refreshed. It therefore covers the
+/// messages this account knows about, not everything on the server — which is
+/// all a prefetch can act on anyway.
+pub fn cached_unseen_uids_since(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    since: i64,
+) -> Result<Vec<u32>> {
+    let mut stmt = conn.prepare(
+        "SELECT uid FROM messages
+         WHERE account = ?1 AND folder = ?2 AND seen = 0 AND date >= ?3
+         ORDER BY uid",
+    )?;
+    let uids = stmt
+        .query_map(params![account, folder, since], |row| {
+            row.get::<_, i64>(0).map(|uid| uid as u32)
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(uids)
+}
+
 /// The folder's last EWS synchronization state, or `None` before the first
 /// round (which enumerates the folder from scratch).
 /// An in-memory store with the schema applied, for tests in modules that

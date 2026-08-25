@@ -427,11 +427,15 @@ impl EwsSession {
                 folder_id,
                 display_name,
                 unread_count,
+                folder_class,
                 ..
             } = folder
             else {
                 continue;
             };
+            if !holds_mail(folder_class.as_ref()) {
+                continue;
+            }
             let (Some(id), Some(name)) = (folder_id.as_ref(), display_name.as_ref()) else {
                 continue;
             };
@@ -481,6 +485,13 @@ impl EwsSession {
                 item_ids.push((id.id.clone(), id.change_key.clone()));
             }
         }
+        // Mint uids for the whole enumeration before taking the tail, so uids
+        // ascend with arrival the way IMAP uids do. Mapping only the fetched
+        // tail would give the newest messages the lowest uids, and every
+        // older message synced later a higher one — inverting the order the
+        // rest of the core assumes.
+        self.map_items(folder, &item_ids)?;
+
         let start = item_ids.len().saturating_sub(limit as usize);
         let total = item_ids.len();
         let wanted = item_ids.split_off(start);
@@ -676,6 +687,32 @@ impl EwsSession {
         Ok(())
     }
 
+    /// Mints (or confirms) the local uid for each item, in the order given.
+    fn map_items(&self, folder: &str, items: &[EwsId]) -> anyhow::Result<()> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        for (id, change_key) in items {
+            crate::store::map_ews_item(&conn, &self.account, folder, id, change_key.as_deref())?;
+        }
+        Ok(())
+    }
+
+    /// Unread messages in `folder` from the last `days`, for body prefetch.
+    ///
+    /// The IMAP backend asks the server; EWS offers no restricted search short
+    /// of hand-written SOAP, so this answers from the cache the sync just
+    /// refreshed — which is the set a prefetch can act on regardless.
+    pub fn search_prefetch_uids(&mut self, folder: &str, days: u32) -> anyhow::Result<Vec<u32>> {
+        let since = chrono::Utc::now().timestamp() - (days as i64) * 24 * 60 * 60;
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        crate::store::cached_unseen_uids_since(&conn, &self.account, folder, since)
+    }
+
     /// Resolves each envelope's item to its local uid, minting uids for items
     /// seen for the first time, and projects them onto message headers.
     fn assign_uids(
@@ -713,6 +750,27 @@ impl EwsSession {
             .get(folder)
             .cloned()
             .with_context(|| format!("no Exchange folder named {folder}"))
+    }
+}
+
+/// The container class Exchange gives a folder that holds mail.
+///
+/// A mailbox mixes real mail folders with housekeeping ones — journal,
+/// conversation settings, quick steps, sync issues — that share the generic
+/// `Folder` type and differ only by this class. Filtering on it rather than on
+/// folder names is what keeps the rule working on a mailbox in any language:
+/// the class is a fixed string, the display names are localised.
+const MAIL_FOLDER_CLASS: &str = "IPF.Note";
+
+/// Whether a folder holds mail a client should show.
+///
+/// A folder whose class the server did not return is kept: an unlabelled
+/// folder is more likely a mail folder the shape omitted than one of the
+/// handful of housekeeping folders, and hiding real mail is the worse error.
+fn holds_mail(folder_class: Option<&String>) -> bool {
+    match folder_class {
+        None => true,
+        Some(class) => class == MAIL_FOLDER_CLASS,
     }
 }
 
@@ -1281,8 +1339,23 @@ mod tests {
             <t:Create>
               <t:Folder>
                 <t:FolderId Id="AAMkINBOX=" ChangeKey="CK-INBOX"/>
+                <t:FolderClass>IPF.Note</t:FolderClass>
                 <t:DisplayName>Inbox</t:DisplayName>
                 <t:UnreadCount>5</t:UnreadCount>
+              </t:Folder>
+            </t:Create>
+            <t:Create>
+              <t:Folder>
+                <t:FolderId Id="AAMkDIARIO=" ChangeKey="CK-D"/>
+                <t:FolderClass>IPF.Journal</t:FolderClass>
+                <t:DisplayName>Diario</t:DisplayName>
+              </t:Folder>
+            </t:Create>
+            <t:Create>
+              <t:Folder>
+                <t:FolderId Id="AAMkCFG=" ChangeKey="CK-CFG"/>
+                <t:FolderClass>IPF.Configuration</t:FolderClass>
+                <t:DisplayName>Conversation Action Settings</t:DisplayName>
               </t:Folder>
             </t:Create>
             <t:Create>
@@ -1339,10 +1412,14 @@ mod tests {
 
         let folders = session.list_folders().await.expect("list should succeed");
         let names: Vec<&str> = folders.iter().map(|f| f.name.as_str()).collect();
+        // Calendar and contacts are distinct folder types; the journal and the
+        // settings folder share the mail type and are told apart by their
+        // container class — the fixture names them in Spanish precisely
+        // because a name-based rule would miss them on a localised mailbox.
         assert_eq!(
             names,
             vec!["Inbox", "Sent Items"],
-            "calendar and contacts are not mail folders"
+            "only folders that hold mail should be listed"
         );
         assert_eq!(folders[0].unread, 5);
         // Exchange names are already Unicode: no modified-UTF-7 decoding step.
@@ -1350,6 +1427,61 @@ mod tests {
 
         server.join().expect("server thread");
     }
+
+    #[test]
+    fn unlabelled_folders_are_kept_and_housekeeping_ones_dropped() {
+        assert!(holds_mail(Some(&"IPF.Note".to_string())));
+        // Hiding real mail is worse than showing one stray folder.
+        assert!(holds_mail(None));
+        for class in ["IPF.Journal", "IPF.Configuration", "IPF.Contact", "IPF.Appointment"] {
+            assert!(!holds_mail(Some(&class.to_string())), "{class} is not mail");
+        }
+    }
+
+    #[tokio::test]
+    async fn syncing_a_folder_numbers_every_message_in_arrival_order() {
+        let (url, server) = serve_soap_once(THREE_ITEM_SYNC_RESPONSE);
+        let (mut session, db) = test_session(url);
+        session
+            .folders
+            .insert("INBOX".to_string(), ("AAMkINBOX=".to_string(), None));
+
+        // Only the newest message's envelope is fetched, but all three items
+        // must be numbered, oldest first.
+        let _ = session.fetch_recent("INBOX", 1).await;
+
+        let conn = db.lock().unwrap();
+        let uid_of = |id: &str| {
+            crate::store::map_ews_item(&conn, "acct", "INBOX", id, None).expect("mapped")
+        };
+        assert_eq!(uid_of("AAMkOLD="), 1, "the oldest message keeps the lowest uid");
+        assert_eq!(uid_of("AAMkMID="), 2);
+        assert_eq!(uid_of("AAMkNEW="), 3, "the newest message gets the highest uid");
+
+        server.join().expect("server thread");
+    }
+
+    /// An item-sync round listing three messages, oldest first.
+    const THREE_ITEM_SYNC_RESPONSE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Header/>
+  <s:Body>
+    <m:SyncFolderItemsResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <m:ResponseMessages>
+        <m:SyncFolderItemsResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:SyncState>c3RhdGU=</m:SyncState>
+          <m:IncludesLastItemInRange>true</m:IncludesLastItemInRange>
+          <m:Changes>
+            <t:Create><t:Message><t:ItemId Id="AAMkOLD=" ChangeKey="CK1"/></t:Message></t:Create>
+            <t:Create><t:Message><t:ItemId Id="AAMkMID=" ChangeKey="CK2"/></t:Message></t:Create>
+            <t:Create><t:Message><t:ItemId Id="AAMkNEW=" ChangeKey="CK3"/></t:Message></t:Create>
+          </m:Changes>
+        </m:SyncFolderItemsResponseMessage>
+      </m:ResponseMessages>
+    </m:SyncFolderItemsResponse>
+  </s:Body>
+</s:Envelope>"#;
 
     #[tokio::test]
     async fn folder_lookup_fails_loud_for_an_unknown_name() {
