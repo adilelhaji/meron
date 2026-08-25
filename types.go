@@ -16,6 +16,7 @@ type Account struct {
 	StartTLS          bool    `json:"starttls"`
 	SMTPTLS           bool    `json:"smtp_tls"`
 	SMTPStartTLS      bool    `json:"smtp_starttls"`
+	EWSURL            string  `json:"ews_url,omitempty"`
 	LoadRemoteImages  bool    `json:"load_remote_images"`
 	ConversationHTML  bool    `json:"conversation_html"`
 	SaveSentCopy      *bool   `json:"save_sent_copy"`
@@ -95,6 +96,19 @@ type Message struct {
 	// RecipientOverflow is the count of additional recipients beyond the one shown
 	// on an outbound thread card (for a "+N" hint); 0 for inbound/single-recipient.
 	RecipientOverflow uint32 `json:"recipient_overflow,omitempty"`
+}
+
+// AddEWSAccountRequest sets up an Exchange account. EWS carries mail and
+// submission over one HTTPS endpoint, so there are no host/port pairs and no
+// TLS mode to choose — the URL says it all.
+type AddEWSAccountRequest struct {
+	Email       string `json:"email"`
+	DisplayName string `json:"display_name"`
+	SenderName  string `json:"sender_name"`
+	// Full EWS endpoint, e.g. https://mail.example.org/EWS/Exchange.asmx.
+	EWSURL   string `json:"ews_url"`
+	Username string `json:"username"`
+	Password string `json:"password"`
 }
 
 type AddPasswordAccountRequest struct {

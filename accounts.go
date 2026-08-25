@@ -89,6 +89,64 @@ func (a *App) accountAddPassword(payload map[string]any) (any, error) {
 	return map[string]any{"account": account}, nil
 }
 
+// accountAddEWS sets up an Exchange account against its EWS endpoint. The
+// sidecar validates with a live EWS round trip before storing, the same
+// contract accountAddPassword gets from IMAP validation.
+func (a *App) accountAddEWS(payload map[string]any) (any, error) {
+	var req AddEWSAccountRequest
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if !strings.Contains(req.Email, "@") {
+		return nil, errors.New("invalid email")
+	}
+	req.EWSURL = strings.TrimSpace(req.EWSURL)
+	if !strings.HasPrefix(req.EWSURL, "https://") {
+		// Credentials go over this connection with Basic auth; anything but
+		// HTTPS would put them on the wire in the clear.
+		return nil, errors.New("EWS URL must start with https://")
+	}
+	if req.Username == "" {
+		// DOMAIN\user is common on premises; the address works elsewhere.
+		req.Username = req.Email
+	}
+	if req.Password == "" {
+		return nil, errors.New("credentials required")
+	}
+	id := accountID(req.Email)
+	a.logf("account.addEWS: connecting account=%s url=%s", id, req.EWSURL)
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	connect := map[string]any{
+		"id":           id,
+		"ews_url":      req.EWSURL,
+		"user":         req.Username,
+		"password":     req.Password,
+		"email":        req.Email,
+		"display_name": req.DisplayName,
+		"sender_name":  req.SenderName,
+		"provider":     "exchange",
+		"auth_type":    "password",
+	}
+	if _, err := a.sidecar.Call("account.connect", connect); err != nil {
+		return nil, err
+	}
+	_, _ = a.sidecar.Call("watch.start", map[string]any{"account": id})
+
+	account := Account{
+		ID:                id,
+		Email:             req.Email,
+		DisplayName:       req.DisplayName,
+		SenderName:        req.SenderName,
+		Provider:          "exchange",
+		AuthType:          "password",
+		EWSURL:            req.EWSURL,
+		IncludedInUnified: true,
+	}
+	return map[string]any{"account": account}, nil
+}
+
 // accountProbeCert fetches the certificate a mail server presents so the
 // account dialog can show it and let the user pin it. Servers with a
 // self-signed certificate (Proton Mail Bridge on 127.0.0.1, for one) are

@@ -190,6 +190,8 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.storageClearCache()
 	case "account.list":
 		return a.accountList()
+	case "account.addEWS":
+		return a.accountAddEWS(payload)
 	case "account.addPassword":
 		return a.accountAddPassword(payload)
 	case "account.autodiscover":

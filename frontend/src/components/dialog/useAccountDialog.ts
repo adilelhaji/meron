@@ -64,6 +64,7 @@ export function useAccountDialog() {
     password: '',
     auth_code: '',
     feed_url: '',
+    ews_url: '',
   })
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -139,6 +140,7 @@ export function useAccountDialog() {
       password: '',
       auth_code: '',
       feed_url: reconnectAccount.feed_url || '',
+      ews_url: reconnectAccount.ews_url || '',
     })
     setError('')
     setExchangedTokens(null)
@@ -405,6 +407,16 @@ export function useAccountDialog() {
           },
         )
         createdId = added.account?.id ?? ''
+      } else if (mode === 'ews') {
+        const added = await invoke<AddAccountResult>('account.addEWS', {
+          email: form.email,
+          display_name: form.display_name,
+          sender_name: form.sender_name,
+          ews_url: form.ews_url,
+          username: form.username || form.email,
+          ...(editing && !form.password ? {} : { password: form.password }),
+        })
+        createdId = added.account?.id ?? ''
       } else if (mode === 'rss') {
         const added = await invoke<AddAccountResult>('account.addRSS', {
           feed_url: form.feed_url,
@@ -479,7 +491,9 @@ export function useAccountDialog() {
       ? !exchangedTokens && !form.auth_code
       : mode === 'rss'
         ? !form.display_name
-        : !form.email || (!form.password && !editing))
+        : mode === 'ews'
+          ? !form.email || !form.ews_url || (!form.password && !editing)
+          : !form.email || (!form.password && !editing))
 
   return {
     mode,

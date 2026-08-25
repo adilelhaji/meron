@@ -29,6 +29,7 @@ export type Account = {
   starttls?: boolean
   smtp_tls?: boolean
   smtp_starttls?: boolean
+  ews_url?: string
   /** Server certificates this account accepted, when they cannot be validated normally. */
   cert_pin?: string
   smtp_cert_pin?: string

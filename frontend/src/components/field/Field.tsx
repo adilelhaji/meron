@@ -10,6 +10,7 @@ interface FieldProps {
   onBlur?: () => void
   onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
   type?: string
+  placeholder?: string
   inputClassName?: string
   labelClassName?: string
   disabled?: boolean
@@ -99,6 +100,7 @@ export function Field({
   inputClassName,
   labelClassName,
   disabled = false,
+  placeholder,
 }: FieldProps) {
   return (
     <label className="flex flex-col gap-1.5 w-full">
@@ -110,6 +112,7 @@ export function Field({
         onBlur={onBlur}
         onKeyDown={onKeyDown}
         disabled={disabled}
+        placeholder={placeholder}
         className={`${
           inputClassName ??
           'w-full text-xs py-2 px-3.5 rounded-xl border border-border bg-raised text-primary placeholder-secondary focus:ring-1 focus:ring-accent focus:border-transparent focus:bg-chats transition-all outline-none'

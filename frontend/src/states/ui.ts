@@ -13,7 +13,7 @@ export type FilterMode = 'all' | 'unread' | 'starred'
 
 export const isFilterMode = (value: unknown): value is FilterMode =>
   value === 'all' || value === 'unread' || value === 'starred'
-export type SetupMode = 'gmail' | 'outlook' | 'custom' | 'rss'
+export type SetupMode = 'gmail' | 'outlook' | 'custom' | 'ews' | 'rss'
 export type MobilePane = 'threads' | 'conversation'
 export type ToastTone = 'success' | 'error'
 export type EditFeed = { threadId: string; name: string; url?: string }

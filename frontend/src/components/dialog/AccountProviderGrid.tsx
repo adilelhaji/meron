@@ -18,7 +18,7 @@ export function AccountProviderGrid({
   if (isSetup) {
     return (
       <div
-        className="grid grid-cols-3 gap-1 rounded-2xl border border-border/80 bg-raised p-1 shadow-inner max-[640px]:grid-cols-1"
+        className="grid grid-cols-4 gap-1 rounded-2xl border border-border/80 bg-raised p-1 shadow-inner max-[640px]:grid-cols-1"
         role="tablist"
         aria-label={t('accounts.setup.chooseProvider')}
       >
@@ -47,7 +47,7 @@ export function AccountProviderGrid({
   }
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-2">
       {PROVIDERS.map((p) => {
         const active = p.isActive(mode)
         return (

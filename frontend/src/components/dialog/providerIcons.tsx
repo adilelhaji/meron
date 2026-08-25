@@ -1,4 +1,4 @@
-import { KeyRound, Mail, Rss } from 'lucide-react'
+import { KeyRound, Mail, Rss, Server } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { SetupMode } from '../../states/ui'
 
@@ -66,6 +66,15 @@ export const PROVIDERS: ProviderDef[] = [
     mode: 'custom',
     isActive: (mode) => mode === 'custom',
     icon: (s) => <Mail size={s} className="text-accent" />,
+  },
+  {
+    id: 'ews',
+    label: 'Exchange',
+    descriptionKey: 'accounts.providers.exchangeDescription',
+    defaultDescription: 'Exchange Web Services',
+    mode: 'ews',
+    isActive: (mode) => mode === 'ews',
+    icon: (s) => <Server size={s} className="text-accent" />,
   },
   {
     id: 'rss',

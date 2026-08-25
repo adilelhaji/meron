@@ -10,6 +10,7 @@ import { useAccountDialog, type AccountDialogController } from './useAccountDial
 import { dialogClasses, type DialogClasses } from './accountDialogStyles'
 import { AccountDialogOAuth } from './AccountDialogOAuth'
 import { AccountDialogCustom } from './AccountDialogCustom'
+import { AccountDialogEWS } from './AccountDialogEWS'
 import { AccountProviderGrid } from './AccountProviderGrid'
 import { AccountProviderRail } from './AccountProviderRail'
 import { PROVIDERS } from './providerIcons'
@@ -173,6 +174,9 @@ function AccountDialogForm({
   }
   if (mode === 'gmail' || mode === 'outlook') {
     return <AccountDialogOAuth ctl={ctl} isSetup={isSetup} />
+  }
+  if (mode === 'ews') {
+    return <AccountDialogEWS ctl={ctl} classes={classes} isSetup={isSetup} />
   }
   return <AccountDialogCustom ctl={ctl} classes={classes} isSetup={isSetup} />
 }
