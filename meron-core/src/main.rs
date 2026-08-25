@@ -115,8 +115,8 @@ impl std::fmt::Display for BackgroundSyncCancelled {
 impl std::error::Error for BackgroundSyncCancelled {}
 
 /// Retry a background read once when it fails for a recognizable transport
-/// reason. Both attempts share the old 30-second ceiling so a stuck sync does
-/// not hold its dedup key longer than before.
+/// reason. Both attempts share the configured per-folder ceiling so a stuck
+/// sync does not hold its dedup key indefinitely.
 async fn retry_background_sync<T, C, F, Fut>(
     label: &str,
     mut can_attempt: C,
