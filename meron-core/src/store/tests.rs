@@ -1610,7 +1610,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
 
     for table in [
         "accounts",
@@ -1624,6 +1624,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
         "meta",
         "settings",
         "observed_mail_identities",
+        "ews_item_ids",
     ] {
         let exists = conn
             .query_row(
@@ -1642,7 +1643,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
 }
 
 #[test]
@@ -1670,7 +1671,7 @@ fn concurrent_first_open_runs_migrations_once() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 8);
+    assert_eq!(version, 9);
 
     let _ = std::fs::remove_dir_all(dir);
 }
@@ -3030,4 +3031,74 @@ fn set_account_proxy_replaces_only_the_proxy_entry() {
     assert_eq!(creds.host, "imap.example.com");
     assert_eq!(creds.smtp_port, 587);
     assert!(creds.smtp_starttls);
+}
+
+#[test]
+fn ews_item_map_mints_uids_and_refreshes_change_keys() {
+    let conn = test_conn();
+
+    let first = map_ews_item(&conn, "acct", "INBOX", "AAMkONE=", Some("CK1")).unwrap();
+    let second = map_ews_item(&conn, "acct", "INBOX", "AAMkTWO=", Some("CK2")).unwrap();
+    assert_eq!((first, second), (1, 2), "uids ascend with discovery order");
+
+    // The same item resolves to its established uid, and a re-sync carrying a
+    // newer version stamp updates it in place — writes with a stale change key
+    // are rejected by Exchange.
+    assert_eq!(
+        map_ews_item(&conn, "acct", "INBOX", "AAMkONE=", Some("CK1-NEW")).unwrap(),
+        first
+    );
+    assert_eq!(
+        ews_item_for_uid(&conn, "acct", "INBOX", first).unwrap(),
+        Some(("AAMkONE=".to_string(), Some("CK1-NEW".to_string())))
+    );
+
+    // Folders are independent id spaces, as they are on the server.
+    assert_eq!(
+        map_ews_item(&conn, "acct", "Sent", "AAMkONE=", None).unwrap(),
+        1
+    );
+
+    assert_eq!(ews_item_for_uid(&conn, "acct", "INBOX", 99).unwrap(), None);
+}
+
+#[test]
+fn forgetting_an_ews_item_does_not_recycle_its_uid() {
+    let conn = test_conn();
+    map_ews_item(&conn, "acct", "INBOX", "AAMkONE=", None).unwrap();
+    let second = map_ews_item(&conn, "acct", "INBOX", "AAMkTWO=", None).unwrap();
+
+    forget_ews_item(&conn, "acct", "INBOX", "AAMkTWO=").unwrap();
+    assert_eq!(ews_item_for_uid(&conn, "acct", "INBOX", second).unwrap(), None);
+
+    // Cached rows, saved Kanban columns and open search snapshots may still
+    // reference the retired uid, so the next item must not inherit it.
+    let third = map_ews_item(&conn, "acct", "INBOX", "AAMkTHREE=", None).unwrap();
+    assert_eq!(third, 3);
+}
+
+#[test]
+fn folder_sync_state_round_trips_and_is_folder_scoped() {
+    let conn = test_conn();
+    assert_eq!(get_folder_sync_state(&conn, "acct", "INBOX").unwrap(), None);
+
+    set_folder_sync_state(&conn, "acct", "INBOX", "c3RhdGUx").unwrap();
+    set_folder_sync_state(&conn, "acct", "Sent", "c3RhdGVT").unwrap();
+    set_folder_sync_state(&conn, "acct", "INBOX", "c3RhdGUy").unwrap();
+
+    assert_eq!(
+        get_folder_sync_state(&conn, "acct", "INBOX").unwrap(),
+        Some("c3RhdGUy".to_string())
+    );
+    assert_eq!(
+        get_folder_sync_state(&conn, "acct", "Sent").unwrap(),
+        Some("c3RhdGVT".to_string())
+    );
+
+    // The IMAP columns of the same row are untouched by an EWS sync round.
+    set_folder_state(&conn, "acct", "INBOX", 1, 42).unwrap();
+    assert_eq!(
+        get_folder_sync_state(&conn, "acct", "INBOX").unwrap(),
+        Some("c3RhdGUy".to_string())
+    );
 }

@@ -109,6 +109,10 @@ pub fn delete_folder(conn: &Connection, account: &str, name: &str) -> Result<usi
         params![account, name],
     )?;
     tx.execute(
+        "DELETE FROM ews_item_ids WHERE account = ?1 AND folder = ?2",
+        params![account, name],
+    )?;
+    tx.execute(
         "DELETE FROM folders WHERE account = ?1 AND name = ?2",
         params![account, name],
     )?;
@@ -1749,6 +1753,116 @@ pub fn set_folder_state(
          ON CONFLICT(account, folder) DO UPDATE SET
            uidvalidity = excluded.uidvalidity, uid_next = excluded.uid_next",
         params![account, folder, uidvalidity as i64, uid_next as i64],
+    )?;
+    Ok(())
+}
+
+/// The folder's last EWS synchronization state, or `None` before the first
+/// round (which enumerates the folder from scratch).
+pub fn get_folder_sync_state(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+) -> Result<Option<String>> {
+    let state = conn
+        .query_row(
+            "SELECT sync_state FROM folder_state WHERE account = ?1 AND folder = ?2",
+            params![account, folder],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten();
+    Ok(state)
+}
+
+pub fn set_folder_sync_state(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    sync_state: &str,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO folder_state(account, folder, sync_state) VALUES(?1, ?2, ?3)
+         ON CONFLICT(account, folder) DO UPDATE SET sync_state = excluded.sync_state",
+        params![account, folder, sync_state],
+    )?;
+    Ok(())
+}
+
+/// Resolve an EWS item to its local uid, minting one if this is the first time
+/// the item is seen. Uids are allocated per folder from the current maximum, so
+/// they ascend with discovery order the way IMAP uids ascend with arrival —
+/// which is what the paging and prune logic assume.
+///
+/// `change_key` is refreshed on every call: it is the item's version stamp and
+/// Exchange rejects writes carrying a stale one.
+pub fn map_ews_item(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    item_id: &str,
+    change_key: Option<&str>,
+) -> Result<u32> {
+    if let Some(uid) = conn
+        .query_row(
+            "SELECT uid FROM ews_item_ids WHERE account = ?1 AND folder = ?2 AND item_id = ?3",
+            params![account, folder, item_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok()
+    {
+        conn.execute(
+            "UPDATE ews_item_ids SET change_key = ?4
+             WHERE account = ?1 AND folder = ?2 AND item_id = ?3",
+            params![account, folder, item_id, change_key],
+        )?;
+        return Ok(uid as u32);
+    }
+    // Allocate from the folder's high-water mark rather than from the current
+    // maximum: a uid must never be reused after its item is deleted, because
+    // the message cache, saved Kanban columns and open search snapshots all
+    // reference uids that can outlive the row. `folder_state.uid_next` already
+    // means exactly "the next uid to hand out", so EWS folders keep their
+    // counter there.
+    let next: i64 = conn.query_row(
+        "INSERT INTO folder_state(account, folder, uid_next) VALUES(?1, ?2, 2)
+         ON CONFLICT(account, folder)
+           DO UPDATE SET uid_next = COALESCE(folder_state.uid_next, 1) + 1
+         RETURNING uid_next - 1",
+        params![account, folder],
+        |row| row.get(0),
+    )?;
+    conn.execute(
+        "INSERT INTO ews_item_ids(account, folder, uid, item_id, change_key)
+         VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![account, folder, next, item_id, change_key],
+    )?;
+    Ok(next as u32)
+}
+
+/// The EWS item behind a local uid, as `(item_id, change_key)`.
+pub fn ews_item_for_uid(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    uid: u32,
+) -> Result<Option<(String, Option<String>)>> {
+    let item = conn
+        .query_row(
+            "SELECT item_id, change_key FROM ews_item_ids
+             WHERE account = ?1 AND folder = ?2 AND uid = ?3",
+            params![account, folder, uid as i64],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .ok();
+    Ok(item)
+}
+
+/// Drop the mapping for items deleted server-side. The uid is not recycled.
+pub fn forget_ews_item(conn: &Connection, account: &str, folder: &str, item_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM ews_item_ids WHERE account = ?1 AND folder = ?2 AND item_id = ?3",
+        params![account, folder, item_id],
     )?;
     Ok(())
 }

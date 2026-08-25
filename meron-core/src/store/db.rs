@@ -133,6 +133,27 @@ CREATE TABLE IF NOT EXISTS observed_mail_identities (
 );
 ";
 
+/// Maps an EWS `ItemId` onto the `u32` uid the rest of the core addresses
+/// messages by. Exchange item ids are opaque ~150-char strings, while the
+/// message cache, its indexes and the desktop bridge payloads are all keyed on
+/// a numeric uid; rather than widen that everywhere, EWS folders mint a
+/// synthetic uid per item and keep the correspondence here.
+///
+/// `change_key` is the item's version stamp, required by every EWS write
+/// (Exchange rejects a stale one), so it is refreshed on each sync.
+const EWS_ITEM_IDS_DDL: &str = "
+CREATE TABLE IF NOT EXISTS ews_item_ids (
+  account    TEXT NOT NULL,
+  folder     TEXT NOT NULL,
+  uid        INTEGER NOT NULL,
+  item_id    TEXT NOT NULL,
+  change_key TEXT,
+  PRIMARY KEY (account, folder, uid)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ews_item_ids_item_idx
+  ON ews_item_ids(account, folder, item_id);
+";
+
 const MAIL_SEARCH_HITS_DDL: &str = "
 CREATE TABLE IF NOT EXISTS mail_search_hits (
   token      TEXT NOT NULL,
@@ -487,6 +508,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 8 {
         migrate_v8(&tx)?;
     }
+    if version < 9 {
+        migrate_v9(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -581,6 +605,18 @@ fn migrate_v7(conn: &Connection) -> Result<()> {
 fn migrate_v8(conn: &Connection) -> Result<()> {
     conn.execute_batch(MESSAGES_THREAD_KEY_INDEXES_DDL)?;
     conn.execute_batch("PRAGMA user_version = 8;")?;
+    Ok(())
+}
+
+/// Exchange (EWS) folder identity and sync bookkeeping: the item-id map, plus
+/// the folder's opaque `SyncState` token. EWS has no UIDVALIDITY/UIDNEXT pair —
+/// a folder's position is a single server-issued string replayed on the next
+/// round — so it rides alongside them in `folder_state` rather than reusing
+/// columns whose IMAP meaning it does not share.
+fn migrate_v9(conn: &Connection) -> Result<()> {
+    conn.execute_batch(EWS_ITEM_IDS_DDL)?;
+    conn.execute_batch("ALTER TABLE folder_state ADD COLUMN sync_state TEXT;")?;
+    conn.execute_batch("PRAGMA user_version = 9;")?;
     Ok(())
 }
 
