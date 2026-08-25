@@ -70,6 +70,8 @@ class Sidecar:
             return self.responses.pop(rid)
 
     def wait_event(self, name, timeout=120):
+        """Wait for a named event; the sidecar reports sync completion as
+        `mail.synced` for both folder and message syncs."""
         deadline = time.time() + timeout
         with self.lock:
             while True:
@@ -103,6 +105,9 @@ def main():
     ap.add_argument("--email", required=True)
     ap.add_argument("--folder", default="Inbox", help="folder to sync (default: Inbox)")
     ap.add_argument("--limit", type=int, default=5, help="messages to sync")
+    ap.add_argument("--probe", action="store_true",
+                    help="instead of the smoke test, report which envelope "
+                         "properties this server accepts")
     args = ap.parse_args()
 
     if not os.path.exists(BIN):
@@ -112,6 +117,16 @@ def main():
     if not password:
         sys.exit("no password given")
 
+    if args.probe:
+        # Reuse this script's password handling rather than making the caller
+        # get a secret through the shell safely.
+        probe = os.path.join(os.path.dirname(BIN), "examples", "ews_probe")
+        if not os.path.exists(probe):
+            sys.exit(f"probe not built: cargo build --release --example ews_probe")
+        env = dict(os.environ, EWS_URL=args.url, EWS_USER=args.user,
+                   EWS_PASSWORD=password, EWS_FOLDER=args.folder)
+        return subprocess.call([probe], env=env)
+
     profile = tempfile.mkdtemp(prefix="meron-ews-smoketest-")
     core = Sidecar(profile)
     failures = 0
@@ -119,19 +134,19 @@ def main():
         print(f"\n== EWS smoke test against {args.url}\n")
 
         print("1. add account (validates with a live EWS round trip)")
+        account = args.email
         result = check("account.connect", core.call("account.connect", {
-            "ews_url": args.url, "user": args.user, "password": password,
-            "email": args.email, "provider": "exchange", "auth_type": "password",
-            "validate": True,
+            "id": account, "ews_url": args.url, "user": args.user,
+            "password": password, "email": args.email, "provider": "exchange",
+            "auth_type": "password", "validate": True,
         }))
         if result is None:
             return 1
-        account = result.get("id") or result.get("account") or args.email
         print(f"        account id: {account}")
 
         print("\n2. list folders (SyncFolderHierarchy)")
         core.call("folders.list", {"account": account, "refresh": True})
-        core.wait_event("folders", timeout=60)
+        core.wait_event("mail.synced", timeout=90)
         folders = check("folders.list", core.call(
             "folders.list", {"account": account, "refresh": False}))
         names = []
@@ -156,7 +171,7 @@ def main():
         if check("messages.sync", core.call(
                 "messages.sync", {"account": account, "folder": target, "limit": args.limit})) is None:
             failures += 1
-        core.wait_event("messages", timeout=180)
+        core.wait_event("mail.synced", timeout=180)
         recent = check("messages.recent", core.call(
             "messages.recent", {"account": account, "folder": target, "limit": args.limit}))
         headers = []
@@ -179,12 +194,18 @@ def main():
                 "messages.read", {"account": account, "folder": target, "uid": uid}))
             if body:
                 message = body.get("message", body)
-                text = (message.get("text") or message.get("html") or "")
+                plain = message.get("body") or ""
+                html = message.get("body_html") or ""
                 print(f"        subject: {message.get('subject', '?')}")
-                print(f"        body:    {len(text)} chars, "
+                print(f"        from:    {message.get('from_addr', '?')}")
+                print(f"        body:    {len(plain)} chars plain, {len(html)} chars html, "
                       f"{len(message.get('attachments') or [])} attachments")
-                if not text:
+                snippet = " ".join((plain or html).split())[:70]
+                if snippet:
+                    print(f"        starts:  {snippet}…")
+                else:
                     print("  WARN  body parsed empty")
+                    failures += 1
             else:
                 failures += 1
 

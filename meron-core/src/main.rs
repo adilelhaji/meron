@@ -1334,7 +1334,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         // Store (and validate) IMAP credentials for an account.
         "account.connect" => {
             let id = req_str(p, "account").or_else(|_| req_str(p, "id"))?;
-            let host = req_str(p, "host")?;
+            // Exchange accounts carry an EWS endpoint URL and no IMAP server,
+            // so `host` is required only for the IMAP path.
+            let ews_url = p
+                .get("ews_url")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            let host = if ews_url.is_empty() {
+                req_str(p, "host")?
+            } else {
+                req_str(p, "host").unwrap_or_default()
+            };
             let mut creds = imap::Creds {
                 host: host.clone(),
                 port: req_u16(p, "port").unwrap_or(993),
@@ -1405,12 +1417,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 smtp_cert_pin: cert_pin_param(p, "smtp_cert_pin"),
                 // Present only for Exchange accounts, and what routes them to
                 // the EWS backend; see `backend::connect`.
-                ews_url: p
-                    .get("ews_url")
-                    .and_then(Value::as_str)
-                    .unwrap_or("")
-                    .trim()
-                    .to_string(),
+                ews_url: ews_url.clone(),
             };
             // A reconnect resends the setup form, which has no field for the
             // account's proxy or the certificates it accepted. Carry those over

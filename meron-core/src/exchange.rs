@@ -251,7 +251,14 @@ impl EwsClient {
     pub fn call<Op: Operation>(&self, op: Op) -> anyhow::Result<Op::Response> {
         let request = build_request(op)?;
         let response = self.post_soap(&request)?;
-        parse_response::<Op>(&response)
+        parse_response::<Op>(&response).inspect_err(|_| {
+            // A SOAP fault names the element it rejected, but that detail is
+            // not carried on the parse error; surface it for diagnosis.
+            ews_debug(&format!(
+                "server response: {}",
+                String::from_utf8_lossy(&response).chars().take(900).collect::<String>()
+            ));
+        })
     }
 
     fn post_soap(&self, request: &[u8]) -> anyhow::Result<Vec<u8>> {
@@ -332,6 +339,15 @@ fn single_message<T>(mut messages: Vec<T>) -> anyhow::Result<T> {
         bail!("expected 1 EWS response message, got {}", messages.len());
     }
     Ok(messages.remove(0))
+}
+
+/// Trace Exchange sync decisions when `MERON_EWS_DEBUG` is set. Off by default
+/// so production runs stay quiet, following `MERON_POOL_DEBUG`. Routes through
+/// the logger at warning level so a diagnosis run shows it in a release build.
+fn ews_debug(what: &str) {
+    if std::env::var_os("MERON_EWS_DEBUG").is_some() {
+        crate::mlog!(crate::log::Level::Warn, "ews", "{what}");
+    }
 }
 
 /// Proves an Exchange account works before it is stored: one round trip that
@@ -466,15 +482,33 @@ impl EwsSession {
             }
         }
         let start = item_ids.len().saturating_sub(limit as usize);
+        let total = item_ids.len();
         let wanted = item_ids.split_off(start);
+        ews_debug(&format!(
+            "item sync {folder}: {total} items listed, {} requested, last_in_range={}",
+            wanted.len(),
+            round.includes_last_item_in_range
+        ));
 
         let envelopes = if wanted.is_empty() {
             Vec::new()
         } else {
             let client = self.client.clone();
-            tokio::task::spawn_blocking(move || client.fetch_envelopes(&wanted)).await??
+            let fetched =
+                tokio::task::spawn_blocking(move || client.fetch_envelopes(&wanted)).await?;
+            match fetched {
+                Ok(envelopes) => envelopes,
+                Err(err) => {
+                    ews_debug(&format!("item sync {folder}: envelope fetch failed: {err:#}"));
+                    return Err(err);
+                }
+            }
         };
 
+        ews_debug(&format!(
+            "item sync {folder}: {} envelopes returned",
+            envelopes.len()
+        ));
         let messages = self.assign_uids(folder, envelopes)?;
         Ok(crate::imap::RecentBatch {
             // Exchange has no UIDVALIDITY: item ids are stable for the life of
@@ -685,11 +719,16 @@ impl EwsSession {
 /// The properties an envelope fetch asks for, beyond the id the base shape
 /// already carries.
 ///
-/// `InternetMessageHeaders` is requested for one header only — `References`,
-/// which Meron's threading needs and EWS exposes nowhere else — but the server
-/// returns the whole header block, so this is the one costly item in the list.
+/// `References` is what Meron's threading keys on; EWS exposes it as a typed
+/// property, so there is no need to pull the whole internet header block for
+/// the sake of one header.
+///
+/// `In-Reply-To` is requested as its MAPI property instead: the `ews` crate
+/// carries the field on its message type, but `message:InReplyTo` is not in
+/// the schema's requestable enumeration, and Exchange rejects the whole
+/// request — with a bare `ErrorInvalidRequest` naming nothing — if it appears.
 fn envelope_properties() -> Vec<PathToElement> {
-    [
+    let mut properties: Vec<PathToElement> = [
         "item:Subject",
         "item:DateTimeSent",
         "message:From",
@@ -697,14 +736,43 @@ fn envelope_properties() -> Vec<PathToElement> {
         "message:CcRecipients",
         "message:IsRead",
         "message:InternetMessageId",
-        "message:InReplyTo",
-        "item:InternetMessageHeaders",
+        "message:References",
     ]
     .into_iter()
     .map(|uri| PathToElement::FieldURI {
         field_URI: uri.to_string(),
     })
-    .collect()
+    .collect();
+    properties.push(in_reply_to_property());
+    properties
+}
+
+/// `PidTagInReplyToId`, the MAPI property behind the `In-Reply-To` header.
+fn in_reply_to_property() -> PathToElement {
+    PathToElement::ExtendedFieldURI {
+        distinguished_property_set_id: None,
+        property_set_id: None,
+        property_tag: Some("0x1042".to_string()),
+        property_name: None,
+        property_id: None,
+        property_type: ::ews::PropertyType::String,
+    }
+}
+
+/// Reads the `In-Reply-To` value back out of the extended properties.
+fn in_reply_to(message: &Message) -> Option<String> {
+    message
+        .extended_property
+        .as_ref()?
+        .iter()
+        .find(|property| {
+            matches!(
+                &property.extended_field_URI,
+                ::ews::ExtendedFieldURI { property_tag: Some(tag), .. }
+                    if tag.eq_ignore_ascii_case("0x1042")
+            )
+        })
+        .map(|property| crate::imap::normalize_message_id(&property.value))
 }
 
 /// Envelope fields for one message, as the sync path needs them.
@@ -751,11 +819,9 @@ impl EwsEnvelope {
                 .as_deref()
                 .map(crate::imap::normalize_message_id)
                 .unwrap_or_default(),
-            in_reply_to: message
-                .in_reply_to
-                .as_deref()
-                .map(crate::imap::normalize_message_id)
-                .unwrap_or_default(),
+            // The typed field is never populated: the property is requested
+            // through its MAPI tag, so the value arrives in extended_property.
+            in_reply_to: in_reply_to(message).unwrap_or_default(),
             references_root: references_root(message).unwrap_or_default(),
             to: recipients(message.to_recipients.as_ref()),
             cc: recipients(message.cc_recipients.as_ref()),
@@ -797,13 +863,12 @@ impl EwsEnvelope {
     }
 }
 
+/// The thread root: the first id of `References`, which is the oldest
+/// ancestor the message names.
 fn references_root(message: &Message) -> Option<String> {
-    let headers = message.internet_message_headers.as_ref()?;
-    headers
-        .internet_message_header
-        .iter()
-        .find(|header| header.header_name.eq_ignore_ascii_case("References"))
-        .and_then(|header| header.value.as_deref())
+    message
+        .references
+        .as_deref()
         .and_then(crate::imap::first_message_id)
 }
 
@@ -1054,10 +1119,7 @@ mod tests {
               <t:ItemId Id="AAMkENV=" ChangeKey="CQAAAE=="/>
               <t:Subject>RE: Quarterly report</t:Subject>
               <t:DateTimeSent>2026-08-24T09:15:00Z</t:DateTimeSent>
-              <t:InternetMessageHeaders>
-                <t:InternetMessageHeader HeaderName="References">&lt;root@example.org&gt; &lt;reply@example.org&gt;</t:InternetMessageHeader>
-                <t:InternetMessageHeader HeaderName="X-Mailer">Outlook</t:InternetMessageHeader>
-              </t:InternetMessageHeaders>
+              <t:References>&lt;root@example.org&gt; &lt;reply@example.org&gt;</t:References>
               <t:From>
                 <t:Mailbox>
                   <t:Name>Ada Lovelace</t:Name>
@@ -1076,7 +1138,10 @@ mod tests {
                 </t:Mailbox>
               </t:CcRecipients>
               <t:InternetMessageId>&lt;current@example.org&gt;</t:InternetMessageId>
-              <t:InReplyTo>&lt;reply@example.org&gt;</t:InReplyTo>
+              <t:ExtendedProperty>
+                <t:ExtendedFieldURI PropertyTag="0x1042" PropertyType="String"/>
+                <t:Value>&lt;reply@example.org&gt;</t:Value>
+              </t:ExtendedProperty>
               <t:IsRead>false</t:IsRead>
             </t:Message>
           </m:Items>
@@ -1136,6 +1201,13 @@ mod tests {
         for property in ["item:Subject", "message:From", "message:IsRead"] {
             assert!(request.contains(property), "missing {property}: {request}");
         }
+        // Exchange rejects the whole request if `message:InReplyTo` appears,
+        // so it must be requested through its MAPI tag instead.
+        assert!(
+            !request.contains("message:InReplyTo"),
+            "InReplyTo must not be requested as a field URI: {request}"
+        );
+        assert!(request.contains("0x1042"), "missing the In-Reply-To MAPI tag: {request}");
     }
 
     #[test]
