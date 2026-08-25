@@ -11,7 +11,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 use std::time::Duration;
 use tokio::sync::{Mutex, Notify};
 
-use crate::{imap, parse, secrets, store};
+use crate::{backend, imap, parse, secrets, store};
 
 pub const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
 
@@ -72,12 +72,12 @@ pub struct Engine {
     /// that died during suspend and reconnect, instead of blocking up to the
     /// IDLE timeout / TCP keepalive while no new mail is pushed.
     pub resume_signal: Notify,
-    /// Warm, authenticated IMAP sessions reused by the request path so each
+    /// Warm, authenticated [`backend::Session`]s reused by the request path so each
     /// thread open / search / sync doesn't pay a fresh TLS + LOGIN/XOAUTH2
     /// handshake. Keyed by account; per-account `Vec` is a LIFO free-list
     /// (reuse the hottest session first). IDLE watcher connections are *not*
     /// pooled — they have a different, long-lived lifecycle. See `with_session`.
-    pub pool: std::sync::Mutex<HashMap<String, Vec<Pooled<imap::Session>>>>,
+    pub pool: std::sync::Mutex<HashMap<String, Vec<Pooled<backend::Session>>>>,
     /// Platform integration: opens the SQLite store and loads/stores per-account
     /// secrets (OS keychain on desktop, the keyed DB on mobile).
     pub host: Box<dyn EngineHost>,
@@ -372,7 +372,7 @@ impl Engine {
 
     /// Pop the hottest non-expired pooled session for `account`, discarding any
     /// that have been idle past `MAX_IDLE` (likely dropped by the server).
-    pub fn take_pooled(&self, account: &str) -> Option<imap::Session> {
+    pub fn take_pooled(&self, account: &str) -> Option<backend::Session> {
         pool_take(
             &mut self.pool.lock().unwrap(),
             account,
@@ -388,7 +388,7 @@ impl Engine {
     /// clears the pool: a background sync can already have a session checked
     /// out when the account is paused and otherwise return that old session
     /// after the clear.
-    pub fn return_pooled(&self, account: &str, session: imap::Session) {
+    pub fn return_pooled(&self, account: &str, session: backend::Session) {
         if self.is_paused(account) {
             return;
         }
@@ -434,7 +434,7 @@ impl Engine {
         mut f: F,
     ) -> anyhow::Result<T>
     where
-        F: FnMut(&mut imap::Session) -> SessionOp<'_, T> + Send,
+        F: FnMut(&mut backend::Session) -> SessionOp<'_, T> + Send,
         T: Send,
     {
         if let Some(mut session) = self.take_pooled(account) {
@@ -474,7 +474,7 @@ impl Engine {
         pool_debug(account, "fresh-connect");
         let creds = self.ensure_valid_creds(account).await?;
         let connect_started = std::time::Instant::now();
-        let mut session = imap::connect(&creds).await?;
+        let mut session = backend::connect(&creds).await?;
         let connect_ms = connect_started.elapsed().as_millis();
         if connect_ms > 2_000 {
             crate::mlog!(
@@ -496,7 +496,7 @@ impl Engine {
     /// once on a stale-connection failure.
     pub async fn with_read_session<T, F>(&self, account: &str, f: F) -> anyhow::Result<T>
     where
-        F: FnMut(&mut imap::Session) -> SessionOp<'_, T> + Send,
+        F: FnMut(&mut backend::Session) -> SessionOp<'_, T> + Send,
         T: Send,
     {
         self.with_session(account, true, f).await
@@ -506,7 +506,7 @@ impl Engine {
     /// auto-retries, so a connection dropped mid-command can't double-apply.
     pub async fn with_write_session<T, F>(&self, account: &str, f: F) -> anyhow::Result<T>
     where
-        F: FnMut(&mut imap::Session) -> SessionOp<'_, T> + Send,
+        F: FnMut(&mut backend::Session) -> SessionOp<'_, T> + Send,
         T: Send,
     {
         self.with_session(account, false, f).await
@@ -528,8 +528,8 @@ impl Engine {
         mut f: F,
     ) -> anyhow::Result<T>
     where
-        P: FnMut(&mut imap::Session) -> SessionOp<'_, ()> + Send,
-        F: FnMut(&mut imap::Session) -> SessionOp<'_, T> + Send,
+        P: FnMut(&mut backend::Session) -> SessionOp<'_, ()> + Send,
+        F: FnMut(&mut backend::Session) -> SessionOp<'_, T> + Send,
         T: Send,
     {
         if let Some(mut session) = self.take_pooled(account) {
@@ -570,7 +570,7 @@ impl Engine {
         pool_debug(account, "fresh-connect");
         let creds = self.ensure_valid_creds(account).await?;
         let connect_started = std::time::Instant::now();
-        let mut session = imap::connect(&creds).await?;
+        let mut session = backend::connect(&creds).await?;
         let connect_ms = connect_started.elapsed().as_millis();
         if connect_ms > 2_000 {
             crate::mlog!(
@@ -604,7 +604,7 @@ pub async fn sync_folders(
 ) -> anyhow::Result<Vec<imap::Folder>> {
     let folders = engine
         .with_read_session(account, |session| {
-            Box::pin(async move { imap::list_folders(session).await })
+            Box::pin(async move { session.list_folders().await })
         })
         .await?;
     crate::mlog!(
@@ -636,19 +636,19 @@ pub async fn delete_to_trash(
             let folder = folder.to_string();
             let uids = uids.to_vec();
             Box::pin(async move {
-                let drafts = imap::find_drafts_folder(session).await?;
+                let drafts = session.find_drafts_folder().await?;
                 if drafts.as_deref() == Some(folder.as_str()) {
-                    imap::expunge_uids(session, &folder, &uids).await?;
+                    session.expunge_uids(&folder, &uids).await?;
                     return anyhow::Ok(None);
                 }
-                let trash = imap::find_trash_folder(session)
+                let trash = session.find_trash_folder()
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("Trash folder not found for this account"))?;
                 if trash == folder {
-                    imap::expunge_uids(session, &folder, &uids).await?;
+                    session.expunge_uids(&folder, &uids).await?;
                     return anyhow::Ok(None);
                 }
-                imap::move_to_folder(session, &folder, &trash, &uids).await?;
+                session.move_to_folder(&folder, &trash, &uids).await?;
                 anyhow::Ok(Some(trash))
             })
         })
@@ -684,18 +684,18 @@ pub async fn sync_messages(
         .with_read_session(account, |session| {
             let folder = folder.to_string();
             Box::pin(async move {
-                let batch = imap::fetch_recent(session, &folder, limit).await?;
+                let batch = session.fetch_recent(&folder, limit).await?;
                 // Reconcile \Seen across the whole folder (catches reads on other
                 // devices, even for messages older than the recent window).
                 // Best-effort: a no-op when there's no baseline, UIDVALIDITY changed,
                 // or the server lacks CONDSTORE.
                 let validity_matches = prior_validity != 0 && prior_validity == batch.uidvalidity;
-                let flag_sync = imap::sync_flags(session, &folder, prior_modseq, validity_matches)
+                let flag_sync = session.sync_flags(&folder, prior_modseq, validity_matches)
                     .await
                     .ok();
                 // Server-side UID set so we can drop locally cached messages another
                 // client moved or deleted. Best-effort: a failure here skips the prune.
-                let server_uids = imap::list_all_uids(session, &folder).await.ok();
+                let server_uids = session.list_all_uids(&folder).await.ok();
                 anyhow::Ok((batch, flag_sync, server_uids))
             })
         })
@@ -1026,11 +1026,11 @@ pub async fn search_mail_messages(
                 let mut failures = Vec::new();
                 for folder in &folders {
                     let result = async {
-                        let uids = imap::search_uids(session, folder, &query).await?;
+                        let uids = session.search_uids(folder, &query).await?;
                         let mut headers = Vec::with_capacity(uids.len());
                         for chunk in uids.chunks(500) {
                             headers
-                                .extend(imap::fetch_headers_by_uid(session, folder, chunk).await?);
+                                .extend(session.fetch_headers_by_uid(folder, chunk).await?);
                         }
                         anyhow::Ok(headers)
                     }
@@ -1164,7 +1164,7 @@ pub async fn starred_search_folders(
     }
     let fresh = engine
         .with_read_session(account, |session| {
-            Box::pin(async move { imap::list_folders(session).await })
+            Box::pin(async move { session.list_folders().await })
         })
         .await;
     match fresh {
@@ -1233,8 +1233,8 @@ pub async fn search_starred_mail_messages(
                     let mut headers = Vec::new();
                     for folder in &folders {
                         let result = async {
-                            let uids = imap::search_starred_uids(session, folder, limit).await?;
-                            imap::fetch_headers_by_uid(session, folder, &uids).await
+                            let uids = session.search_starred_uids(folder, limit).await?;
+                            session.fetch_headers_by_uid(folder, &uids).await
                         }
                         .await;
                         if let Ok(mut found) = result {
@@ -1351,7 +1351,7 @@ pub async fn prefetch_bodies_with_options(
             let folder = folder.to_string();
             let options = options.clone();
             Box::pin(async move {
-                let uids = imap::search_prefetch_uids(session, &folder, options.days).await?;
+                let uids = session.search_prefetch_uids(&folder, options.days).await?;
 
                 let pending: Vec<u32> = {
                     let db = engine.db.lock().unwrap();
@@ -1374,7 +1374,7 @@ pub async fn prefetch_bodies_with_options(
                         uid,
                     };
                     // peek = true: warming bodies must not flip unread mail to read.
-                    match imap::fetch_full_message(session, uid, &media, true).await {
+                    match session.fetch_full_message(uid, &media, true).await {
                         Ok(Some(message)) => {
                             let db = engine.db.lock().unwrap();
                             let _ =
@@ -1426,7 +1426,7 @@ pub async fn fetch_bodies_for_uids(
             let media_root = media_root.clone();
             Box::pin(async move {
                 let fetched =
-                    imap::fetch_bodies(session, &folder, &pending, media_root, &account).await?;
+                    session.fetch_bodies(&folder, &pending, media_root, &account).await?;
                 let count = fetched.len();
                 let db = engine.db.lock().unwrap();
                 for (uid, message) in fetched {
@@ -1512,17 +1512,17 @@ pub async fn append_to_sent(engine: &Arc<Engine>, account: &str, raw: &[u8]) -> 
         .with_write_session(account, |session| {
             let raw = raw.to_vec();
             Box::pin(async move {
-                let sent = imap::find_sent_folder(session)
+                let sent = session.find_sent_folder()
                     .await?
                     .ok_or_else(|| anyhow::anyhow!("no Sent folder found"))?;
                 if should_append {
-                    imap::append_to_sent(session, &sent, &raw).await?;
+                    session.append_to_sent(&sent, &raw).await?;
                 }
                 // Refresh local Sent-folder envelopes so the new row is queryable
                 // by the cross-folder thread view immediately. For Gmail/Outlook
                 // defaults, this picks up the provider-created Sent copy instead
                 // of uploading a duplicate.
-                let batch = imap::fetch_recent(session, &sent, 20).await?;
+                let batch = session.fetch_recent(&sent, 20).await?;
                 anyhow::Ok((sent, batch))
             })
         })
@@ -1554,7 +1554,7 @@ pub async fn append_to_drafts(
             |session| {
                 let slot = Arc::clone(&drafts_slot);
                 Box::pin(async move {
-                    let drafts = imap::find_drafts_folder(session)
+                    let drafts = session.find_drafts_folder()
                         .await?
                         .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
                     *slot.lock().unwrap() = Some(drafts);
@@ -1568,10 +1568,10 @@ pub async fn append_to_drafts(
                 Box::pin(async move {
                     let drafts = { slot.lock().unwrap().clone() }
                         .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
-                    imap::replace_draft(session, &drafts, &raw, &message_id).await?;
+                    session.replace_draft(&drafts, &raw, &message_id).await?;
                     // Refresh local Drafts envelopes so an autosaved reply appears in
                     // the existing cross-folder thread view immediately.
-                    let batch = imap::fetch_recent(session, &drafts, 20).await?;
+                    let batch = session.fetch_recent(&drafts, 20).await?;
                     anyhow::Ok((drafts, batch))
                 })
             },
@@ -1633,9 +1633,9 @@ pub async fn fill_thread_gaps(
             let mut remaining = remaining.clone();
             Box::pin(async move {
                 let mut persisted = false;
-                let sent = imap::find_sent_folder(session).await.ok().flatten();
-                let drafts = imap::find_drafts_folder(session).await.ok().flatten();
-                let archive = imap::find_archive_folder(session).await.ok().flatten();
+                let sent = session.find_sent_folder().await.ok().flatten();
+                let drafts = session.find_drafts_folder().await.ok().flatten();
+                let archive = session.find_archive_folder().await.ok().flatten();
                 let folders = thread_gap_search_folders(sent, drafts, archive);
 
                 let media_root = parse::media_root();
@@ -1643,14 +1643,9 @@ pub async fn fill_thread_gaps(
                     if remaining.is_empty() {
                         break;
                     }
-                    let found = match imap::fetch_by_message_ids(
-                        session,
-                        &folder,
-                        &remaining,
-                        &media_root,
-                        &account,
-                    )
-                    .await
+                    let found = match session
+                        .fetch_by_message_ids(&folder, &remaining, &media_root, &account)
+                        .await
                     {
                         Ok(found) => found,
                         Err(err) => {
@@ -1753,7 +1748,7 @@ pub async fn read_cached_or_fetch(
                     folder: folder.clone(),
                     uid,
                 };
-                imap::read_message(session, &folder, uid, &media).await
+                session.read_message(&folder, uid, &media).await
             })
         })
         .await?;

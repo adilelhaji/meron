@@ -371,7 +371,7 @@ async fn fetch_thread_bodies(
                 let mut all = Vec::new();
                 for (folder, uids) in &by_folder {
                     let bodies =
-                        imap::fetch_bodies(session, folder, uids, media_root.clone(), &account)
+                        session.fetch_bodies(folder, uids, media_root.clone(), &account)
                             .await?;
                     for (uid, message) in bodies {
                         all.push((folder.clone(), uid, message));

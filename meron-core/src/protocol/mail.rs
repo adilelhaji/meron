@@ -274,11 +274,11 @@ pub(crate) fn save_mobile_draft(data_dir: &str, params: &Value) -> Result<Value,
                 let raw = raw.clone();
                 let saved_id = saved_id.clone();
                 Box::pin(async move {
-                    let drafts = imap::find_drafts_folder(session)
+                    let drafts = session.find_drafts_folder()
                         .await?
                         .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
-                    imap::replace_draft(session, &drafts, &raw, &saved_id).await?;
-                    let batch = imap::fetch_recent(session, &drafts, DRAFT_SYNC_LIMIT).await?;
+                    session.replace_draft(&drafts, &raw, &saved_id).await?;
+                    let batch = session.fetch_recent(&drafts, DRAFT_SYNC_LIMIT).await?;
                     anyhow::Ok((drafts, batch))
                 })
             }))?;
@@ -329,10 +329,10 @@ pub(crate) fn discard_mobile_draft(data_dir: &str, params: &Value) -> Result<Val
             crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
                 let draft_id = draft_id.clone();
                 Box::pin(async move {
-                    let drafts = imap::find_drafts_folder(session)
+                    let drafts = session.find_drafts_folder()
                         .await?
                         .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
-                    let deleted = imap::discard_draft(session, &drafts, &draft_id).await?;
+                    let deleted = session.discard_draft(&drafts, &draft_id).await?;
                     anyhow::Ok((drafts, deleted))
                 })
             }))?;
@@ -515,8 +515,8 @@ pub(crate) fn create_mobile_folder(data_dir: &str, params: &Value) -> Result<Val
             crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
                 let name = name.clone();
                 Box::pin(async move {
-                    imap::create_folder(session, &name).await?;
-                    imap::list_folders(session).await
+                    session.create_folder(&name).await?;
+                    session.list_folders().await
                 })
             }))?;
         store::upsert_folders(&conn, &account_id, &folders).map_err(|err| err.to_string())?;
@@ -556,10 +556,10 @@ pub(crate) fn delete_mobile_folder(data_dir: &str, params: &Value) -> Result<Val
             let targets = targets.clone();
             crate::ffi::engine_block_on_anyhow(engine.with_preflighted_write_session(
                 &account_id,
-                |session| Box::pin(imap::prepare_folder_delete(session)),
+                |session| Box::pin(session.prepare_folder_delete()),
                 move |session| {
                     let targets = targets.clone();
-                    Box::pin(async move { imap::delete_folders(session, &targets).await })
+                    Box::pin(async move { session.delete_folders(&targets).await })
                 },
             ))
         };
@@ -1040,9 +1040,9 @@ pub(crate) fn archive_mobile_thread(data_dir: &str, params: &Value) -> Result<Va
                 let target = op_target.clone();
                 let uids = op_uids.clone();
                 Box::pin(async move {
-                    imap::move_to_folder(session, &source, &target, &uids).await?;
+                    session.move_to_folder(&source, &target, &uids).await?;
                     let batch =
-                        imap::fetch_recent(session, &target, 50.max(uids.len() as u32)).await?;
+                        session.fetch_recent(&target, 50.max(uids.len() as u32)).await?;
                     anyhow::Ok(batch)
                 })
             },
@@ -1127,9 +1127,9 @@ pub(crate) fn move_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
                 let target = op_target.clone();
                 let uids = op_uids.clone();
                 Box::pin(async move {
-                    imap::move_to_folder(session, &source, &target, &uids).await?;
+                    session.move_to_folder(&source, &target, &uids).await?;
                     let batch =
-                        imap::fetch_recent(session, &target, 50.max(uids.len() as u32)).await?;
+                        session.fetch_recent(&target, 50.max(uids.len() as u32)).await?;
                     anyhow::Ok(batch)
                 })
             },
@@ -1215,7 +1215,7 @@ pub(crate) fn copy_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
                 let folder = source_folder.clone();
                 let uids = fetch_uids.clone();
                 Box::pin(
-                    async move { imap::fetch_raw_messages_for_copy(session, &folder, &uids).await },
+                    async move { session.fetch_raw_messages_for_copy(&folder, &uids).await },
                 )
             },
         ))?;
@@ -1228,10 +1228,10 @@ pub(crate) fn copy_mobile_thread(data_dir: &str, params: &Value) -> Result<Value
                 let raw_messages = raw_messages.clone();
                 Box::pin(async move {
                     for message in &raw_messages {
-                        imap::append_copied_message(session, &target, message).await?;
+                        session.append_copied_message(&target, message).await?;
                     }
                     let batch =
-                        imap::fetch_recent(session, &target, 50.max(raw_messages.len() as u32))
+                        session.fetch_recent(&target, 50.max(raw_messages.len() as u32))
                             .await?;
                     anyhow::Ok(batch)
                 })
@@ -1293,12 +1293,12 @@ pub(crate) fn mark_mobile_thread_read(data_dir: &str, params: &Value) -> Result<
                 &parsed.account,
                 move |session| {
                     let folder = folder.clone();
-                    Box::pin(async move { imap::prepare_flag_update(session, &folder).await })
+                    Box::pin(async move { session.prepare_flag_update(&folder).await })
                 },
                 move |session| {
                     let uids = uids.clone();
                     Box::pin(async move {
-                        imap::store_seen(session, &uids, seen).await?;
+                        session.store_seen(&uids, seen).await?;
                         anyhow::Ok(())
                     })
                 },
@@ -1425,12 +1425,12 @@ pub(crate) fn mark_mobile_folder_all_read(data_dir: &str, params: &Value) -> Res
                 &account_id,
                 move |session| {
                     let folder = select_folder.clone();
-                    Box::pin(async move { imap::prepare_flag_update(session, &folder).await })
+                    Box::pin(async move { session.prepare_flag_update(&folder).await })
                 },
                 move |session| {
                     let uids = uids.clone();
                     Box::pin(async move {
-                        imap::store_seen(session, &uids, true).await?;
+                        session.store_seen(&uids, true).await?;
                         anyhow::Ok(())
                     })
                 },
@@ -1487,7 +1487,7 @@ pub(crate) fn empty_mobile_folder(data_dir: &str, params: &Value) -> Result<Valu
             let folder = folder.clone();
             crate::ffi::engine_block_on(engine.with_write_session(&account_id, move |session| {
                 let folder = folder.clone();
-                Box::pin(async move { imap::empty_folder(session, &folder).await })
+                Box::pin(async move { session.empty_folder(&folder).await })
             }))?
         };
         let deleted = store::delete_folder_messages(&conn, &account_id, &folder)
@@ -1535,12 +1535,12 @@ pub(crate) fn mark_mobile_thread_starred(data_dir: &str, params: &Value) -> Resu
                 &parsed.account,
                 move |session| {
                     let folder = folder.clone();
-                    Box::pin(async move { imap::prepare_flag_update(session, &folder).await })
+                    Box::pin(async move { session.prepare_flag_update(&folder).await })
                 },
                 move |session| {
                     let uids = server_uids.clone();
                     Box::pin(async move {
-                        imap::store_starred(session, &uids, starred).await?;
+                        session.store_starred(&uids, starred).await?;
                         anyhow::Ok(())
                     })
                 },

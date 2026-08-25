@@ -1535,7 +1535,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             engine
                 .with_write_session(&account, |session| {
                     let name = name.clone();
-                    Box::pin(async move { imap::create_folder(session, &name).await })
+                    Box::pin(async move { session.create_folder(&name).await })
                 })
                 .await?;
 
@@ -1575,10 +1575,10 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let server_result = engine
                 .with_preflighted_write_session(
                     &account,
-                    |session| Box::pin(imap::prepare_folder_delete(session)),
+                    |session| Box::pin(session.prepare_folder_delete()),
                     |session| {
                         let targets = targets.clone();
-                        Box::pin(async move { imap::delete_folders(session, &targets).await })
+                        Box::pin(async move { session.delete_folders(&targets).await })
                     },
                 )
                 .await;
@@ -1923,7 +1923,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     |session| {
                         let slot = Arc::clone(&drafts_slot);
                         Box::pin(async move {
-                            let drafts = imap::find_drafts_folder(session)
+                            let drafts = session.find_drafts_folder()
                                 .await?
                                 .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
                             *slot.lock().unwrap() = Some(drafts);
@@ -1936,7 +1936,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         Box::pin(async move {
                             let drafts = { slot.lock().unwrap().clone() }
                                 .ok_or_else(|| anyhow::anyhow!("no Drafts folder found"))?;
-                            let deleted = imap::discard_draft(session, &drafts, &draft_id).await?;
+                            let deleted = session.discard_draft(&drafts, &draft_id).await?;
                             anyhow::Ok((drafts, deleted))
                         })
                     },
@@ -1977,7 +1977,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 .with_read_session(&account, |session| {
                     let folder = folder.clone();
                     Box::pin(async move {
-                        imap::fetch_raw_messages_for_copy(session, &folder, &[uid]).await
+                        session.fetch_raw_messages_for_copy(&folder, &[uid]).await
                     })
                 })
                 .await?;
@@ -2161,12 +2161,12 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         |session| {
                             let folder = folder.clone();
                             Box::pin(
-                                async move { imap::prepare_flag_update(session, &folder).await },
+                                async move { session.prepare_flag_update(&folder).await },
                             )
                         },
                         |session| {
                             let uids = uids.clone();
-                            Box::pin(async move { imap::store_seen(session, &uids, seen).await })
+                            Box::pin(async move { session.store_seen(&uids, seen).await })
                         },
                     )
                     .await?;
@@ -2256,13 +2256,13 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         |session| {
                             let folder = folder.clone();
                             Box::pin(
-                                async move { imap::prepare_flag_update(session, &folder).await },
+                                async move { session.prepare_flag_update(&folder).await },
                             )
                         },
                         |session| {
                             let uids = uids.clone();
                             Box::pin(
-                                async move { imap::store_starred(session, &uids, starred).await },
+                                async move { session.store_starred(&uids, starred).await },
                             )
                         },
                     )
@@ -2476,8 +2476,8 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     let target_folder = target_folder.clone();
                     let uids = uids.clone();
                     Box::pin(async move {
-                        imap::move_to_folder(session, &folder, &target_folder, &uids).await?;
-                        imap::fetch_recent(session, &target_folder, 50.max(uids.len() as u32))
+                        session.move_to_folder(&folder, &target_folder, &uids).await?;
+                        session.fetch_recent(&target_folder, 50.max(uids.len() as u32))
                             .await
                             .context("refresh target folder after move")
                     })
@@ -2563,7 +2563,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     let folder = folder.clone();
                     let uids = uids.clone();
                     Box::pin(async move {
-                        imap::fetch_raw_messages_for_copy(session, &folder, &uids).await
+                        session.fetch_raw_messages_for_copy(&folder, &uids).await
                     })
                 })
                 .await?;
@@ -2585,15 +2585,12 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     let raw_messages = raw_messages.clone();
                     Box::pin(async move {
                         for message in &raw_messages {
-                            imap::append_copied_message(session, &target_folder, message).await?;
+                            session.append_copied_message(&target_folder, message).await?;
                         }
-                        imap::fetch_recent(
-                            session,
-                            &target_folder,
-                            50.max(raw_messages.len() as u32),
-                        )
-                        .await
-                        .context("refresh target folder after copy")
+                        session
+                            .fetch_recent(&target_folder, 50.max(raw_messages.len() as u32))
+                            .await
+                            .context("refresh target folder after copy")
                     })
                 })
                 .await?;
@@ -2629,7 +2626,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let account = req_str(p, "account")?;
             let archive = engine
                 .with_read_session(&account, |session| {
-                    Box::pin(async move { imap::find_archive_folder(session).await })
+                    Box::pin(async move { session.find_archive_folder().await })
                 })
                 .await?;
             match archive {
@@ -2657,12 +2654,12 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         |session| {
                             let folder = folder.clone();
                             Box::pin(
-                                async move { imap::prepare_flag_update(session, &folder).await },
+                                async move { session.prepare_flag_update(&folder).await },
                             )
                         },
                         |session| {
                             let uids = uids.clone();
-                            Box::pin(async move { imap::store_seen(session, &uids, true).await })
+                            Box::pin(async move { session.store_seen(&uids, true).await })
                         },
                     )
                     .await?;
@@ -2778,7 +2775,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let expunged = engine
                 .with_write_session(&account, |session| {
                     let folder = folder.clone();
-                    Box::pin(async move { imap::empty_folder(session, &folder).await })
+                    Box::pin(async move { session.empty_folder(&folder).await })
                 })
                 .await?;
 
