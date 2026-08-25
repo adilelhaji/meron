@@ -5,7 +5,7 @@ import { invoke } from '../lib/bridge'
 import { CONVERSATION_PAGE_SIZE } from '../lib/pagination'
 import { ui$, showToast } from './ui'
 import { accounts$, isSendableAccount, accountIdentities } from './accounts'
-import { mail$, getActiveThread, isDraftFolder, loadThread, discardSavedDraftCopy } from './mail'
+import { mail$, getActiveThread, isDraftFolder, isInboxFolder, loadThread, discardSavedDraftCopy } from './mail'
 import { LOCAL_SEND_PREFIX, type PendingSend, setPendingSend, getPendingSend, discardPendingSend } from './pendingSends'
 import { htmlToText, resolveInlineCids } from '../lib/html'
 import { parseMailto } from '../lib/mailto'
@@ -1367,9 +1367,22 @@ export function pickReplyTarget(activeT: Message): Message {
   const inThread = messages.filter((m) => m.thread_id === activeT.thread_id)
   for (let i = inThread.length - 1; i >= 0; i--) {
     const m = inThread[i]
-    if (!ownAddrs.has((m.from_addr || '').toLowerCase())) return m
+    if (!sentByUs(m, ownAddrs)) return m
   }
   return inThread[inThread.length - 1] ?? activeT
+}
+
+/** Whether a loaded message is one we sent, as opposed to one we received.
+ * The core settles this from the message's own delivery headers whenever it has
+ * the body cached. Until then `outgoing` — like the address fallback kept here
+ * for rows shaped before that flag existed — falls back to matching From against
+ * our identities, which also fires for a colleague's mail from a shared alias;
+ * sitting in the inbox vetoes that match. An optimistic send (`send_status`) is
+ * ours whatever folder it claims. */
+function sentByUs(m: Message, ownAddrs: Set<string>): boolean {
+  if (m.send_status) return true
+  if (isInboxFolder(m.folder_id, m.account_id)) return false
+  return m.outgoing === true || ownAddrs.has((m.from_addr || '').trim().toLowerCase())
 }
 
 /** Every address the user owns across all accounts (primary + aliases),
@@ -1399,15 +1412,42 @@ export function detectAliasFrom(target: Message, acc: Account): string {
   return match && match.email.toLowerCase() !== acc.email.toLowerCase() ? match.email : ''
 }
 
+/** Continue a thread with the identity used by its most recent outgoing
+ * message. Returns null when the loaded thread has no message from one of this
+ * account's configured identities; an empty string means the primary identity. */
+function detectRecentThreadFrom(target: Message, acc: Account): string | null {
+  const identities = accountIdentities(acc)
+  const byEmail = new Map(identities.map((identity) => [identity.email.trim().toLowerCase(), identity.email]))
+  const ownAddrs = ownAddressSet(accounts$.get())
+  const messages = mail$.messages.get()
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (
+      message.thread_id !== target.thread_id ||
+      message.account_id !== acc.id ||
+      isDraftFolder(message.folder_id, message.account_id)
+    )
+      continue
+    if (!sentByUs(message, ownAddrs)) continue
+    const email = byEmail.get((message.from_addr || '').trim().toLowerCase())
+    if (!email) continue
+    return email.toLowerCase() === acc.email.toLowerCase() ? '' : email
+  }
+  return null
+}
+
 /** The address the active thread's quick reply sends from: the identity the user
- * picked in the From indicator, or — when they haven't picked one — the alias
- * detected from the original. Like {@link detectAliasFrom} this returns "" for
- * the account primary, which every send/draft path reads as "use the default".
- * Peeks rather than gets: the send and autosave paths are not reactive. */
+ * picked in the From indicator, the identity used by the newest outgoing
+ * message, or the alias detected from the inbound reply target. Like
+ * {@link detectAliasFrom} this returns "" for the account primary, which every
+ * send/draft path reads as "use the default". Peeks rather than gets: the send
+ * and autosave paths are not reactive. */
 export function resolveQuickReplyFrom(target: Message, acc: Account | null | undefined): string {
   const override = compose$.quickReplyFrom.peek()
   if (!acc) return ''
   if (override) return override.toLowerCase() === acc.email.toLowerCase() ? '' : override
+  const recent = detectRecentThreadFrom(target, acc)
+  if (recent !== null) return recent
   return detectAliasFrom(target, acc)
 }
 
@@ -1427,7 +1467,9 @@ export function quickReplyFromState(): { identities: Alias[]; selected: Alias | 
   const identities = accountIdentities(acc)
   if (identities.length < 2) return none
   const override = compose$.quickReplyFrom.get()
-  const email = override || detectAliasFrom(pickReplyTarget(thread), acc) || acc.email
+  const target = pickReplyTarget(thread)
+  const recent = detectRecentThreadFrom(target, acc)
+  const email = override || (recent === null ? detectAliasFrom(target, acc) : recent) || acc.email
   const selected = identities.find((id) => id.email.toLowerCase() === email.toLowerCase()) ?? identities[0]
   return { identities, selected }
 }

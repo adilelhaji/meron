@@ -1501,14 +1501,28 @@ fn is_outgoing_matches_own_addresses_and_sent_folder_provenance() {
     let mine: std::collections::HashSet<String> =
         ["me@example.com".to_string(), "alias@other.jp".to_string()].into();
     // Own address (any casing), regardless of folder.
-    assert!(is_outgoing(&mine, "INBOX", "Me@Example.Com"));
-    assert!(is_outgoing(&mine, "", "alias@other.jp"));
+    assert!(is_outgoing(&mine, "INBOX", "Me@Example.Com", false));
+    assert!(is_outgoing(&mine, "", "alias@other.jp", false));
     // Sent-folder provenance wins even for an unconfigured alias.
-    assert!(is_outgoing(&mine, "[Gmail]/Sent Mail", "unknown@other.jp"));
-    assert!(is_outgoing(&mine, "Sent", "unknown@other.jp"));
+    assert!(is_outgoing(
+        &mine,
+        "[Gmail]/Sent Mail",
+        "unknown@other.jp",
+        false
+    ));
+    assert!(is_outgoing(&mine, "Sent", "unknown@other.jp", false));
     // Inbound in a regular folder is not ours.
-    assert!(!is_outgoing(&mine, "INBOX", "cleo@example.com"));
-    assert!(!is_outgoing(&mine, "INBOX", ""));
+    assert!(!is_outgoing(&mine, "INBOX", "cleo@example.com", false));
+    assert!(!is_outgoing(&mine, "INBOX", "", false));
+    // A colleague sending from a shared address configured here as an alias:
+    // delivery headers say we received it, wherever it has since been filed.
+    assert!(!is_outgoing(&mine, "INBOX", "alias@other.jp", true));
+    assert!(!is_outgoing(&mine, "Archive", "alias@other.jp", true));
+    assert!(!is_outgoing(&mine, "Trash", "alias@other.jp", true));
+    // Our own copy, moved out of Sent, keeps no delivery headers.
+    assert!(is_outgoing(&mine, "Archive", "alias@other.jp", false));
+    // A self-addressed copy in Sent stays outgoing despite being delivered too.
+    assert!(is_outgoing(&mine, "Sent", "me@example.com", true));
 }
 
 #[test]

@@ -88,6 +88,16 @@ pub struct Message {
     /// when present. Empty when the header is absent (likely a root message).
     #[serde(default)]
     pub references: String,
+    /// Whether the message carries headers a receiving MTA adds at delivery
+    /// (`Return-Path`, `Delivered-To`, `X-Original-To`) — i.e. this copy was
+    /// delivered to us rather than written by us. Direction can't be read off
+    /// the From address alone: a shared address configured here as a send-as
+    /// alias is also used by colleagues, and their mail matches it. Unlike the
+    /// mailbox it currently sits in, this travels with the message when it is
+    /// archived or moved. Defaults to false for rows cached before it existed,
+    /// which reads as "unknown" and leaves the address match in charge.
+    #[serde(default)]
+    pub delivered: bool,
     /// Send time as Unix epoch seconds (0 when the `Date` header is absent or
     /// unparseable). The frontend formats it for display in local time.
     pub date: i64,
@@ -159,6 +169,9 @@ pub fn parse_message(raw: &[u8], media: Option<&MediaCtx>) -> Message {
     let references =
         normalize_references(&headers.get_first_value("References").unwrap_or_default());
     let date = parse_date_to_epoch(&headers.get_first_value("Date").unwrap_or_default());
+    let delivered = ["Return-Path", "Delivered-To", "X-Original-To"]
+        .iter()
+        .any(|name| headers.get_first_value(name).is_some());
     let sources = body_sources(&mail);
 
     let mut attachments = Vec::new();
@@ -199,6 +212,7 @@ pub fn parse_message(raw: &[u8], media: Option<&MediaCtx>) -> Message {
         bcc,
         message_id,
         references,
+        delivered,
         date,
         body,
         body_html,
@@ -1218,6 +1232,21 @@ mod tests {
         // Re-rendering the stored HTML reproduces the body.
         assert_eq!(render_body(html), msg.body);
         assert_eq!(msg.body, "**hi**");
+    }
+
+    #[test]
+    fn delivery_headers_mark_a_message_as_received() {
+        // Written here (or filed to Sent by the server): no delivery headers.
+        let sent = b"From: me@example.com\r\nSubject: x\r\n\r\nhi";
+        assert!(!parse_message(sent, None).delivered);
+        // The copy delivered to us carries the receiving MTA's headers, and
+        // keeps them wherever it is filed afterwards.
+        let received =
+            b"Return-Path: <them@example.com>\r\nFrom: them@example.com\r\nSubject: x\r\n\r\nhi";
+        assert!(parse_message(received, None).delivered);
+        let routed =
+            b"Delivered-To: me@example.com\r\nFrom: me@example.com\r\nSubject: x\r\n\r\nhi";
+        assert!(parse_message(routed, None).delivered);
     }
 
     #[test]

@@ -1744,6 +1744,15 @@ export function isDraftFolder(folderId: string, accountId?: string): boolean {
   )
 }
 
+/** Whether a message lives in the account's inbox — i.e. it was delivered to us.
+ * Same role-first, name-fallback shape as {@link isDraftFolder}. */
+export function isInboxFolder(folderId: string, accountId?: string): boolean {
+  const candidates = [...(accountId ? (mail$.foldersByAccount[accountId].get() ?? []) : []), ...mail$.folders.get()]
+  const folder = candidates.find((item) => item.id === folderId || item.name === folderId)
+  if (folder?.role) return folder.role === 'inbox'
+  return folderId.toLowerCase() === 'inbox'
+}
+
 export async function discardSavedDraftCopy(
   draft: {
     threadId: string

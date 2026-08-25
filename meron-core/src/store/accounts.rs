@@ -561,18 +561,33 @@ pub fn self_addrs(conn: &Connection, id: &str) -> std::collections::HashSet<Stri
     addrs
 }
 
-/// Whether a cached message is one this account sent: its From is one of the
-/// account's own addresses (primary or configured send-as alias), or it lives
-/// in a Sent mailbox — a copy filed there is outbound by definition, even when
-/// it was sent from an alias meron doesn't know about (e.g. a webmail send-as).
+/// Whether a cached message is one this account sent: it lives in a Sent mailbox
+/// — a copy filed there is outbound by definition, even when it was sent from an
+/// alias meron doesn't know about (e.g. a webmail send-as) — or its From is one
+/// of the account's own addresses (primary or configured send-as alias).
+///
+/// The address match alone can't settle direction: a shared address configured
+/// here as an alias is also used by colleagues, whose mail then looks like ours.
+/// `delivered` (see [`crate::parse::Message::delivered`]) is the veto — a copy
+/// carrying delivery headers was received, not written here — and unlike the
+/// mailbox it sits in, it stays true after the message is archived or moved.
+/// Pass false when the body isn't cached and the headers are unknown.
+///
 /// `mine` comes from [`self_addrs`]; `folder` is the message's source mailbox.
 pub fn is_outgoing(
     mine: &std::collections::HashSet<String>,
     folder: &str,
     from_addr: &str,
+    delivered: bool,
 ) -> bool {
+    if crate::imap::looks_like_sent(folder) {
+        return true;
+    }
+    if delivered {
+        return false;
+    }
     let from = from_addr.trim().to_lowercase();
-    (!from.is_empty() && mine.contains(&from)) || crate::imap::looks_like_sent(folder)
+    !from.is_empty() && mine.contains(&from)
 }
 
 /// Rewrite the thread-card identity to show *the other party*: for messages this
@@ -602,7 +617,9 @@ pub fn apply_card_identity(
         } else {
             header.folder.as_str()
         };
-        if is_outgoing(&mine, source_folder, &header.from_addr)
+        // Envelope headers carry no delivery headers, so the thread card keeps
+        // the address match; the reader and reply paths read the cached body.
+        if is_outgoing(&mine, source_folder, &header.from_addr, false)
             && let Some(first) = header.to.first().cloned()
         {
             header.recipient_overflow = (header.to.len() - 1) as u32;

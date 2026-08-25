@@ -2009,7 +2009,8 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
             let message = read_cached_or_fetch(engine, &account, &folder, uid).await?;
             let mine = store::self_addrs(&engine.db.lock().unwrap(), &account);
-            let outgoing = store::is_outgoing(&mine, &folder, &message.from_addr);
+            let outgoing =
+                store::is_outgoing(&mine, &folder, &message.from_addr, message.delivered);
             Ok(json!({ "outgoing": outgoing, "message": serde_json::to_value(message)? }))
         }
 

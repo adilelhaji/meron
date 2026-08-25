@@ -460,7 +460,12 @@ pub fn thread_message_json(
         // Classified in the core (own address *or* Sent-folder provenance) so
         // both frontends render alias-sent mail as outgoing without knowing
         // the account's aliases.
-        "outgoing": store::is_outgoing(mine, folder, from_addr),
+        "outgoing": store::is_outgoing(
+            mine,
+            folder,
+            from_addr,
+            cached.is_some_and(|message| message.delivered),
+        ),
         "from_name": cached.map(|message| message.from_name.as_str()).unwrap_or(header.from_name.as_str()),
         "from_addr": cached.map(|message| message.from_addr.as_str()).unwrap_or(header.from_addr.as_str()),
         "to": cached.map(|message| message.to.as_str()).unwrap_or(""),

@@ -487,6 +487,70 @@ class ComposeUiTest {
     }
 
     @Test
+    fun quickReplyContinuesWithTheAliasUsedByTheNewestOutgoingReply() {
+        val state = testState()
+        state.coreAccounts =
+            listOf(
+                aliasAccount(
+                    aliases =
+                        listOf(
+                            AccountAlias(email = "sales@example.com", name = "Sales"),
+                            AccountAlias(email = "support@example.com", name = "Support"),
+                        ),
+                ),
+            )
+        state.selectedCoreThread = threadSummary(id = "t1")
+        val inbound = messageBody(id = "m1", folderId = "INBOX", to = "sales@example.com")
+        val outgoing =
+            messageBody(
+                id = "m2",
+                folderId = "Sent",
+                to = "sender@example.com",
+                fromAddr = "support@example.com",
+                outgoing = true,
+            )
+        state.messages = listOf(inbound, outgoing)
+
+        assertEquals(inbound, state.quickReplyParent())
+        assertEquals("support@example.com", state.selectedQuickReplyIdentity()?.email)
+        assertEquals("support@example.com", state.resolveQuickReplyFrom(inbound, state.coreAccounts.first()))
+    }
+
+    @Test
+    fun quickReplyIgnoresInboundMailFromASharedAliasAddress() {
+        val state = testState()
+        state.coreAccounts =
+            listOf(
+                aliasAccount(
+                    aliases =
+                        listOf(
+                            AccountAlias(email = "sales@example.com", name = "Sales"),
+                            AccountAlias(email = "support@example.com", name = "Support"),
+                        ),
+                ),
+            )
+        state.selectedCoreThread = threadSummary(id = "t1")
+        val inbound = messageBody(id = "m1", folderId = "INBOX", to = "sales@example.com")
+        // A colleague sending from the shared support address. The core flags it
+        // outgoing because its From matches a configured identity, but it was
+        // delivered to our inbox, so it is not mail we sent.
+        val colleague =
+            messageBody(
+                id = "m2",
+                folderId = "INBOX",
+                to = "sales@example.com",
+                fromAddr = "support@example.com",
+                outgoing = true,
+            )
+        state.messages = listOf(inbound, colleague)
+
+        // The colleague's message is still the one we reply to, and the From
+        // falls through to the alias the thread was delivered to.
+        assertEquals(colleague, state.quickReplyParent())
+        assertEquals("sales@example.com", state.resolveQuickReplyFrom(inbound, state.coreAccounts.first()))
+    }
+
+    @Test
     fun quickReplyOverrideWinsOverTheDetectedAlias() {
         val state = testState()
         state.coreAccounts = listOf(aliasAccount())
@@ -563,6 +627,7 @@ class ComposeUiTest {
         messageId: String = "",
         to: String = "me@example.com",
         fromAddr: String = "",
+        outgoing: Boolean = false,
     ): MessageBody =
         MessageBody(
             id = id,
@@ -575,6 +640,7 @@ class ComposeUiTest {
             references = references,
             messageId = messageId,
             fromAddr = fromAddr,
+            outgoing = outgoing,
         )
 
     private fun testState(): MeronMobileState =
