@@ -135,7 +135,7 @@ pub struct Folder {
 }
 
 /// One addressee parsed from an envelope `To`/`Cc` list.
-#[derive(serde::Serialize, serde::Deserialize, Default, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Recipient {
     pub name: String,
     pub addr: String,
@@ -1555,7 +1555,7 @@ async fn supports_condstore(session: &mut Session) -> bool {
     }
 }
 
-fn thread_key(
+pub(crate) fn thread_key(
     gmail_thrid: Option<u64>,
     message_id: &str,
     in_reply_to: &str,
@@ -1587,7 +1587,7 @@ fn thread_key(
 /// headers, where a case change breaks the recipient's threading (e.g. Gmail
 /// matches ids byte-for-byte). Store lookups that compare ids wrap both sides
 /// in `lower()` instead.
-fn normalize_message_id(value: &str) -> String {
+pub(crate) fn normalize_message_id(value: &str) -> String {
     if let Some(start) = value.find('<')
         && let Some(end) = value[start..].find('>')
     {
@@ -1620,7 +1620,7 @@ fn header_subject(header: &[u8]) -> Option<String> {
     headers.get_first_value("Subject").filter(|s| !s.is_empty())
 }
 
-fn first_message_id(value: &str) -> Option<String> {
+pub(crate) fn first_message_id(value: &str) -> Option<String> {
     value
         .split_whitespace()
         .map(normalize_message_id)

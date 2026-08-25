@@ -110,6 +110,31 @@ impl EwsClient {
         single_message(into_successes(response).context("SyncFolderItems")?)
     }
 
+    /// Fetches envelope fields for the given items in one call, without
+    /// downloading message bodies.
+    ///
+    /// This is the whole reason a native backend beats bridging through
+    /// IMAP: serving an envelope over IMAP semantics forces a gateway to
+    /// download each full message to synthesize headers, while EWS returns
+    /// exactly the properties asked for.
+    pub fn fetch_envelopes(&self, items: &[EwsId]) -> anyhow::Result<Vec<EwsEnvelope>> {
+        let response = self.call(GetItem {
+            item_shape: ItemShape {
+                base_shape: BaseShape::IdOnly,
+                include_mime_content: None,
+                additional_properties: Some(envelope_properties()),
+            },
+            item_ids: items.iter().map(item_id).collect(),
+        })?;
+        let mut envelopes = Vec::new();
+        for message in into_successes(response).context("GetItem envelopes")? {
+            for item in message.items.inner {
+                envelopes.push(EwsEnvelope::from_message(item.inner_message())?);
+            }
+        }
+        Ok(envelopes)
+    }
+
     /// Downloads the full MIME content of the given items, decoded from the
     /// base64 the server returns.
     pub fn fetch_mime(&self, items: &[EwsId]) -> anyhow::Result<Vec<(ItemId, Vec<u8>)>> {
@@ -307,6 +332,156 @@ fn single_message<T>(mut messages: Vec<T>) -> anyhow::Result<T> {
         bail!("expected 1 EWS response message, got {}", messages.len());
     }
     Ok(messages.remove(0))
+}
+
+/// The properties an envelope fetch asks for, beyond the id the base shape
+/// already carries.
+///
+/// `InternetMessageHeaders` is requested for one header only — `References`,
+/// which Meron's threading needs and EWS exposes nowhere else — but the server
+/// returns the whole header block, so this is the one costly item in the list.
+fn envelope_properties() -> Vec<PathToElement> {
+    [
+        "item:Subject",
+        "item:DateTimeSent",
+        "message:From",
+        "message:ToRecipients",
+        "message:CcRecipients",
+        "message:IsRead",
+        "message:InternetMessageId",
+        "message:InReplyTo",
+        "item:InternetMessageHeaders",
+    ]
+    .into_iter()
+    .map(|uri| PathToElement::FieldURI {
+        field_URI: uri.to_string(),
+    })
+    .collect()
+}
+
+/// Envelope fields for one message, as the sync path needs them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EwsEnvelope {
+    pub item_id: String,
+    pub change_key: Option<String>,
+    pub subject: String,
+    pub from_name: String,
+    pub from_addr: String,
+    /// Send time as Unix epoch seconds, 0 when the server omitted it.
+    pub date: i64,
+    pub seen: bool,
+    pub message_id: String,
+    pub in_reply_to: String,
+    /// First id of the `References` header, the root of the thread.
+    pub references_root: String,
+    pub to: Vec<crate::imap::Recipient>,
+    pub cc: Vec<crate::imap::Recipient>,
+}
+
+impl EwsEnvelope {
+    fn from_message(message: &Message) -> anyhow::Result<Self> {
+        let id = message
+            .item_id
+            .as_ref()
+            .context("EWS returned a message without an item id")?;
+        Ok(Self {
+            item_id: id.id.clone(),
+            change_key: id.change_key.clone(),
+            subject: message.subject.clone().unwrap_or_default(),
+            from_name: mailbox_name(message.from.as_ref()),
+            from_addr: mailbox_addr(message.from.as_ref()),
+            date: message
+                .date_time_sent
+                .as_ref()
+                .map(|sent| sent.0.unix_timestamp())
+                .unwrap_or_default(),
+            // Absent IsRead means the server did not return the property, not
+            // that the message is unread; only a present `false` is unread.
+            seen: message.is_read.unwrap_or(true),
+            message_id: message
+                .internet_message_id
+                .as_deref()
+                .map(crate::imap::normalize_message_id)
+                .unwrap_or_default(),
+            in_reply_to: message
+                .in_reply_to
+                .as_deref()
+                .map(crate::imap::normalize_message_id)
+                .unwrap_or_default(),
+            references_root: references_root(message).unwrap_or_default(),
+            to: recipients(message.to_recipients.as_ref()),
+            cc: recipients(message.cc_recipients.as_ref()),
+        })
+    }
+
+    /// Projects the envelope onto the header type the rest of the core stores
+    /// and renders, under the local uid its item maps to.
+    pub fn into_header(self, uid: u32, folder: &str) -> crate::imap::MessageHeader {
+        let thread_key = crate::imap::thread_key(
+            // X-GM-THRID is Gmail-only; Exchange threads by ConversationId,
+            // which is not the same grouping and is not consulted here.
+            None,
+            &self.message_id,
+            &self.in_reply_to,
+            &self.references_root,
+            uid,
+        );
+        crate::imap::MessageHeader {
+            uid,
+            folder: folder.to_string(),
+            subject: self.subject,
+            from_name: self.from_name,
+            from_addr: self.from_addr,
+            date: self.date,
+            seen: self.seen,
+            // Exchange represents follow-up flags as a MAPI property rather
+            // than an IMAP-style keyword; until the sync path requests it,
+            // report unflagged rather than guessing.
+            starred: false,
+            thread_key,
+            message_id: self.message_id,
+            gmail_msg_id: None,
+            in_reply_to: self.in_reply_to,
+            to: self.to,
+            cc: self.cc,
+            recipient_overflow: 0,
+        }
+    }
+}
+
+fn references_root(message: &Message) -> Option<String> {
+    let headers = message.internet_message_headers.as_ref()?;
+    headers
+        .internet_message_header
+        .iter()
+        .find(|header| header.header_name.eq_ignore_ascii_case("References"))
+        .and_then(|header| header.value.as_deref())
+        .and_then(crate::imap::first_message_id)
+}
+
+fn mailbox_name(recipient: Option<&::ews::Recipient>) -> String {
+    recipient
+        .and_then(|recipient| recipient.mailbox.name.clone())
+        .unwrap_or_default()
+}
+
+fn mailbox_addr(recipient: Option<&::ews::Recipient>) -> String {
+    recipient
+        .and_then(|recipient| recipient.mailbox.email_address.clone())
+        .unwrap_or_default()
+}
+
+fn recipients(list: Option<&::ews::ArrayOfRecipients>) -> Vec<crate::imap::Recipient> {
+    list.map(|list| {
+        list.0
+            .iter()
+            .map(|recipient| crate::imap::Recipient {
+                name: recipient.mailbox.name.clone().unwrap_or_default(),
+                addr: recipient.mailbox.email_address.clone().unwrap_or_default(),
+            })
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 fn folder_id(reference: &EwsId) -> BaseFolderId {
@@ -515,6 +690,159 @@ mod tests {
         assert!(xml.contains("message:IsRead"), "missing field URI: {xml}");
         assert!(xml.contains("IsRead"), "missing flag value: {xml}");
         assert!(xml.contains("AAMk="), "missing item id: {xml}");
+    }
+
+    /// A reply carrying every envelope property the sync path requests.
+    const ENVELOPE_RESPONSE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Header/>
+  <s:Body>
+    <m:GetItemResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items>
+            <t:Message>
+              <t:ItemId Id="AAMkENV=" ChangeKey="CQAAAE=="/>
+              <t:Subject>RE: Quarterly report</t:Subject>
+              <t:DateTimeSent>2026-08-24T09:15:00Z</t:DateTimeSent>
+              <t:InternetMessageHeaders>
+                <t:InternetMessageHeader HeaderName="References">&lt;root@example.org&gt; &lt;reply@example.org&gt;</t:InternetMessageHeader>
+                <t:InternetMessageHeader HeaderName="X-Mailer">Outlook</t:InternetMessageHeader>
+              </t:InternetMessageHeaders>
+              <t:From>
+                <t:Mailbox>
+                  <t:Name>Ada Lovelace</t:Name>
+                  <t:EmailAddress>ada@example.org</t:EmailAddress>
+                </t:Mailbox>
+              </t:From>
+              <t:ToRecipients>
+                <t:Mailbox>
+                  <t:Name>Team</t:Name>
+                  <t:EmailAddress>team@example.org</t:EmailAddress>
+                </t:Mailbox>
+              </t:ToRecipients>
+              <t:CcRecipients>
+                <t:Mailbox>
+                  <t:EmailAddress>watcher@example.org</t:EmailAddress>
+                </t:Mailbox>
+              </t:CcRecipients>
+              <t:InternetMessageId>&lt;current@example.org&gt;</t:InternetMessageId>
+              <t:InReplyTo>&lt;reply@example.org&gt;</t:InReplyTo>
+              <t:IsRead>false</t:IsRead>
+            </t:Message>
+          </m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages>
+    </m:GetItemResponse>
+  </s:Body>
+</s:Envelope>"#;
+
+    #[test]
+    fn envelope_fetch_maps_every_field_without_downloading_bodies() {
+        let (url, server) = serve_soap_once(ENVELOPE_RESPONSE);
+        let client = EwsClient::new(EwsConfig {
+            url,
+            username: "u".to_string(),
+            password: "p".to_string(),
+        });
+        let envelopes = client
+            .fetch_envelopes(&[("AAMkENV=".to_string(), None)])
+            .expect("envelope fetch should succeed");
+
+        assert_eq!(envelopes.len(), 1);
+        let envelope = &envelopes[0];
+        assert_eq!(envelope.item_id, "AAMkENV=");
+        assert_eq!(envelope.change_key.as_deref(), Some("CQAAAE=="));
+        assert_eq!(envelope.subject, "RE: Quarterly report");
+        assert_eq!(envelope.from_name, "Ada Lovelace");
+        assert_eq!(envelope.from_addr, "ada@example.org");
+        // 2026-08-24T09:15:00Z as epoch seconds.
+        assert_eq!(envelope.date, 1787562900);
+        assert!(!envelope.seen, "IsRead=false must map to unseen");
+        // Angle brackets are stripped, casing preserved.
+        assert_eq!(envelope.message_id, "current@example.org");
+        assert_eq!(envelope.in_reply_to, "reply@example.org");
+        // The thread root is the FIRST id of References, not the last.
+        assert_eq!(envelope.references_root, "root@example.org");
+        assert_eq!(
+            envelope.to,
+            vec![crate::imap::Recipient {
+                name: "Team".to_string(),
+                addr: "team@example.org".to_string(),
+            }]
+        );
+        assert_eq!(
+            envelope.cc,
+            vec![crate::imap::Recipient {
+                name: String::new(),
+                addr: "watcher@example.org".to_string(),
+            }]
+        );
+
+        let request = server.join().expect("server thread");
+        assert!(
+            !request.contains("IncludeMimeContent"),
+            "envelope fetch must not download bodies: {request}"
+        );
+        for property in ["item:Subject", "message:From", "message:IsRead"] {
+            assert!(request.contains(property), "missing {property}: {request}");
+        }
+    }
+
+    #[test]
+    fn envelope_threads_on_the_references_root() {
+        let envelope = EwsEnvelope {
+            item_id: "AAMk=".to_string(),
+            change_key: None,
+            subject: "RE: hi".to_string(),
+            from_name: "A".to_string(),
+            from_addr: "a@example.org".to_string(),
+            date: 1787562900,
+            seen: false,
+            message_id: "current@example.org".to_string(),
+            in_reply_to: "parent@example.org".to_string(),
+            references_root: "root@example.org".to_string(),
+            to: Vec::new(),
+            cc: Vec::new(),
+        };
+
+        let header = envelope.clone().into_header(7, "INBOX");
+        assert_eq!(header.uid, 7);
+        assert_eq!(header.folder, "INBOX");
+        // References root wins over In-Reply-To and the message's own id, so a
+        // reply lands in the same thread as its ancestors.
+        assert_eq!(header.thread_key, "root@example.org");
+        assert!(!header.starred, "Exchange follow-up flags are not read yet");
+        assert_eq!(header.gmail_msg_id, None);
+
+        // With no References the parent id carries the thread instead.
+        let orphan = EwsEnvelope {
+            references_root: String::new(),
+            ..envelope
+        };
+        assert_eq!(orphan.into_header(7, "INBOX").thread_key, "parent@example.org");
+    }
+
+    #[test]
+    fn envelope_defaults_do_not_invent_unread_mail() {
+        // A server that omits IsRead must not make every message look unread:
+        // an absent property means "not returned", not "unread".
+        let message = ::ews::Message {
+            item_id: Some(::ews::ItemId {
+                id: "AAMk=".to_string(),
+                change_key: None,
+            }),
+            ..::ews::Message::default()
+        };
+        let envelope = EwsEnvelope::from_message(&message).expect("mapping should succeed");
+        assert!(envelope.seen);
+        assert_eq!(envelope.date, 0);
+        assert_eq!(envelope.subject, "");
+
+        // Without any id at all the message is unusable and must fail loud.
+        let anonymous = ::ews::Message::default();
+        assert!(EwsEnvelope::from_message(&anonymous).is_err());
     }
 
     /// Minimal single-request HTTP/1.1 server: accepts one connection, reads
