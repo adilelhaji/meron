@@ -336,9 +336,11 @@ export function useAppEffects() {
       (detail: { from?: number; to?: number }) => {
         const { from, to } = calendar$.peek()
         if (to <= from) return
-        // Only re-read if the window that synced is the one on screen.
+        // Re-read when the synced window overlaps the one on screen, not only
+        // when it matches: a write syncs just the hours its event occupies,
+        // and requiring equality meant a newly created event never appeared.
         if (detail?.from !== undefined && detail?.to !== undefined) {
-          if (detail.from !== from || detail.to !== to) return
+          if (detail.to <= from || detail.from >= to) return
         }
         void loadWindow(from, to, false)
       },
