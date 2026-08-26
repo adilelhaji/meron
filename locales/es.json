@@ -141,6 +141,7 @@
   "calendar.endsBeforeStart": "Termina antes de empezar.",
   "calendar.groupLocal": "En este ordenador",
   "calendar.groupSubscribed": "Suscripciones",
+  "calendar.importFromAccount": "Importar los calendarios de la cuenta",
   "calendar.inAccount": "Cuenta",
   "calendar.kindAccount": "En una cuenta",
   "calendar.kindAccountHint": "Se crea en el servidor de la cuenta, y lo verás allá donde leas esa cuenta.",

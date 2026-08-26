@@ -5,7 +5,9 @@ import {
   accountColor,
   accountSupportsCalendar,
   calendar$,
+  importAccountCalendars,
   loadCalendars,
+  setCalendarEnabled,
   type Calendar as CalendarModel,
 } from '../../states/calendar'
 import { useTranslation } from '../../lib/i18n'
@@ -35,7 +37,6 @@ import {
   Archive,
   Server,
   CalendarDays,
-  ChevronRight,
   Lock,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
@@ -381,13 +382,15 @@ export function calendarKey(calendar: { accountId: string; id: string }): string
   return `calendar:${calendar.accountId}:${calendar.id}`
 }
 
-/// The account's calendars, inside the account's own settings. Mail and
-/// calendar are set up together, so the account page is where a reader looks
-/// for them first; each row opens that calendar's settings. Only calendars
-/// living on the account's server belong here — local calendars and
+/// The account's calendars, managed inside the account's own settings. Mail
+/// and calendar are set up together, so this is where their controls live:
+/// each calendar shows or hides in place, and the import row asks the server
+/// again — nothing here navigates away from the account. Only calendars
+/// living on the account's server belong here; local calendars and
 /// subscriptions merely listed under the account are not part of it.
 function AccountCalendarsGroup({ account }: { account: Account }) {
   const { t } = useTranslation()
+  const [importing, setImporting] = useState(false)
   const calendars = useValue(calendar$.calendars).filter(
     (calendar) => calendar.accountId === account.id && calendar.kind === 'account',
   )
@@ -395,6 +398,16 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
   // shows the section even before its first sync has filled it, so the reader
   // is told the calendars are coming rather than left to wonder.
   if (!accountSupportsCalendar(account) && calendars.length === 0) return null
+
+  const runImport = async () => {
+    setImporting(true)
+    try {
+      await importAccountCalendars(account.id)
+    } finally {
+      setImporting(false)
+    }
+  }
+
   return (
     <SettingsGroup title={t('calendar.title', { defaultValue: 'Calendar' })}>
       {calendars.length === 0 && (
@@ -407,26 +420,35 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
       {calendars.map((calendar) => {
         const color = calendar.color || accountColor(calendar.accountId)
         return (
-          <button
+          <ToggleRow
             key={calendar.id}
-            type="button"
-            onClick={() => ui$.accountSettingsId.set(calendarKey(calendar))}
-            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover cursor-pointer"
-          >
-            <span
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-              style={{ backgroundColor: `${color}1a` }}
-            >
-              <CalendarDays size={13} style={{ color }} />
-            </span>
-            <span className="min-w-0 flex-1 truncate text-xs font-medium text-primary">
-              {calendar.name}
-            </span>
-            {calendar.read_only && <Lock size={11} className="shrink-0 text-secondary/70" />}
-            <ChevronRight size={14} className="shrink-0 text-secondary/70" />
-          </button>
+            icon={
+              <span
+                className="flex h-6 w-6 items-center justify-center rounded-md"
+                style={{ backgroundColor: `${color}1a` }}
+              >
+                <CalendarDays size={13} style={{ color }} />
+              </span>
+            }
+            title={calendar.name}
+            checked={calendar.enabled}
+            onChange={() =>
+              void setCalendarEnabled(calendar.accountId, calendar.id, !calendar.enabled)
+            }
+          />
         )
       })}
+      <div className="px-4 py-3">
+        <button
+          type="button"
+          disabled={importing}
+          onClick={() => void runImport()}
+          className="flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10 disabled:opacity-50 disabled:cursor-default cursor-pointer"
+        >
+          <RefreshCw size={13} className={importing ? 'animate-spin' : ''} />
+          {t('calendar.importFromAccount', { defaultValue: "Import the account's calendars" })}
+        </button>
+      </div>
     </SettingsGroup>
   )
 }

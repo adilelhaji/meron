@@ -139,6 +139,23 @@ export async function loadCalendars() {
   calendar$.calendars.set(perAccount.flat())
 }
 
+/// Re-runs calendar discovery for one account, on demand. The events call
+/// refreshes behind the request: it lists the account's calendars again and
+/// re-syncs the window, and the calendar.synced event reloads state here.
+export async function importAccountCalendars(accountId: string) {
+  const now = Math.floor(Date.now() / 1000)
+  const { from, to } = calendar$.peek()
+  const [windowFrom, windowTo] =
+    to > from ? [from, to] : [now - 7 * 24 * 3600, now + 90 * 24 * 3600]
+  await invoke('calendar.events', {
+    account_id: accountId,
+    from: windowFrom,
+    to: windowTo,
+    refresh: true,
+  })
+  await loadCalendars()
+}
+
 export async function setCalendarEnabled(accountId: string, calendarId: string, enabled: boolean) {
   await invoke('calendar.setEnabled', {
     account_id: accountId,
