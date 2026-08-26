@@ -1640,7 +1640,26 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 store::upsert_account(&db, &id, &meta, &creds)?;
             }
             secrets::store(&id, &secrets::Secrets::from_creds(&creds))?;
+            let has_calendars = creds.is_ews();
             engine.accounts.lock().await.insert(id.clone(), creds);
+            // Setting up a mail account brings its calendars with it: that is
+            // what adding an Exchange (or, later, Google) account means in
+            // every established client, so nobody has to know that a separate
+            // import exists. Runs behind the response — discovery must not
+            // slow down account creation.
+            if has_calendars {
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|epoch| epoch.as_secs() as i64)
+                    .unwrap_or_default();
+                spawn_calendar_sync(
+                    engine.clone(),
+                    out.clone(),
+                    id.clone(),
+                    now - 7 * 24 * 3600,
+                    now + 90 * 24 * 3600,
+                );
+            }
             // This call also edits an existing account (server settings, a new
             // password, a reconnect). Replacing the cached creds is not enough:
             // warm pooled sessions and the live IDLE watcher are already

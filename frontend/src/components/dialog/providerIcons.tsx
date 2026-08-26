@@ -71,7 +71,7 @@ export const PROVIDERS: ProviderDef[] = [
     id: 'ews',
     label: 'Exchange',
     descriptionKey: 'accounts.providers.exchangeDescription',
-    defaultDescription: 'Exchange Web Services',
+    defaultDescription: 'Exchange mail and calendar',
     mode: 'ews',
     isActive: (mode) => mode === 'ews',
     icon: (s) => <Server size={s} className="text-accent" />,

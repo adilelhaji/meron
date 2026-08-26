@@ -93,7 +93,7 @@ export function AccountDialogEWS({
       <p className="text-[0.6875rem] text-secondary px-1 -mt-1">
         {t('accounts.setup.ewsHint', {
           defaultValue:
-            'For on-premises Exchange servers that expose Exchange Web Services over HTTPS.',
+            'For on-premises Exchange servers that expose Exchange Web Services over HTTPS. Mail and calendar are set up together.',
         })}
       </p>
     </>
