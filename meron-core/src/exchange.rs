@@ -643,6 +643,15 @@ impl EwsSession {
             .collect())
     }
 
+    /// Transmits a fully-formed MIME message.
+    ///
+    /// Exchange sends it and files the Sent copy in one call, so unlike the
+    /// SMTP path there is no separate append afterwards.
+    pub async fn send_mime(&mut self, raw: Vec<u8>) -> anyhow::Result<()> {
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || client.send_mime(&raw)).await?
+    }
+
     /// Records the folder a following flag update applies to.
     ///
     /// The IMAP backend uses this preflight to SELECT the mailbox and to let a

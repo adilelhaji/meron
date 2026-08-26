@@ -1881,6 +1881,45 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let creds = engine.ensure_valid_creds(&account).await?;
             let (from_addr, sender_name) =
                 resolve_send_from(engine, &account, &creds, &requested_from)?;
+            if creds.is_ews() {
+                // Exchange submits the MIME itself and files the Sent copy in
+                // the same call, so there is no separate append.
+                //
+                // The Bcc header is written into the message here, unlike the
+                // SMTP path: SMTP carries blind recipients in the envelope,
+                // while Exchange has only the MIME to read them from. It
+                // strips the header before delivering, so recipients still do
+                // not see the list.
+                let raw = smtp::build_message(
+                    &sender_name,
+                    &from_addr,
+                    &to,
+                    &cc,
+                    &bcc,
+                    true,
+                    &subject,
+                    &body,
+                    &html,
+                    &attachments,
+                    &in_reply_to,
+                    &references,
+                    &reply_to,
+                    &message_id,
+                )?;
+                engine
+                    .with_write_session(&account, |session| {
+                        let raw = raw.clone();
+                        Box::pin(async move { session.send_mime(raw).await })
+                    })
+                    .await?;
+                // The server files its own copy, so this only refreshes the
+                // local Sent view — the upload is suppressed for Exchange in
+                // `should_append_sent_copy`.
+                if let Err(err) = append_to_sent(engine, &account, &raw).await {
+                    eprintln!("meron-core: Sent refresh failed for {account}: {err:#}");
+                }
+                return Ok(json!({ "ok": true }));
+            }
             let raw = smtp::send(
                 &creds,
                 &from_addr,

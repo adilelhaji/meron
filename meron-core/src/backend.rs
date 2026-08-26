@@ -182,6 +182,17 @@ impl Session {
         }
     }
 
+    /// Transmits a message. Only the Exchange backend implements this: IMAP
+    /// accounts submit through SMTP, which is not a session operation.
+    pub async fn send_mime(&mut self, raw: Vec<u8>) -> Result<()> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!(
+                "IMAP accounts send through SMTP, not the mail session"
+            )),
+            Session::Ews(session) => session.send_mime(raw).await,
+        }
+    }
+
     pub async fn store_seen(&mut self, uids: &[u32], seen: bool) -> Result<()> {
         match self {
             Session::Imap(session) => imap::store_seen(session, uids, seen).await,

@@ -1474,11 +1474,19 @@ pub fn canon_folder(folder: &str) -> String {
     crate::mail_model::canon_folder(folder)
 }
 
+/// Whether Meron uploads its own copy of a sent message.
+///
+/// `is_ews` accounts never do: Exchange files the copy as part of the same
+/// call that transmits the message, so an upload would duplicate it.
 pub fn should_append_sent_copy(
     auth_type: &str,
     smtp_host: &str,
     override_pref: Option<bool>,
+    is_ews: bool,
 ) -> bool {
+    if is_ews {
+        return false;
+    }
     override_pref.unwrap_or_else(|| {
         let host = smtp_host.trim_end_matches('.').to_ascii_lowercase();
         let provider_saves_sent = matches!(auth_type, "gmail_oauth" | "outlook_oauth")
@@ -1496,18 +1504,24 @@ pub fn should_append_sent_copy(
 }
 
 pub async fn append_to_sent(engine: &Arc<Engine>, account: &str, raw: &[u8]) -> anyhow::Result<()> {
-    let (auth_type, smtp_host, override_pref) = {
-        let (auth_type, smtp_host) = engine
+    let (auth_type, smtp_host, override_pref, is_ews) = {
+        let (auth_type, smtp_host, is_ews) = engine
             .accounts
             .lock()
             .await
             .get(account)
-            .map(|creds| (creds.auth_type.clone(), creds.smtp_host.clone()))
-            .unwrap_or_else(|| ("password".to_string(), String::new()));
+            .map(|creds| {
+                (
+                    creds.auth_type.clone(),
+                    creds.smtp_host.clone(),
+                    creds.is_ews(),
+                )
+            })
+            .unwrap_or_else(|| ("password".to_string(), String::new(), false));
         let override_pref = store::save_sent_copy_pref(&engine.db.lock().unwrap(), account)?;
-        (auth_type, smtp_host, override_pref)
+        (auth_type, smtp_host, override_pref, is_ews)
     };
-    let should_append = should_append_sent_copy(&auth_type, &smtp_host, override_pref);
+    let should_append = should_append_sent_copy(&auth_type, &smtp_host, override_pref, is_ews);
 
     // APPEND is mutating, so this never auto-retries (a drop after the server
     // accepted the message must not re-APPEND a duplicate copy).
@@ -1990,31 +2004,41 @@ mod tests {
 
     #[test]
     pub fn sent_copy_policy_uses_provider_defaults_and_overrides() {
-        assert!(!should_append_sent_copy("gmail_oauth", "", None));
-        assert!(!should_append_sent_copy("outlook_oauth", "", None));
-        assert!(!should_append_sent_copy("password", "smtp.gmail.com", None));
+        assert!(!should_append_sent_copy("gmail_oauth", "", None, false));
+        assert!(!should_append_sent_copy("outlook_oauth", "", None, false));
+        assert!(!should_append_sent_copy("password", "smtp.gmail.com", None, false));
         assert!(!should_append_sent_copy(
             "custom",
             "smtp.office365.com",
-            None
+            None,
+            false
         ));
         assert!(should_append_sent_copy(
             "password",
             "smtp.example.com",
-            None
+            None,
+            false
         ));
-        assert!(should_append_sent_copy("custom", "", None));
+        assert!(should_append_sent_copy("custom", "", None, false));
 
-        assert!(should_append_sent_copy("gmail_oauth", "", Some(true)));
+        assert!(should_append_sent_copy("gmail_oauth", "", Some(true), false));
+
+        // Exchange files its own Sent copy as part of sending, so Meron never
+        // uploads one — not even when the account asks for it, which would
+        // otherwise duplicate every sent message.
+        assert!(!should_append_sent_copy("password", "", None, true));
+        assert!(!should_append_sent_copy("password", "", Some(true), true));
         assert!(should_append_sent_copy(
             "password",
             "smtp.gmail.com",
-            Some(true)
+            Some(true),
+            false
         ));
         assert!(!should_append_sent_copy(
             "password",
             "smtp.example.com",
-            Some(false)
+            Some(false),
+            false
         ));
     }
 
