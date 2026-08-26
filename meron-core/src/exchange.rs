@@ -1112,6 +1112,18 @@ impl EwsSession {
             })
             .await??
         };
+        // Removing a calendar moves it to Deleted Items rather than destroying
+        // it, so the folder outlives the removal and the hierarchy still
+        // reports it. Listing it again would undo the removal the user asked
+        // for, so anything sitting in the wastebasket is not a calendar of
+        // theirs any more.
+        let deleted_items = {
+            let client = self.client.clone();
+            tokio::task::spawn_blocking(move || {
+                EwsSession::distinguished_folder(&client, "deleteditems")
+            })
+            .await??
+        };
 
         let mut calendars = Vec::new();
         for change in round.changes.inner {
@@ -1121,11 +1133,15 @@ impl EwsSession {
             let ::ews::Folder::CalendarFolder {
                 folder_id: Some(id),
                 display_name: Some(name),
+                parent_folder_id,
                 ..
             } = folder
             else {
                 continue;
             };
+            if is_discarded(deleted_items.as_deref(), parent_folder_id.as_ref()) {
+                continue;
+            }
             let is_default = default.as_deref() == Some(id.id.as_str());
             self.calendars
                 .insert(id.id.clone(), (id.id.clone(), id.change_key.clone()));
@@ -1718,10 +1734,45 @@ fn basic_auth(username: &str, password: &str) -> String {
     format!("Basic {credentials}")
 }
 
+/// Whether a folder sits in the wastebasket, and so is a calendar the user has
+/// already removed.
+///
+/// Removing a calendar moves it to Deleted Items rather than destroying it, so
+/// the folder outlives the removal and the hierarchy keeps reporting it.
+/// Listing it again would quietly undo the removal that was asked for.
+fn is_discarded(deleted_items: Option<&str>, parent: Option<&::ews::FolderId>) -> bool {
+    match (deleted_items, parent) {
+        (Some(bin), Some(parent)) => parent.id == bin,
+        // With no wastebasket to compare against, nothing is known to be in it:
+        // hiding a calendar the user still has would be the worse mistake.
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use ::ews::sync_folder_hierarchy::Change;
+
+    fn folder(id: &str) -> ::ews::FolderId {
+        ::ews::FolderId {
+            id: id.to_string(),
+            change_key: None,
+        }
+    }
+
+    #[test]
+    fn a_calendar_in_the_wastebasket_is_not_listed_again() {
+        let bin = "deleted-items";
+        // The case that matters: removal moves the folder here, and listing it
+        // again would undo the removal the user asked for.
+        assert!(is_discarded(Some(bin), Some(&folder(bin))));
+        assert!(!is_discarded(Some(bin), Some(&folder("inbox"))));
+
+        // Unknown parentage must not hide a calendar the user still has.
+        assert!(!is_discarded(Some(bin), None));
+        assert!(!is_discarded(None, Some(&folder(bin))));
+    }
 
     #[test]
     fn basic_auth_encodes_rfc7617_credentials() {
