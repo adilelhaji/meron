@@ -12,6 +12,7 @@ import { useAppEffects } from './useAppEffects'
 import { SideNav } from './components/sidenav/SideNav'
 import { ThreadList } from './components/threads/ThreadList'
 import { KanbanView } from './components/kanban/KanbanView'
+import { AgendaView } from './components/calendar/AgendaView'
 import { MessagePane } from './components/chat/MessagePane'
 import { AboutDialog } from './components/dialog/AboutDialog'
 import { ChangelogDialog } from './components/dialog/ChangelogDialog'
@@ -42,6 +43,7 @@ export default function App() {
   const threadListWidth = useValue(settings$.threadListWidth)
   const kanbanPaneThreadId = useValue(kanban$.paneThreadId)
   const kanbanPaneWidth = useValue(settings$.kanbanPaneWidth)
+  const calendarOpen = useValue(ui$.calendarOpen)
   const setupOpen = useValue(ui$.setupOpen)
   const settingsOpen = useValue(ui$.settingsOpen)
   const addFeedAccount = useValue(ui$.addFeedAccount)
@@ -71,6 +73,11 @@ export default function App() {
         <ErrorBoundary label="side navigation">
           <SideNav />
         </ErrorBoundary>
+        {calendarOpen ? (
+          <ErrorBoundary label="calendar">
+            <AgendaView />
+          </ErrorBoundary>
+        ) : (
         <ErrorBoundary label="thread list">
           {activeBoardId ? (
             <KanbanView boardId={activeBoardId} />
@@ -78,7 +85,8 @@ export default function App() {
             <ThreadList width={threadListWidth} onResizeStart={startThreadListResize} />
           )}
         </ErrorBoundary>
-        {!activeBoardId ? (
+        )}
+        {calendarOpen ? null : !activeBoardId ? (
           <ErrorBoundary label="conversation">
             <MessagePane />
           </ErrorBoundary>

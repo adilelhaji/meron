@@ -47,6 +47,10 @@ export const ui$ = observable({
   // Backend/system check, loaded once at boot.
   system: null as SystemCheck | null,
   // Current view selection.
+  // Whether the calendar is showing instead of mail. Kept beside the board
+  // selection rather than inside it: a board is a view of mail, a calendar is
+  // not mail at all.
+  calendarOpen: false,
   selectedAccount: '',
   selectedFolder: 'inbox',
   selectedThread: '',

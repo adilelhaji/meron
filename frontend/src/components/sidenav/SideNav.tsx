@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { DragEvent } from 'react'
-import { Mail, MoreHorizontal, EyeOff } from 'lucide-react'
+import { Mail, MoreHorizontal, EyeOff, CalendarDays } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
@@ -26,6 +26,7 @@ export function SideNav() {
   const { t } = useTranslation()
   const accounts = useValue(accounts$)
   const boards = useValue(settings$.kanbanBoards)
+  const calendarOpen = useValue(ui$.calendarOpen)
   const hiddenSideNavAccounts = useValue(settings$.hiddenSideNavAccounts)
   const showUnifiedInbox = useValue(settings$.showUnifiedInboxInSideNav)
   const showUnreadBadge = useValue(settings$.showUnreadAccountBadge)
@@ -123,7 +124,12 @@ export function SideNav() {
     }
   }
 
-  const selectAccount = (id: string, folderId = 'inbox') => openMailAccount(id, folderId)
+  // Picking any mail destination leaves the calendar: they occupy the same
+  // pane, so staying would show mail's selection with the calendar drawn.
+  const selectAccount = (id: string, folderId = 'inbox') => {
+    ui$.calendarOpen.set(false)
+    openMailAccount(id, folderId)
+  }
 
   return (
     <aside
@@ -165,6 +171,29 @@ export function SideNav() {
           </div>
         )}
 
+        {/* Calendar. Sits with the unified inbox rather than with the accounts:
+            like it, it spans every account rather than belonging to one. */}
+        {hasAccounts && (
+          <div className="relative w-full flex justify-center group">
+            <div
+              className={`absolute left-0 top-1/2 -translate-y-1/2 w-1 rounded-r bg-accent transition-all duration-200 ${
+                calendarOpen ? 'h-7' : 'h-0 group-hover:h-3'
+              }`}
+            />
+            <button
+              className={`flex h-11 w-11 items-center justify-center rounded-2xl transition-all duration-200 cursor-pointer ${
+                calendarOpen
+                  ? 'bg-accent text-white shadow-lg shadow-accent/25'
+                  : 'bg-white/10 text-white/60 hover:bg-white/20 hover:text-white hover:scale-105'
+              }`}
+              onClick={() => ui$.calendarOpen.set(!calendarOpen)}
+              title={t('calendar.title', { defaultValue: 'Calendar' })}
+            >
+              <CalendarDays size={19} />
+            </button>
+          </div>
+        )}
+
         {showUnifiedInbox && (hasBoards || hasAccounts) && <div className="h-px w-8 shrink-0 bg-white/10" />}
 
         {/* Kanban Boards */}
@@ -182,7 +211,10 @@ export function SideNav() {
                     key={board.id}
                     board={board}
                     active={board.id === activeBoardId}
-                    onSelect={() => selectKanbanBoard(board.id)}
+                    onSelect={() => {
+                      ui$.calendarOpen.set(false)
+                      selectKanbanBoard(board.id)
+                    }}
                     onContextMenu={(e) => {
                       e.preventDefault()
                       e.stopPropagation()
