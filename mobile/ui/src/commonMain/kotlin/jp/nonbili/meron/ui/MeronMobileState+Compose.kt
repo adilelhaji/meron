@@ -200,6 +200,7 @@ import jp.nonbili.meron.shared.buildOAuthAuthorizationUrl
 import jp.nonbili.meron.shared.defaultOAuthRedirectUri
 import jp.nonbili.meron.shared.detectReplyFromIdentity
 import jp.nonbili.meron.shared.folderIsDrafts
+import jp.nonbili.meron.shared.folderIsInbox
 import jp.nonbili.meron.shared.folderIsTrash
 import jp.nonbili.meron.shared.formatContactSuggestion
 import jp.nonbili.meron.shared.formatSendIdentity
@@ -790,14 +791,57 @@ private suspend fun MeronMobileState.discardObsoleteComposeDraft(
     }
 }
 
-// The message a quick reply answers: the newest one that isn't a draft (the
-// thread's own quick-reply draft would otherwise be the target), falling back to
-// the newest of all when every message is a draft.
-internal fun MeronMobileState.quickReplyParent(): MessageBody? = messages.lastOrNull { !folderIsDrafts(it.folderId) } ?: messages.lastOrNull()
+// The message a quick reply answers: the newest incoming message that isn't a
+// draft. Keeps mail we sent out of recipient/threading derivation — see
+// [sentByUs] for what counts as ours.
+internal fun MeronMobileState.quickReplyParent(): MessageBody? {
+    val accountId = selectedCoreThread?.accountId?.ifBlank { defaultSendAccountId() }.orEmpty()
+    val account = coreAccounts.firstOrNull { it.id == accountId }
+    val ownAddresses =
+        account
+            ?.let(::accountSendIdentities)
+            ?.map { it.email.trim().lowercase() }
+            ?.filter { it.isNotBlank() }
+            ?.toSet()
+            .orEmpty()
+
+    return messages.lastOrNull { !folderIsDrafts(it.folderId) && !it.sentByUs(ownAddresses) }
+        ?: messages.lastOrNull { !folderIsDrafts(it.folderId) }
+        ?: messages.lastOrNull()
+}
+
+// Whether a loaded message is one we sent, as opposed to one we received. The
+// core settles this from the message's own delivery headers whenever it has the
+// body cached. Until then `outgoing` — like the address check kept here for rows
+// shaped before that flag existed — falls back to matching From against our
+// identities, which also fires for a colleague's mail from a shared alias;
+// sitting in the inbox vetoes that match. An optimistic send is ours whatever
+// folder it claims.
+private fun MessageBody.sentByUs(ownAddresses: Set<String>): Boolean {
+    if (sendStatus != SendStatus.None) return true
+    if (folderIsInbox(folderId)) return false
+    return outgoing || ownAddresses.contains(fromAddr.trim().lowercase())
+}
+
+// Continue a thread with the configured identity used by its most recent
+// outgoing message. Null means there is no such message; blank means primary.
+private fun MeronMobileState.detectRecentThreadFrom(account: AccountSummary): String? {
+    val identities = accountSendIdentities(account)
+    val byEmail = identities.associateBy { it.email.trim().lowercase() }
+    val ownAddresses = identities.map { it.email.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
+    for (message in messages.asReversed()) {
+        if (folderIsDrafts(message.folderId)) continue
+        if (!message.sentByUs(ownAddresses)) continue
+        val identity = byEmail[message.fromAddr.trim().lowercase()] ?: continue
+        return if (identity.email.equals(account.email, ignoreCase = true)) "" else identity.email
+    }
+    return null
+}
 
 // The address the quick reply sends from: the identity picked in the reply bar's
-// From row, else the alias the original was delivered to. Blank means the
-// account primary, which the send and draft paths read as "use the default".
+// From row, the identity used by the newest outgoing message, or the alias the
+// inbound parent was delivered to. Blank means the account primary, which the
+// send and draft paths read as "use the default".
 internal fun MeronMobileState.resolveQuickReplyFrom(
     parent: MessageBody,
     account: AccountSummary?,
@@ -806,6 +850,7 @@ internal fun MeronMobileState.resolveQuickReplyFrom(
     if (quickReplyFrom.isNotBlank()) {
         return if (quickReplyFrom.equals(account.email, ignoreCase = true)) "" else quickReplyFrom
     }
+    detectRecentThreadFrom(account)?.let { return it }
     return detectReplyFromIdentity(parent, account)
 }
 

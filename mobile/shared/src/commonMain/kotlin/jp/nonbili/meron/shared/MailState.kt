@@ -263,6 +263,10 @@ fun folderIsDrafts(folder: String): Boolean {
         normalized.endsWith("]draft")
 }
 
+// Whether a message lives in the account's inbox — i.e. it was delivered to us.
+// IMAP names the inbox "INBOX" regardless of locale, so a name check is enough.
+fun folderIsInbox(folder: String): Boolean = folder.trim().equals("INBOX", ignoreCase = true)
+
 fun folderIsTrash(folder: String): Boolean {
     val normalized = folder.trim().lowercase()
     return normalized == "trash" ||

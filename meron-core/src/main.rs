@@ -35,7 +35,6 @@ use meron_core::{
 /// Shared, serialized writer so responses and events never interleave on stdout.
 type Writer = Arc<Mutex<Stdout>>;
 
-const BACKGROUND_SYNC_TIMEOUT: Duration = Duration::from_secs(30);
 const BACKGROUND_SYNC_RETRY_DELAY: Duration = if cfg!(test) {
     Duration::ZERO
 } else {
@@ -116,8 +115,8 @@ impl std::fmt::Display for BackgroundSyncCancelled {
 impl std::error::Error for BackgroundSyncCancelled {}
 
 /// Retry a background read once when it fails for a recognizable transport
-/// reason. Both attempts share the old 30-second ceiling so a stuck sync does
-/// not hold its dedup key longer than before.
+/// reason. Both attempts share the configured per-folder ceiling so a stuck
+/// sync does not hold its dedup key indefinitely.
 async fn retry_background_sync<T, C, F, Fut>(
     label: &str,
     mut can_attempt: C,
@@ -131,13 +130,14 @@ where
     if !can_attempt() {
         return Err(anyhow::Error::new(BackgroundSyncCancelled));
     }
-    let deadline = tokio::time::Instant::now() + BACKGROUND_SYNC_TIMEOUT;
+    let sync_timeout = background_sync_timeout();
+    let deadline = tokio::time::Instant::now() + sync_timeout;
     let first = tokio::time::timeout_at(deadline, operation()).await;
     let first_error = match first {
         Ok(Ok(value)) => return Ok(value),
         Ok(Err(error)) if is_transient_sync_error(&error) => error,
         Ok(Err(error)) => return Err(error),
-        Err(_) => anyhow::bail!("timed out after {}s", BACKGROUND_SYNC_TIMEOUT.as_secs()),
+        Err(_) => anyhow::bail!("timed out after {}s", sync_timeout.as_secs()),
     };
 
     eprintln!("meron-core: {label} failed, retrying: {first_error:#}");
@@ -147,7 +147,7 @@ where
     {
         return Err(first_error.context(format!(
             "retry budget exhausted after {}s",
-            BACKGROUND_SYNC_TIMEOUT.as_secs()
+            sync_timeout.as_secs()
         )));
     }
     if !can_attempt() {
@@ -161,7 +161,7 @@ where
         )),
         Err(_) => Err(first_error.context(format!(
             "retry timed out within the {}s sync budget",
-            BACKGROUND_SYNC_TIMEOUT.as_secs()
+            sync_timeout.as_secs()
         ))),
     }
 }
@@ -2088,7 +2088,8 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
 
             let message = read_cached_or_fetch(engine, &account, &folder, uid).await?;
             let mine = store::self_addrs(&engine.db.lock().unwrap(), &account);
-            let outgoing = store::is_outgoing(&mine, &folder, &message.from_addr);
+            let outgoing =
+                store::is_outgoing(&mine, &folder, &message.from_addr, message.delivered);
             Ok(json!({ "outgoing": outgoing, "message": serde_json::to_value(message)? }))
         }
 
@@ -2549,19 +2550,23 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 );
             }
 
-            let target_batch = engine
+            engine
                 .with_write_session(&account, |session| {
                     let folder = folder.clone();
                     let target_folder = target_folder.clone();
                     let uids = uids.clone();
                     Box::pin(async move {
-                        session.move_to_folder(&folder, &target_folder, &uids).await?;
-                        session.fetch_recent(&target_folder, 50.max(uids.len() as u32))
-                            .await
-                            .context("refresh target folder after move")
+                        session.move_to_folder(&folder, &target_folder, &uids).await
                     })
                 })
                 .await?;
+            // Read-only refresh, on its own session: the MOVE has landed and
+            // must not be retried, and a message the target folder holds that we
+            // cannot parse must not sink the whole move.
+            let target_batch =
+                fetch_recent_resilient(engine, &account, &target_folder, 50.max(uids.len() as u32))
+                    .await
+                    .context("refresh target folder after move")?;
 
             {
                 let db = engine.db.lock().unwrap();
@@ -2658,7 +2663,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             }
 
             let copied = raw_messages.len();
-            let target_batch = engine
+            engine
                 .with_write_session(&target_account, |session| {
                     let target_folder = target_folder.clone();
                     let raw_messages = raw_messages.clone();
@@ -2666,13 +2671,19 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         for message in &raw_messages {
                             session.append_copied_message(&target_folder, message).await?;
                         }
-                        session
-                            .fetch_recent(&target_folder, 50.max(raw_messages.len() as u32))
-                            .await
-                            .context("refresh target folder after copy")
+                        anyhow::Ok(())
                     })
                 })
                 .await?;
+            // Read-only refresh, on its own session; see the move handler above.
+            let target_batch = fetch_recent_resilient(
+                engine,
+                &target_account,
+                &target_folder,
+                50.max(raw_messages.len() as u32),
+            )
+            .await
+            .context("refresh target folder after copy")?;
 
             {
                 let db = engine.db.lock().unwrap();

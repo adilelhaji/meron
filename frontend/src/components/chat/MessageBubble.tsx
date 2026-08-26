@@ -142,13 +142,16 @@ export function MessageBubble({ message, galleryOffset, onOpenContextMenu, onLin
           {/* Anchored to the bubble edge, not the chevron: an outgoing bubble
               sits at the right of the pane, so opening rightwards pushed the
               panel past the viewport and gave the message list a horizontal
-              scrollbar. */}
+              scrollbar. Only an html bubble clamps to its own width: it is a
+              fixed 70% of the pane, while a plain-text bubble shrinks to its
+              content and would squeeze the addresses down to a few characters
+              per line. */}
           {metaOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMetaOpen(false)} />
               <div
                 className={`absolute top-full mt-1 z-50 w-[460px] max-w-[calc(100vw-48px)] max-h-[260px] overflow-y-auto space-y-2 rounded-lg border border-border bg-chats p-3 shadow-xl text-secondary select-text ${
-                  outgoing ? 'right-0' : 'left-0'
+                  outgoing ? (useHtmlBody ? 'right-0 max-w-full' : 'right-0') : 'left-0'
                 }`}
               >
                 <AddressRow label={t('composer.fields.from')} rawList={fromRaw} />

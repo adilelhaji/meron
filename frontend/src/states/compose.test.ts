@@ -17,6 +17,7 @@ import {
   openThreadTabById,
   quickReplyCaretOffset,
   quickReplyFromState,
+  pickReplyTarget,
   resolveQuickReplyFrom,
   saveQuickReplyDraft,
   seedQuickReplySignature,
@@ -972,6 +973,68 @@ describe('quick reply send-as identity', () => {
 
     expect(identities.map((id) => id.email)).toEqual(['me@example.com', 'sales@example.com'])
     expect(selected?.email).toBe('sales@example.com')
+  })
+
+  it('continues with the alias used by the newest outgoing reply', () => {
+    accounts$.set([
+      {
+        ...accounts$.get()[0],
+        aliases: [
+          { email: 'sales@example.com', name: 'Sales' },
+          { email: 'support@example.com', name: 'Support' },
+        ],
+      },
+    ])
+    const inbound = setUpThread()
+    mail$.messages.set([
+      inbound,
+      message({
+        id: 'sent',
+        account_id: 'acc-1',
+        thread_id: 't-1',
+        folder_id: 'Sent',
+        from_addr: 'support@example.com',
+        to: 'them@example.com',
+        outgoing: true,
+        date: inbound.date + 1,
+      }),
+    ])
+
+    expect(quickReplyFromState().selected?.email).toBe('support@example.com')
+    expect(resolveQuickReplyFrom(inbound, accounts$.get()[0])).toBe('support@example.com')
+  })
+
+  it('ignores an inbound message from a shared address configured as an alias', () => {
+    accounts$.set([
+      {
+        ...accounts$.get()[0],
+        aliases: [
+          { email: 'sales@example.com', name: 'Sales' },
+          { email: 'support@example.com', name: 'Support' },
+        ],
+      },
+    ])
+    const inbound = setUpThread()
+    // A colleague sending from the shared support address. The core flags it
+    // outgoing because its From matches a configured identity, but it was
+    // delivered to our inbox, so it is not mail we sent.
+    const colleague = message({
+      id: 'colleague',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'support@example.com',
+      to: 'sales@example.com',
+      outgoing: true,
+      date: inbound.date + 1,
+    })
+    mail$.messages.set([inbound, colleague])
+    const thread = mail$.threads.get()[0]
+
+    // The colleague's message is still the one we reply to, and the From falls
+    // through to the alias the thread was delivered to.
+    expect(pickReplyTarget(thread)).toEqual(colleague)
+    expect(resolveQuickReplyFrom(inbound, accounts$.get()[0])).toBe('sales@example.com')
   })
 
   it('hides the picker when the account has a single identity', () => {

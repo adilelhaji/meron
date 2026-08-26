@@ -1,0 +1,3 @@
+- Stop one unreadable message from stalling folder sync
+- Preserve thread send-as identity
+- Make the per-folder sync timeout configurable via MERON_SYNC_TIMEOUT

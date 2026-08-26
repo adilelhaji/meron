@@ -99,6 +99,23 @@ impl Session {
         }
     }
 
+    /// Folder identity plus the newest uids, without their envelopes — the
+    /// first half of a sync that fetches headers in isolated chunks so one
+    /// unreadable message cannot sink the batch.
+    pub async fn recent_uids(&mut self, folder: &str, limit: u32) -> Result<(u32, u32, Vec<u32>)> {
+        match self {
+            Session::Imap(session) => imap::recent_uids(session, folder, limit).await,
+            Session::Ews(session) => {
+                // Exchange has no UIDVALIDITY, and the mapping already knows
+                // which uids a folder holds; the batch this pairs with fetches
+                // envelopes by uid all the same.
+                let batch = session.fetch_recent(folder, limit).await?;
+                let uids = batch.messages.iter().map(|m| m.uid).collect();
+                Ok((batch.uidvalidity, batch.uid_next, uids))
+            }
+        }
+    }
+
     pub async fn search_uids(&mut self, folder: &str, query: &str) -> Result<Vec<u32>> {
         match self {
             Session::Imap(session) => imap::search_uids(session, folder, query).await,
