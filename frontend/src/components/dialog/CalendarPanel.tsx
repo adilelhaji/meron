@@ -118,7 +118,7 @@ export function CalendarPanel({ calendar }: { calendar: Calendar }) {
               <p className="text-[0.6875rem] text-primary">
                 {t('calendar.deleteWarning', {
                   defaultValue:
-                    'Remove "{{name}}" and every event on it? They go to Deleted Items on the server.',
+                    'Remove "{name}" and every event on it? They go to Deleted Items on the server.',
                   name: calendar.name,
                 })}
               </p>

@@ -427,7 +427,7 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
       const count = await importAccountCalendars(account.id)
       // Said out loud even when nothing new turned up: a silent refresh reads
       // as a button that does nothing.
-      showToast(t('calendar.importResult', { defaultValue: 'The server offers {{count}} calendars.', count }))
+      showToast(t('calendar.importResult', { defaultValue: 'The server offers {count} calendars.', count }))
     } catch (err) {
       showToast(err instanceof Error ? err.message : String(err), 'error')
     } finally {

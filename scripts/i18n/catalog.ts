@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import IntlMessageFormat from 'intl-messageformat'
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const canonicalLocalesDir = path.join(root, 'locales')
@@ -128,6 +129,7 @@ function validateCatalogs(catalogs: Record<string, Catalog>) {
         throw new Error(`${locale}.${key} must be a non-empty string`)
       }
       validateBalancedBraces(locale, key, value)
+      validateIcuSyntax(locale, key, value)
       const expected = enPlaceholders[key] ?? []
       const actual = placeholders(value)
       if (expected.join('\0') !== actual.join('\0')) {
@@ -372,6 +374,24 @@ function placeholders(value: string): string[] {
     if (match[1] !== 'count') names.add(match[1])
   }
   return [...names].sort()
+}
+
+/// Parses a message with the very formatter the apps use at runtime.
+///
+/// Balanced braces are not enough to make a message valid: `{{name}}` is
+/// balanced and its placeholder reads correctly to the check above, but ICU
+/// rejects it, and the throw lands wherever the string is rendered — a
+/// crashed screen for the user rather than a failed build. Whatever the
+/// runtime cannot parse must not get past this script.
+function validateIcuSyntax(locale: string, key: string, value: string) {
+  try {
+    new IntlMessageFormat(value, locale.replace('_', '-'))
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `${locale}.${key} is not valid ICU (${detail}). Placeholders are written {name}, not {{name}}.`,
+    )
+  }
 }
 
 function validateBalancedBraces(locale: string, key: string, value: string) {

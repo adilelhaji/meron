@@ -112,7 +112,7 @@ export function EventEditor() {
           {event.attendees.length > 0 && (
             <p className="text-[0.6875rem] text-secondary">
               {t('calendar.attendeesNote', {
-                defaultValue: 'This event has {{count}} guests. Editing it here does not notify them.',
+                defaultValue: 'This event has {count} guests. Editing it here does not notify them.',
                 count: event.attendees.length,
               })}
             </p>
