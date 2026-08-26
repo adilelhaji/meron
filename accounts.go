@@ -110,9 +110,6 @@ func (a *App) accountAddEWS(payload map[string]any) (any, error) {
 		// DOMAIN\user is common on premises; the address works elsewhere.
 		req.Username = req.Email
 	}
-	if req.Password == "" {
-		return nil, errors.New("credentials required")
-	}
 	id := accountID(req.Email)
 	a.logf("account.addEWS: connecting account=%s url=%s", id, req.EWSURL)
 	if a.sidecar == nil || !a.sidecar.Started() {
@@ -122,12 +119,18 @@ func (a *App) accountAddEWS(payload map[string]any) (any, error) {
 		"id":           id,
 		"ews_url":      req.EWSURL,
 		"user":         req.Username,
-		"password":     req.Password,
 		"email":        req.Email,
 		"display_name": req.DisplayName,
 		"sender_name":  req.SenderName,
 		"provider":     "exchange",
 		"auth_type":    "password",
+	}
+	// Sending no password at all tells the core to keep the stored one, which
+	// is what editing an account without retyping it means; sending "" would
+	// blank it. Only the core knows whether a secret is already held, so the
+	// requirement is left to it rather than guessed here.
+	if req.Password != "" {
+		connect["password"] = req.Password
 	}
 	if _, err := a.sidecar.Call("account.connect", connect); err != nil {
 		return nil, err

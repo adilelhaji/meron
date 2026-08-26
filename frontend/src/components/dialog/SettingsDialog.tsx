@@ -101,6 +101,9 @@ function serverSummary(account: Account, t: ReturnType<typeof useTranslation>['t
 function reconnectMode(account: Account): SetupMode {
   if (account.auth_type === 'outlook_oauth' || account.provider === 'outlook') return 'outlook'
   if (account.auth_type === 'gmail_oauth' || account.provider === 'gmail') return 'gmail'
+  // An Exchange account has no IMAP server to show, so the custom panel would
+  // offer empty host fields and no way to correct the endpoint or password.
+  if (account.provider === 'exchange' || account.ews_url) return 'ews'
   return 'custom'
 }
 

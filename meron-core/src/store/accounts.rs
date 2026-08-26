@@ -855,6 +855,9 @@ pub fn list_accounts(conn: &Connection) -> Result<Vec<serde_json::Value>> {
                 "proxy": c.proxy.to_json(),
                 "cert_pin": c.cert_pin,
                 "smtp_cert_pin": c.smtp_cert_pin,
+                // Empty for IMAP accounts; what the settings dialog uses to
+                // recognise an Exchange one and offer its own panel.
+                "ews_url": c.ews_url,
             }));
         }
     }
