@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use ::ews::create_item::CreateItem;
 use ::ews::delete_item::DeleteItem;
+use ::ews::get_folder::GetFolder;
 use ::ews::get_item::GetItem;
 use ::ews::move_item::MoveItem;
 use ::ews::server_version::ExchangeServerVersion;
@@ -402,6 +403,58 @@ impl EwsSession {
         }
     }
 
+    /// Resolves the mailbox's well-known folders to their ids and roles.
+    ///
+    /// Exchange names these in the mailbox's own language — an inbox is
+    /// "Bandeja de entrada" on a Spanish mailbox — so they can only be
+    /// identified by their distinguished ids, which are fixed strings. A
+    /// mailbox that lacks one (no archive, say) simply reports an error for
+    /// it, which is not a failure of the listing.
+    fn distinguished_roles_with(
+        client: &EwsClient,
+    ) -> anyhow::Result<std::collections::HashMap<String, String>> {
+        let wanted = [
+            ("inbox", "inbox"),
+            ("sentitems", "sent"),
+            ("drafts", "drafts"),
+            ("deleteditems", "trash"),
+            ("junkemail", "junk"),
+            ("archivemsgfolderroot", "archive"),
+        ];
+        let response = client.call(GetFolder {
+            folder_shape: FolderShape {
+                base_shape: BaseShape::IdOnly,
+            },
+            folder_ids: wanted
+                .iter()
+                .map(|(id, _)| BaseFolderId::DistinguishedFolderId {
+                    id: id.to_string(),
+                    change_key: None,
+                })
+                .collect(),
+        })?;
+
+        // Responses come back in request order, one per requested folder,
+        // errors included — which is how a missing folder is reported.
+        let mut roles = std::collections::HashMap::new();
+        for ((_, role), message) in wanted.iter().zip(response.into_response_messages()) {
+            let (ResponseClass::Success(message) | ResponseClass::Warning(message)) = message
+            else {
+                continue;
+            };
+            for folder in message.folders.inner {
+                if let ::ews::Folder::Folder {
+                    folder_id: Some(id),
+                    ..
+                } = folder
+                {
+                    roles.insert(id.id, role.to_string());
+                }
+            }
+        }
+        Ok(roles)
+    }
+
     /// Lists the mailbox's folders, refreshing the name-to-id map every call.
     ///
     /// The hierarchy is re-enumerated from scratch rather than resumed from a
@@ -411,6 +464,13 @@ impl EwsSession {
         let client = self.client.clone();
         let round =
             tokio::task::spawn_blocking(move || client.folder_hierarchy(None)).await??;
+        let roles = {
+            let client = self.client.clone();
+            tokio::task::spawn_blocking(move || {
+                EwsSession::distinguished_roles_with(&client)
+            })
+            .await??
+        };
 
         let mut folders = Vec::new();
         self.folders.clear();
@@ -439,16 +499,26 @@ impl EwsSession {
             let (Some(id), Some(name)) = (folder_id.as_ref(), display_name.as_ref()) else {
                 continue;
             };
+            let special_use = roles.get(&id.id).cloned();
+            // The core addresses the inbox as "INBOX" throughout — IMAP
+            // mandates that name, and every default in the request path
+            // assumes it. Exchange has no such convention, so the wire name
+            // is normalised while the mailbox's own name stays on display.
+            let wire_name = if special_use.as_deref() == Some("inbox") {
+                "INBOX".to_string()
+            } else {
+                name.clone()
+            };
             self.folders
-                .insert(name.clone(), (id.id.clone(), id.change_key.clone()));
+                .insert(wire_name.clone(), (id.id.clone(), id.change_key.clone()));
             folders.push(crate::imap::Folder {
-                name: name.clone(),
+                name: wire_name,
                 // Exchange folder names are already Unicode; there is no
                 // modified-UTF-7 layer to decode as there is on IMAP.
                 display_name: name.clone(),
                 delimiter: Some("/".to_string()),
                 unread: unread_count.unwrap_or_default(),
-                special_use: None,
+                special_use,
                 role: String::new(),
             });
         }
@@ -1407,7 +1477,10 @@ mod tests {
 
     #[tokio::test]
     async fn listing_folders_keeps_mail_and_drops_calendar_and_contacts() {
-        let (url, server) = serve_soap_once(MIXED_HIERARCHY_RESPONSE);
+        let (url, server) = serve_soap(vec![
+            MIXED_HIERARCHY_RESPONSE.to_string(),
+            distinguished_response(),
+        ]);
         let (mut session, _db) = test_session(url);
 
         let folders = session.list_folders().await.expect("list should succeed");
@@ -1416,14 +1489,19 @@ mod tests {
         // settings folder share the mail type and are told apart by their
         // container class — the fixture names them in Spanish precisely
         // because a name-based rule would miss them on a localised mailbox.
+        // The inbox is addressed as INBOX, which every default in the core
+        // assumes, while its own name stays on display.
         assert_eq!(
             names,
-            vec!["Inbox", "Sent Items"],
+            vec!["INBOX", "Sent Items"],
             "only folders that hold mail should be listed"
         );
-        assert_eq!(folders[0].unread, 5);
-        // Exchange names are already Unicode: no modified-UTF-7 decoding step.
         assert_eq!(folders[0].display_name, "Inbox");
+        assert_eq!(folders[0].unread, 5);
+        // Roles come from the distinguished ids, not from folder names, so
+        // Sent is found on a mailbox in any language.
+        assert_eq!(folders[0].special_use.as_deref(), Some("inbox"));
+        assert_eq!(folders[1].special_use.as_deref(), Some("sent"));
 
         server.join().expect("server thread");
     }
@@ -1485,7 +1563,10 @@ mod tests {
 
     #[tokio::test]
     async fn folder_lookup_fails_loud_for_an_unknown_name() {
-        let (url, server) = serve_soap_once(MIXED_HIERARCHY_RESPONSE);
+        let (url, server) = serve_soap(vec![
+            MIXED_HIERARCHY_RESPONSE.to_string(),
+            distinguished_response(),
+        ]);
         let (mut session, _db) = test_session(url);
 
         let Err(error) = session.fetch_recent("No Such Folder", 10).await else {
@@ -1541,44 +1622,98 @@ mod tests {
         assert_eq!(second.iter().map(|m| m.uid).collect::<Vec<_>>(), vec![2, 3]);
     }
 
-    /// Minimal single-request HTTP/1.1 server: accepts one connection, reads
-    /// one request, replies 200 with `body`, and hands the raw request back
-    /// for assertions. Same pattern as `one_shot_json_server` in
-    /// protocol/tests.rs, kept local because it must serve XML.
-    fn serve_soap_once(body: &'static str) -> (String, std::thread::JoinHandle<String>) {
+    /// Serves one scripted SOAP reply per request, in order, then stops.
+    /// Returns the raw requests for assertions. Same pattern as
+    /// `one_shot_json_server` in protocol/tests.rs, kept local because it must
+    /// serve XML — and must answer several requests, since one high-level
+    /// operation can take more than one round trip.
+    fn serve_soap(bodies: Vec<String>) -> (String, std::thread::JoinHandle<Vec<String>>) {
         use std::io::{Read as _, Write as _};
         let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
         let addr = listener.local_addr().expect("addr");
         let handle = std::thread::spawn(move || {
-            let (mut stream, _) = listener.accept().expect("accept");
-            let mut request = Vec::new();
-            let mut chunk = [0u8; 4096];
-            let (header_end, content_length) = loop {
-                let n = stream.read(&mut chunk).expect("read");
-                request.extend_from_slice(&chunk[..n]);
-                if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
-                    let headers = String::from_utf8_lossy(&request[..pos]).to_lowercase();
-                    let length = headers
-                        .lines()
-                        .find_map(|l| l.strip_prefix("content-length:"))
-                        .and_then(|v| v.trim().parse::<usize>().ok())
-                        .unwrap_or(0);
-                    break (pos + 4, length);
+            let mut requests = Vec::new();
+            for body in bodies {
+                let (mut stream, _) = listener.accept().expect("accept");
+                let mut request = Vec::new();
+                let mut chunk = [0u8; 4096];
+                let (header_end, content_length) = loop {
+                    let n = stream.read(&mut chunk).expect("read");
+                    request.extend_from_slice(&chunk[..n]);
+                    if let Some(pos) = request.windows(4).position(|w| w == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&request[..pos]).to_lowercase();
+                        let length = headers
+                            .lines()
+                            .find_map(|l| l.strip_prefix("content-length:"))
+                            .and_then(|v| v.trim().parse::<usize>().ok())
+                            .unwrap_or(0);
+                        break (pos + 4, length);
+                    }
+                };
+                while request.len() < header_end + content_length {
+                    let n = stream.read(&mut chunk).expect("read body");
+                    request.extend_from_slice(&chunk[..n]);
                 }
-            };
-            while request.len() < header_end + content_length {
-                let n = stream.read(&mut chunk).expect("read body");
-                request.extend_from_slice(&chunk[..n]);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/xml; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                stream.write_all(response.as_bytes()).expect("write");
+                requests.push(String::from_utf8_lossy(&request).into_owned());
             }
-            let response = format!(
-                "HTTP/1.1 200 OK\r\nContent-Type: text/xml; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            );
-            stream.write_all(response.as_bytes()).expect("write");
-            String::from_utf8_lossy(&request).into_owned()
+            requests
         });
         (format!("http://{addr}"), handle)
+    }
+
+    /// A reply resolving the mailbox's well-known folders, as `list_folders`
+    /// asks for right after the hierarchy round.
+    fn distinguished_response() -> String {
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Header/>
+  <s:Body>
+    <m:GetFolderResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <m:ResponseMessages>
+        <m:GetFolderResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Folders><t:Folder><t:FolderId Id="AAMkINBOX=" ChangeKey="CK-INBOX"/></t:Folder></m:Folders>
+        </m:GetFolderResponseMessage>
+        <m:GetFolderResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Folders><t:Folder><t:FolderId Id="AAMkSENT=" ChangeKey="CK-SENT"/></t:Folder></m:Folders>
+        </m:GetFolderResponseMessage>
+        <m:GetFolderResponseMessage ResponseClass="Error">
+          <m:MessageText>The specified folder could not be found in the store.</m:MessageText>
+          <m:ResponseCode>ErrorFolderNotFound</m:ResponseCode>
+        </m:GetFolderResponseMessage>
+        <m:GetFolderResponseMessage ResponseClass="Error">
+          <m:MessageText>The specified folder could not be found in the store.</m:MessageText>
+          <m:ResponseCode>ErrorFolderNotFound</m:ResponseCode>
+        </m:GetFolderResponseMessage>
+        <m:GetFolderResponseMessage ResponseClass="Error">
+          <m:MessageText>The specified folder could not be found in the store.</m:MessageText>
+          <m:ResponseCode>ErrorFolderNotFound</m:ResponseCode>
+        </m:GetFolderResponseMessage>
+        <m:GetFolderResponseMessage ResponseClass="Error">
+          <m:MessageText>The specified folder could not be found in the store.</m:MessageText>
+          <m:ResponseCode>ErrorFolderNotFound</m:ResponseCode>
+        </m:GetFolderResponseMessage>
+      </m:ResponseMessages>
+    </m:GetFolderResponse>
+  </s:Body>
+</s:Envelope>"#
+            .to_string()
+    }
+
+    /// Single-request convenience over [`serve_soap`].
+    fn serve_soap_once(body: &'static str) -> (String, std::thread::JoinHandle<String>) {
+        let (url, handle) = serve_soap(vec![body.to_string()]);
+        (
+            url,
+            std::thread::spawn(move || handle.join().expect("server thread").remove(0)),
+        )
     }
 
     #[test]

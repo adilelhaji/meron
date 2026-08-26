@@ -742,9 +742,21 @@ async fn idle_watch(engine: Arc<Engine>, out: Writer, account: String, folder: S
     let key = watch_key(&account, &folder);
     loop {
         // Stop cleanly once the account has been removed (account.remove).
-        if !engine.accounts.lock().await.contains_key(&account) {
-            engine.watched.lock().unwrap().remove(&key);
-            break;
+        // IDLE is an IMAP command; Exchange pushes through streaming
+        // subscriptions, which this backend does not implement yet, so an
+        // Exchange account has no watcher and relies on periodic sync.
+        // Without this the watcher would dial its empty IMAP host and log a
+        // failed DNS lookup on every retry.
+        match engine.accounts.lock().await.get(&account) {
+            None => {
+                engine.watched.lock().unwrap().remove(&key);
+                break;
+            }
+            Some(creds) if creds.is_ews() => {
+                engine.watched.lock().unwrap().remove(&key);
+                break;
+            }
+            Some(_) => {}
         }
         // Stop checking while paused; account.setPaused respawns us on resume.
         if engine.is_paused(&account) {
