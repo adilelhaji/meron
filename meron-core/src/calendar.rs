@@ -251,6 +251,53 @@ pub fn events_in_window(
     Ok(events)
 }
 
+/// The colour a calendar is drawn with, which is a local choice.
+///
+/// Exchange has no calendar colour other clients agree on, so syncing one
+/// would either fail or write a property nothing else reads. Keeping it local
+/// is predictable: your colours, in your copy.
+pub fn set_calendar_color(
+    conn: &Connection,
+    account: &str,
+    calendar_id: &str,
+    color: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE calendars SET color = ?3 WHERE account = ?1 AND provider_id = ?2",
+        params![account, calendar_id, color],
+    )?;
+    Ok(())
+}
+
+/// Renames a calendar locally, after the server accepted the rename.
+pub fn rename_calendar(
+    conn: &Connection,
+    account: &str,
+    calendar_id: &str,
+    name: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE calendars SET name = ?3 WHERE account = ?1 AND provider_id = ?2",
+        params![account, calendar_id, name],
+    )?;
+    Ok(())
+}
+
+/// Drops a calendar and its cached events, after the server deleted it.
+pub fn forget_calendar(conn: &Connection, account: &str, calendar_id: &str) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute(
+        "DELETE FROM calendar_events WHERE account = ?1 AND calendar_id = ?2",
+        params![account, calendar_id],
+    )?;
+    tx.execute(
+        "DELETE FROM calendars WHERE account = ?1 AND provider_id = ?2",
+        params![account, calendar_id],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 /// Drops one cached occurrence, after the server accepted its deletion.
 pub fn forget_event(conn: &Connection, account: &str, event_id: &str) -> Result<()> {
     conn.execute(

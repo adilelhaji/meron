@@ -43,7 +43,14 @@ export type Calendar = {
   accountId: string
 }
 
+/// The event being edited, or null when the editor is closed. A new event has
+/// an empty id: the server assigns one on create.
+export type EventDraft = Omit<CalendarEvent, 'id'> & { id: string }
+
 export const calendar$ = observable({
+  /// Open editor, if any.
+  editing: null as EventDraft | null,
+  saving: false,
   /// The window currently shown, as epoch seconds.
   from: 0,
   to: 0,
@@ -154,3 +161,134 @@ export function groupByDay(events: CalendarEvent[]): { day: number; events: Cale
     .sort(([a], [b]) => a - b)
     .map(([day, events]) => ({ day, events }))
 }
+
+
+/// Opens the editor on a new event, defaulting to the next round hour.
+export function newEvent(): EventDraft | null {
+  const calendars = calendar$.calendars.peek().filter((calendar) => calendar.enabled)
+  const target = calendars.find((calendar) => calendar.is_default) ?? calendars[0]
+  // With no calendar there is nowhere to put it, and inventing one would fail
+  // at save time with a worse message.
+  if (!target) return null
+  const start = Math.ceil(Date.now() / 1000 / 3600) * 3600
+  const draft: EventDraft = {
+    id: '',
+    calendar_id: target.id,
+    accountId: target.accountId,
+    subject: '',
+    location: '',
+    start,
+    end: start + 3600,
+    all_day: false,
+    is_recurring: false,
+    is_cancelled: false,
+    free_busy: '',
+    my_response: '',
+    organizer: null,
+    attendees: [],
+  }
+  calendar$.editing.set(draft)
+  return draft
+}
+
+export function editEvent(event: CalendarEvent) {
+  calendar$.editing.set({ ...event })
+}
+
+export function closeEditor() {
+  calendar$.editing.set(null)
+  calendar$.saving.set(false)
+}
+
+/// Saves the open draft, creating it or updating it as appropriate.
+export async function saveEvent(draft: EventDraft) {
+  calendar$.saving.set(true)
+  calendar$.error.set('')
+  try {
+    if (draft.id) {
+      await invoke('calendar.update', { account_id: draft.accountId, event: draft })
+    } else {
+      await invoke('calendar.create', { account_id: draft.accountId, event: draft })
+    }
+    closeEditor()
+    const { from, to } = calendar$.peek()
+    if (to > from) await loadWindow(from, to, false)
+  } catch (err) {
+    // Left open with the message: closing would lose what was typed, and the
+    // server rejecting a save is exactly when that matters most.
+    calendar$.error.set(String(err))
+    calendar$.saving.set(false)
+  }
+}
+
+export async function deleteEvent(event: CalendarEvent) {
+  calendar$.error.set('')
+  try {
+    await invoke('calendar.delete', {
+      account_id: event.accountId,
+      event_id: event.id,
+      change_key: event.change_key ?? '',
+    })
+    closeEditor()
+    calendar$.events.set(calendar$.events.peek().filter((candidate) => candidate.id !== event.id))
+  } catch (err) {
+    calendar$.error.set(String(err))
+  }
+}
+
+
+export async function createCalendar(accountId: string, name: string): Promise<string> {
+  const res = await invoke<{ id: string }>('calendar.createCalendar', {
+    account_id: accountId,
+    name,
+  })
+  await loadCalendars()
+  return res.id
+}
+
+export async function renameCalendar(accountId: string, calendarId: string, name: string) {
+  await invoke('calendar.renameCalendar', {
+    account_id: accountId,
+    calendar_id: calendarId,
+    name,
+  })
+  calendar$.calendars.set(
+    calendar$.calendars
+      .peek()
+      .map((calendar) =>
+        calendar.accountId === accountId && calendar.id === calendarId ? { ...calendar, name } : calendar,
+      ),
+  )
+}
+
+/// Deletes a calendar and, with it, every event on it. The confirmation is the
+/// caller's: by the time this runs the choice is made.
+export async function deleteCalendar(accountId: string, calendarId: string) {
+  await invoke('calendar.deleteCalendar', { account_id: accountId, calendar_id: calendarId })
+  calendar$.calendars.set(
+    calendar$.calendars
+      .peek()
+      .filter((calendar) => !(calendar.accountId === accountId && calendar.id === calendarId)),
+  )
+  calendar$.events.set(calendar$.events.peek().filter((event) => event.calendar_id !== calendarId))
+}
+
+export async function setCalendarColor(accountId: string, calendarId: string, color: string) {
+  await invoke('calendar.setColor', {
+    account_id: accountId,
+    calendar_id: calendarId,
+    color,
+  })
+  calendar$.calendars.set(
+    calendar$.calendars
+      .peek()
+      .map((calendar) =>
+        calendar.accountId === accountId && calendar.id === calendarId ? { ...calendar, color } : calendar,
+      ),
+  )
+}
+
+/// The palette offered for a calendar. Colours are a local choice: Exchange
+/// has none other clients agree on, so syncing one would write a property
+/// nothing else reads.
+export const CALENDAR_COLORS = ACCOUNT_COLORS

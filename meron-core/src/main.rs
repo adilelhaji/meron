@@ -1678,6 +1678,70 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         // Writes go straight to the server and then refresh the window they
         // land in, so the agenda shows what the server actually stored rather
         // than what was asked for.
+        "calendar.createCalendar" => {
+            let account = req_str(p, "account")?;
+            let name = req_str(p, "name")?;
+            if name.trim().is_empty() {
+                anyhow::bail!("a calendar needs a name");
+            }
+            let id = engine
+                .with_write_session(&account, |session| {
+                    let name = name.clone();
+                    Box::pin(async move { session.create_calendar(&name).await })
+                })
+                .await?;
+            // Re-list so the new calendar is known with whatever the server
+            // decided to call it and where it put it.
+            let calendars = engine
+                .with_read_session(&account, |session| {
+                    Box::pin(async move { session.list_calendars().await })
+                })
+                .await?;
+            calendar::upsert_calendars(&engine.db.lock().unwrap(), &account, &calendars)?;
+            Ok(json!({ "id": id }))
+        }
+
+        "calendar.renameCalendar" => {
+            let account = req_str(p, "account")?;
+            let id = req_str(p, "calendar")?;
+            let name = req_str(p, "name")?;
+            if name.trim().is_empty() {
+                anyhow::bail!("a calendar needs a name");
+            }
+            engine
+                .with_write_session(&account, |session| {
+                    let id = id.clone();
+                    let name = name.clone();
+                    Box::pin(async move { session.rename_calendar(&id, &name).await })
+                })
+                .await?;
+            calendar::rename_calendar(&engine.db.lock().unwrap(), &account, &id, &name)?;
+            Ok(json!({ "ok": true }))
+        }
+
+        "calendar.deleteCalendar" => {
+            let account = req_str(p, "account")?;
+            let id = req_str(p, "calendar")?;
+            engine
+                .with_write_session(&account, |session| {
+                    let id = id.clone();
+                    Box::pin(async move { session.delete_calendar(&id).await })
+                })
+                .await?;
+            // Its events go with it: they lived on the calendar the server
+            // just removed.
+            calendar::forget_calendar(&engine.db.lock().unwrap(), &account, &id)?;
+            Ok(json!({ "ok": true }))
+        }
+
+        "calendar.setColor" => {
+            let account = req_str(p, "account")?;
+            let id = req_str(p, "calendar")?;
+            let color = p.get("color").and_then(Value::as_str).filter(|c| !c.is_empty());
+            calendar::set_calendar_color(&engine.db.lock().unwrap(), &account, &id, color)?;
+            Ok(json!({ "ok": true }))
+        }
+
         "calendar.create" => {
             let account = req_str(p, "account")?;
             let event: calendar::Event = serde_json::from_value(

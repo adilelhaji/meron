@@ -224,6 +224,27 @@ impl Session {
         }
     }
 
+    pub async fn create_calendar(&mut self, name: &str) -> Result<String> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
+            Session::Ews(session) => session.create_calendar(name).await,
+        }
+    }
+
+    pub async fn rename_calendar(&mut self, calendar_id: &str, name: &str) -> Result<()> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
+            Session::Ews(session) => session.rename_calendar(calendar_id, name).await,
+        }
+    }
+
+    pub async fn delete_calendar(&mut self, calendar_id: &str) -> Result<()> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
+            Session::Ews(session) => session.delete_calendar(calendar_id).await,
+        }
+    }
+
     /// Creates an event, returning it with the id the server assigned.
     pub async fn create_event(
         &mut self,

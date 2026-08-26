@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { CalendarPanel } from './CalendarPanel'
+import {
+  accountColor,
+  calendar$,
+  createCalendar,
+  loadCalendars,
+} from '../../states/calendar'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
 import type { LucideIcon } from 'lucide-react'
@@ -25,6 +32,7 @@ import {
   Keyboard,
   Archive,
   Server,
+  CalendarDays,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { importOpml, exportOpml } from '../../states/feeds'
@@ -118,17 +126,31 @@ export function SettingsDialog() {
   const { t } = useTranslation()
   const accounts = useValue(accounts$)
   const boards = useValue(settings$.kanbanBoards)
+  const calendars = useValue(calendar$.calendars)
   // The selected account or board id ("" = General; account, board, and section
   // ids never collide). Kept in shared state so flows outside the dialog (e.g.
   // saving a new account, the board context menu) can navigate the panel.
   const selected = useValue(ui$.accountSettingsId)
   const selectGeneral = () => ui$.accountSettingsId.set('')
+  // The nav rail keys everything off one id, so a top-level section takes a
+  // name no account can have.
+  const selectSection = (section: string) => ui$.accountSettingsId.set(section)
   const selectAccount = (id: string) => ui$.accountSettingsId.set(id)
 
   const selectedAccount = accounts.find((acc) => acc.id === selected)
   const selectedBoard = !selectedAccount ? boards.find((board) => board.id === selected) : undefined
-  // A removed account/board (or a stale id) falls back to General.
-  const activeKey: string = selectedAccount || selectedBoard ? selected : 'general'
+  // A removed account/board (or a stale id) falls back to General. A
+  // top-level section keeps its own id, which is what makes it selectable at
+  // all: without this it would collapse to General and clicking it would do
+  // nothing visible.
+  // Calendars are addressed as "calendar:<account>:<id>" so their key cannot
+  // collide with an account or board id.
+  const selectedCalendar =
+    !selectedAccount && !selectedBoard
+      ? calendars.find((calendar) => calendarKey(calendar) === selected)
+      : undefined
+  const activeKey: string =
+    selectedAccount || selectedBoard || selectedCalendar ? selected : 'general'
 
   const mailAccounts = accounts.filter((acc) => !isRssAccount(acc))
   const feedAccounts = accounts.filter(isRssAccount)
@@ -183,6 +205,7 @@ export function SettingsDialog() {
             ))}
 
             <BoardGroup boards={boards} activeKey={activeKey} onSelect={selectAccount} />
+            <CalendarGroup activeKey={activeKey} onSelect={selectSection} />
             <AccountGroup
               label={t('settings.sections.mailAccounts')}
               accounts={mailAccounts}
@@ -207,6 +230,8 @@ export function SettingsDialog() {
               <AccountPanel account={selectedAccount} />
             ) : selectedBoard ? (
               <BoardPanel board={selectedBoard} />
+            ) : selectedCalendar ? (
+              <CalendarPanel calendar={selectedCalendar} />
             ) : (
               <GeneralSection />
             )}
@@ -312,6 +337,106 @@ function AccountNavAvatar({ account, displayName }: { account: Account; displayN
         </span>
       )}
     </span>
+  )
+}
+
+/// Addresses one calendar in the settings rail. Prefixed so the key cannot
+/// collide with an account or board id.
+export function calendarKey(calendar: { accountId: string; id: string }): string {
+  return `calendar:${calendar.accountId}:${calendar.id}`
+}
+
+/// The calendars group in the settings rail, one entry per calendar, with the
+/// same shape the boards and accounts groups have.
+function CalendarGroup({
+  activeKey,
+  onSelect,
+}: {
+  activeKey: string
+  onSelect: (key: string) => void
+}) {
+  const { t } = useTranslation()
+  const calendars = useValue(calendar$.calendars)
+  const accounts = useValue(accounts$)
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+
+  useEffect(() => {
+    void loadCalendars()
+  }, [])
+
+  // New calendars go to the account that already has one; with none, there is
+  // nowhere to put them and the button stays hidden.
+  const host = calendars[0]?.accountId ?? ''
+
+  return (
+    <>
+      <div className="mt-5 mb-1.5 flex items-center justify-between px-3">
+        <span className="text-[0.6875rem] font-semibold text-secondary">
+          {t('calendar.title', { defaultValue: 'Calendar' })}
+        </span>
+        {host && (
+          <button
+            onClick={() => setAdding(true)}
+            title={t('calendar.addCalendar', { defaultValue: 'Add calendar' })}
+            className="flex h-6 w-6 items-center justify-center rounded-lg text-secondary hover:text-accent hover:bg-accent/10 cursor-pointer transition-colors"
+          >
+            <Plus size={13} />
+          </button>
+        )}
+      </div>
+      {adding && (
+        <form
+          className="px-3 pb-1"
+          onSubmit={(event) => {
+            event.preventDefault()
+            if (!name.trim()) return
+            void createCalendar(host, name.trim()).then(() => {
+              setName('')
+              setAdding(false)
+            })
+          }}
+        >
+          <input
+            autoFocus
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onBlur={() => !name.trim() && setAdding(false)}
+            placeholder={t('calendar.newCalendarName', { defaultValue: 'Calendar name' })}
+            className="w-full rounded-xl border border-border bg-raised px-2.5 py-1.5 text-[0.6875rem] text-primary outline-none focus:ring-1 focus:ring-accent"
+          />
+        </form>
+      )}
+      {calendars.length === 0 ? (
+        <p className="px-3 py-1 text-[0.65625rem] font-medium text-secondary">
+          {t('calendar.noCalendars', { defaultValue: 'No calendars yet.' })}
+        </p>
+      ) : (
+        calendars.map((calendar) => {
+          const key = calendarKey(calendar)
+          const owner = accounts.find((account) => account.id === calendar.accountId)
+          return (
+            <NavItem
+              key={key}
+              active={activeKey === key}
+              onClick={() => onSelect(key)}
+              title={owner?.email}
+            >
+              <span
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+                style={{ backgroundColor: `${calendar.color || accountColor(calendar.accountId)}1a` }}
+              >
+                <CalendarDays
+                  size={12}
+                  style={{ color: calendar.color || accountColor(calendar.accountId) }}
+                />
+              </span>
+              <span className="truncate">{calendar.name}</span>
+            </NavItem>
+          )
+        })
+      )}
+    </>
   )
 }
 

@@ -1,5 +1,10 @@
 package main
 
+import (
+	"errors"
+	"strings"
+)
+
 // Calendar bridge methods. These are pass-throughs: the core owns the model,
 // the cache and the sync, so there is nothing to reshape on the way past.
 
@@ -124,5 +129,82 @@ func (a *App) calendarDelete(payload map[string]any) (any, error) {
 		"account":    req.AccountID,
 		"event":      req.EventID,
 		"change_key": req.ChangeKey,
+	})
+}
+
+// calendarCreateCalendar adds a calendar to the account.
+func (a *App) calendarCreateCalendar(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string `json:"account_id"`
+		Name      string `json:"name"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, errors.New("a calendar needs a name")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.createCalendar", map[string]any{
+		"account": req.AccountID, "name": req.Name,
+	})
+}
+
+func (a *App) calendarRenameCalendar(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID  string `json:"account_id"`
+		CalendarID string `json:"calendar_id"`
+		Name       string `json:"name"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, errors.New("a calendar needs a name")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.renameCalendar", map[string]any{
+		"account": req.AccountID, "calendar": req.CalendarID, "name": req.Name,
+	})
+}
+
+// calendarDeleteCalendar removes a calendar and everything on it. The
+// confirmation belongs to the UI; by the time this runs the choice is made.
+func (a *App) calendarDeleteCalendar(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID  string `json:"account_id"`
+		CalendarID string `json:"calendar_id"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.deleteCalendar", map[string]any{
+		"account": req.AccountID, "calendar": req.CalendarID,
+	})
+}
+
+// calendarSetColor records the colour a calendar is drawn with. Local by
+// design: Exchange has no colour other clients agree on.
+func (a *App) calendarSetColor(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID  string `json:"account_id"`
+		CalendarID string `json:"calendar_id"`
+		Color      string `json:"color"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.setColor", map[string]any{
+		"account": req.AccountID, "calendar": req.CalendarID, "color": req.Color,
 	})
 }

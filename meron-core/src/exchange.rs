@@ -115,6 +115,80 @@ impl EwsClient {
         single_message(into_successes(response).context("SyncFolderItems")?)
     }
 
+    /// Creates a calendar in the mailbox, returning its id.
+    pub fn create_calendar(&self, name: &str) -> anyhow::Result<String> {
+        let response = self.call(::ews::create_folder::CreateFolder {
+            // Under the mailbox root, where the account's own calendars live.
+            parent_folder_id: BaseFolderId::DistinguishedFolderId {
+                id: "calendar".to_string(),
+                change_key: None,
+                mailbox: None,
+            },
+            folders: vec![::ews::Folder::CalendarFolder {
+                folder_id: None,
+                parent_folder_id: None,
+                folder_class: None,
+                display_name: Some(name.to_string()),
+                total_count: None,
+                child_folder_count: None,
+                extended_property: None,
+            }],
+        })?;
+        for message in into_successes(response).context("CreateFolder calendar")? {
+            for folder in message.folders.inner {
+                if let ::ews::Folder::CalendarFolder {
+                    folder_id: Some(id),
+                    ..
+                } = folder
+                {
+                    return Ok(id.id);
+                }
+            }
+        }
+        anyhow::bail!("Exchange created the calendar but returned no id")
+    }
+
+    /// Renames a calendar.
+    pub fn rename_calendar(&self, calendar: &EwsId, name: &str) -> anyhow::Result<()> {
+        let response = self.call(::ews::update_folder::UpdateFolder {
+            folder_changes: ::ews::update_folder::FolderChanges {
+                folder_change: ::ews::update_folder::FolderChange {
+                    folder_id: folder_id(calendar),
+                    updates: ::ews::update_folder::Updates::SetFolderField {
+                        field_URI: PathToElement::FieldURI {
+                            field_URI: "folder:DisplayName".to_string(),
+                        },
+                        folder: ::ews::Folder::CalendarFolder {
+                            folder_id: None,
+                            parent_folder_id: None,
+                            folder_class: None,
+                            display_name: Some(name.to_string()),
+                            total_count: None,
+                            child_folder_count: None,
+                            extended_property: None,
+                        },
+                    },
+                },
+            },
+        })?;
+        into_successes(response).context("UpdateFolder calendar")?;
+        Ok(())
+    }
+
+    /// Deletes a calendar and, with it, everything on it.
+    ///
+    /// To Deleted Items rather than permanently: this destroys a year of
+    /// someone's appointments, and a server-side recovery path is worth
+    /// keeping even behind a confirmation.
+    pub fn delete_calendar(&self, calendar: &EwsId) -> anyhow::Result<()> {
+        let response = self.call(::ews::delete_folder::DeleteFolder {
+            delete_type: DeleteType::MoveToDeletedItems,
+            folder_ids: vec![folder_id(calendar)],
+        })?;
+        into_successes(response).context("DeleteFolder calendar")?;
+        Ok(())
+    }
+
     /// Creates an event on a calendar and returns its new id.
     pub fn create_event(&self, calendar: &EwsId, event: &Event) -> anyhow::Result<EwsId> {
         let response = self.call(CreateItem {
@@ -1123,6 +1197,34 @@ impl EwsSession {
         let item = (event_id.to_string(), change_key.map(str::to_string));
         let client = self.client.clone();
         tokio::task::spawn_blocking(move || client.delete_event(&item)).await?
+    }
+
+    pub async fn create_calendar(&mut self, name: &str) -> anyhow::Result<String> {
+        let client = self.client.clone();
+        let name = name.to_string();
+        let id = tokio::task::spawn_blocking(move || client.create_calendar(&name)).await??;
+        // The new calendar is not in the cached listing yet.
+        self.calendars.clear();
+        self.listing = None;
+        Ok(id)
+    }
+
+    pub async fn rename_calendar(&mut self, calendar_id: &str, name: &str) -> anyhow::Result<()> {
+        let reference = self.calendar_ref(calendar_id).await?;
+        let client = self.client.clone();
+        let name = name.to_string();
+        tokio::task::spawn_blocking(move || client.rename_calendar(&reference, &name)).await??;
+        self.listing = None;
+        Ok(())
+    }
+
+    pub async fn delete_calendar(&mut self, calendar_id: &str) -> anyhow::Result<()> {
+        let reference = self.calendar_ref(calendar_id).await?;
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || client.delete_calendar(&reference)).await??;
+        self.calendars.remove(calendar_id);
+        self.listing = None;
+        Ok(())
     }
 
     /// The Exchange reference for a calendar, listing them if needed.

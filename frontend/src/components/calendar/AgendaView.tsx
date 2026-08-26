@@ -1,8 +1,18 @@
 import { useEffect, useMemo } from 'react'
 import { useValue } from '@legendapp/state/react'
-import { CalendarDays, MapPin, RefreshCw, Repeat } from 'lucide-react'
+import { CalendarDays, MapPin, Plus, RefreshCw, Repeat } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
-import { accountColor, calendar$, groupByDay, loadCalendars, loadWindow, type CalendarEvent } from '../../states/calendar'
+import {
+  accountColor,
+  calendar$,
+  editEvent,
+  groupByDay,
+  loadCalendars,
+  loadWindow,
+  newEvent,
+  type CalendarEvent,
+} from '../../states/calendar'
+import { EventEditor } from './EventEditor'
 
 /// How far ahead the agenda reaches. Wide enough that scrolling rarely runs
 /// out, narrow enough that the first sync of a busy calendar stays quick.
@@ -28,12 +38,21 @@ export function AgendaView() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-app">
+      <EventEditor />
       <header className="flex items-center gap-2 border-b border-border px-5 py-3">
         <CalendarDays size={17} className="text-accent" />
         <h1 className="text-sm font-semibold text-primary">
           {t('calendar.title', { defaultValue: 'Calendar' })}
         </h1>
         {loading && <RefreshCw size={13} className="animate-spin text-secondary" />}
+        <button
+          type="button"
+          onClick={() => newEvent()}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-[0.6875rem] font-semibold text-white transition-opacity hover:opacity-90 cursor-pointer"
+        >
+          <Plus size={13} />
+          {t('calendar.newEvent', { defaultValue: 'New event' })}
+        </button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
@@ -64,7 +83,8 @@ function EventRow({ event }: { event: CalendarEvent }) {
   const color = accountColor(event.accountId)
   return (
     <li
-      className={`flex items-start gap-3 rounded-xl border border-border bg-raised px-3 py-2.5 transition-colors hover:bg-hover ${
+      onClick={() => editEvent(event)}
+      className={`flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-raised px-3 py-2.5 transition-colors hover:bg-hover ${
         event.is_cancelled ? 'opacity-55' : ''
       }`}
     >
