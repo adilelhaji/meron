@@ -33,7 +33,11 @@ mail-builder = "0.4.4"
 base64 = "0.22.1"
 ureq = { version = "3.3.0", features = ["socks-proxy"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
-ews = "0.1.1"
+# Forked for the calendar item properties the published crate does not model
+# (see adilelhaji/ews-rs#calendar-item-properties, offered upstream); the same
+# arrangement the repo already uses for its async-imap fork. Back to crates.io
+# once Thunderbird releases the change.
+ews = { git = "https://github.com/adilelhaji/ews-rs.git", branch = "calendar-item-properties" }
 feed-rs = "2.3.1"
 quick-xml = "0.37.5"
 scraper = "0.27.0"

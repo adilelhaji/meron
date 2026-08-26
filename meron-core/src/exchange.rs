@@ -80,6 +80,7 @@ impl EwsClient {
             sync_folder_id: Some(BaseFolderId::DistinguishedFolderId {
                 id: "msgfolderroot".to_string(),
                 change_key: None,
+                mailbox: None,
             }),
             sync_state,
         })?;
@@ -435,6 +436,7 @@ impl EwsSession {
                 .map(|(id, _)| BaseFolderId::DistinguishedFolderId {
                     id: id.to_string(),
                     change_key: None,
+                    mailbox: None,
                 })
                 .collect(),
         })?;
@@ -1176,6 +1178,7 @@ mod tests {
             sync_folder_id: Some(BaseFolderId::DistinguishedFolderId {
                 id: "msgfolderroot".to_string(),
                 change_key: None,
+                mailbox: None,
             }),
             sync_state: None,
         })

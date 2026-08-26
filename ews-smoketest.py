@@ -108,6 +108,9 @@ def main():
     ap.add_argument("--probe", action="store_true",
                     help="instead of the smoke test, report which envelope "
                          "properties this server accepts")
+    ap.add_argument("--probe-calendar", action="store_true",
+                    help="instead of the smoke test, report what the server "
+                         "will tell us about calendar events")
     args = ap.parse_args()
 
     if not os.path.exists(BIN):
@@ -117,12 +120,13 @@ def main():
     if not password:
         sys.exit("no password given")
 
-    if args.probe:
+    if args.probe or args.probe_calendar:
         # Reuse this script's password handling rather than making the caller
         # get a secret through the shell safely.
-        probe = os.path.join(os.path.dirname(BIN), "examples", "ews_probe")
+        name = "ews_calendar_probe" if args.probe_calendar else "ews_probe"
+        probe = os.path.join(os.path.dirname(BIN), "examples", name)
         if not os.path.exists(probe):
-            sys.exit(f"probe not built: cargo build --release --example ews_probe")
+            sys.exit(f"probe not built: cargo build --release --example {name}")
         env = dict(os.environ, EWS_URL=args.url, EWS_USER=args.user,
                    EWS_PASSWORD=password, EWS_FOLDER=args.folder)
         return subprocess.call([probe], env=env)
