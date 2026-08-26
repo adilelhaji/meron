@@ -102,7 +102,7 @@ export function CalendarPanel({ calendar }: { calendar: Calendar }) {
             <p className="text-[0.6875rem] text-secondary">
               {t('calendar.cannotDeleteDefault', {
                 defaultValue:
-                  'The default calendar cannot be removed. Make another one the default first.',
+                  "The account's main calendar cannot be removed — the server does not allow it.",
               })}
             </p>
           ) : onlyOne ? (

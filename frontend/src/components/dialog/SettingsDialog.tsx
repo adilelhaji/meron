@@ -7,6 +7,7 @@ import {
   calendar$,
   createCalendar,
   importAccountCalendars,
+  isGoogleAccount,
   loadCalendars,
   setCalendarEnabled,
   type Calendar as CalendarModel,
@@ -398,7 +399,7 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
     (calendar) => calendar.accountId === account.id && calendar.kind === 'account',
   )
   const supports = accountSupportsCalendar(account)
-  const isGoogle = account.auth_type === 'gmail_oauth' || account.provider === 'gmail'
+  const isGoogle = isGoogleAccount(account)
   // An account that cannot keep calendars gets no empty section — except a
   // Google account, which gets told why rather than showing nothing at all.
   if (!supports && !isGoogle && calendars.length === 0) return null
@@ -423,7 +424,12 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
   const runImport = async () => {
     setImporting(true)
     try {
-      await importAccountCalendars(account.id)
+      const count = await importAccountCalendars(account.id)
+      // Said out loud even when nothing new turned up: a silent refresh reads
+      // as a button that does nothing.
+      showToast(t('calendar.importResult', { defaultValue: 'The server offers {{count}} calendars.', count }))
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : String(err), 'error')
     } finally {
       setImporting(false)
     }

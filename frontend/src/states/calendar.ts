@@ -139,6 +139,19 @@ export async function loadCalendars() {
   calendar$.calendars.set(perAccount.flat())
 }
 
+/// Whether an account is a Google one — by auth type, provider, or its
+/// servers, so an app-password IMAP setup is recognised too. Google calendars
+/// need their own backend, which is not wired up yet; the settings page uses
+/// this to say so instead of staying silent.
+export function isGoogleAccount(account: Account): boolean {
+  return (
+    account.auth_type === 'gmail_oauth' ||
+    account.provider === 'gmail' ||
+    /gmail|googlemail/i.test(account.imap_host ?? '') ||
+    /@(gmail|googlemail)\./i.test(account.email)
+  )
+}
+
 /// Re-runs calendar discovery for one account, on demand. The events call
 /// refreshes behind the request: it lists the account's calendars again and
 /// re-syncs the window, and the calendar.synced event reloads state here.
@@ -154,6 +167,11 @@ export async function importAccountCalendars(accountId: string) {
     refresh: true,
   })
   await loadCalendars()
+  // How many the server offers, so the caller can tell the user something
+  // happened even when nothing new turned up.
+  return calendar$.calendars
+    .peek()
+    .filter((calendar) => calendar.accountId === accountId && calendar.kind === 'account').length
 }
 
 export async function setCalendarEnabled(accountId: string, calendarId: string, enabled: boolean) {
