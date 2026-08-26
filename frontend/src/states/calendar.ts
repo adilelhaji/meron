@@ -34,12 +34,20 @@ export type CalendarEvent = {
   accountId: string
 }
 
+/// Where a calendar comes from, which decides how it syncs and whether its
+/// events can be changed.
+export type CalendarKind = 'account' | 'local' | 'subscribed'
+
 export type Calendar = {
   id: string
   name: string
   is_default: boolean
   enabled: boolean
   color?: string | null
+  kind: CalendarKind
+  url?: string | null
+  read_only: boolean
+  synced_at: number
   accountId: string
 }
 
@@ -292,3 +300,30 @@ export async function setCalendarColor(accountId: string, calendarId: string, co
 /// has none other clients agree on, so syncing one would write a property
 /// nothing else reads.
 export const CALENDAR_COLORS = ACCOUNT_COLORS
+
+
+export async function createLocalCalendar(accountId: string, name: string): Promise<string> {
+  const res = await invoke<{ id: string }>('calendar.createLocal', {
+    account_id: accountId,
+    name,
+  })
+  await loadCalendars()
+  return res.id
+}
+
+/// Follows a published calendar file. The core fetches it once before storing,
+/// so a URL that is not a calendar fails here rather than becoming a
+/// subscription that never fills.
+export async function subscribeCalendar(
+  accountId: string,
+  name: string,
+  url: string,
+): Promise<string> {
+  const res = await invoke<{ id: string }>('calendar.subscribe', {
+    account_id: accountId,
+    name,
+    url,
+  })
+  await loadCalendars()
+  return res.id
+}

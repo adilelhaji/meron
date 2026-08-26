@@ -366,7 +366,8 @@ func sidecarCallTimeout(method string) time.Duration {
 	case "calendar.events":
 		return 30 * time.Second
 	case "calendar.create", "calendar.update", "calendar.delete",
-		"calendar.createCalendar", "calendar.renameCalendar", "calendar.deleteCalendar":
+		"calendar.createCalendar", "calendar.renameCalendar", "calendar.deleteCalendar",
+		"calendar.createLocal", "calendar.subscribe":
 		return 30 * time.Second
 	case "calendar.list", "calendar.setEnabled", "calendar.setColor":
 		return 5 * time.Second

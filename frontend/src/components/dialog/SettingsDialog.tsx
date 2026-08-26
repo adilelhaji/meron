@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import { CalendarPanel } from './CalendarPanel'
+import { NewCalendarDialog } from './NewCalendarDialog'
 import {
   accountColor,
   calendar$,
-  createCalendar,
   loadCalendars,
+  type Calendar as CalendarModel,
 } from '../../states/calendar'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
@@ -33,6 +34,7 @@ import {
   Archive,
   Server,
   CalendarDays,
+  Lock,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { importOpml, exportOpml } from '../../states/feeds'
@@ -340,6 +342,37 @@ function AccountNavAvatar({ account, displayName }: { account: Account; displayN
   )
 }
 
+/// Groups calendars by where they come from: each account's own, then the
+/// local ones, then subscriptions.
+function groupsBySource(
+  calendars: CalendarModel[],
+  accounts: { id: string; email: string }[],
+  t: ReturnType<typeof useTranslation>['t'],
+): { label: string; calendars: CalendarModel[] }[] {
+  const groups: { label: string; calendars: CalendarModel[] }[] = []
+  for (const account of accounts) {
+    const own = calendars.filter(
+      (calendar) => calendar.accountId === account.id && calendar.kind === 'account',
+    )
+    if (own.length) groups.push({ label: account.email, calendars: own })
+  }
+  const local = calendars.filter((calendar) => calendar.kind === 'local')
+  if (local.length) {
+    groups.push({
+      label: t('calendar.groupLocal', { defaultValue: 'On this computer' }),
+      calendars: local,
+    })
+  }
+  const subscribed = calendars.filter((calendar) => calendar.kind === 'subscribed')
+  if (subscribed.length) {
+    groups.push({
+      label: t('calendar.groupSubscribed', { defaultValue: 'Subscriptions' }),
+      calendars: subscribed,
+    })
+  }
+  return groups
+}
+
 /// Addresses one calendar in the settings rail. Prefixed so the key cannot
 /// collide with an account or board id.
 export function calendarKey(calendar: { accountId: string; id: string }): string {
@@ -359,15 +392,10 @@ function CalendarGroup({
   const calendars = useValue(calendar$.calendars)
   const accounts = useValue(accounts$)
   const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
 
   useEffect(() => {
     void loadCalendars()
   }, [])
-
-  // New calendars go to the account that already has one; with none, there is
-  // nowhere to put them and the button stays hidden.
-  const host = calendars[0]?.accountId ?? ''
 
   return (
     <>
@@ -375,66 +403,51 @@ function CalendarGroup({
         <span className="text-[0.6875rem] font-semibold text-secondary">
           {t('calendar.title', { defaultValue: 'Calendar' })}
         </span>
-        {host && (
-          <button
+        <button
             onClick={() => setAdding(true)}
             title={t('calendar.addCalendar', { defaultValue: 'Add calendar' })}
             className="flex h-6 w-6 items-center justify-center rounded-lg text-secondary hover:text-accent hover:bg-accent/10 cursor-pointer transition-colors"
           >
             <Plus size={13} />
           </button>
-        )}
       </div>
-      {adding && (
-        <form
-          className="px-3 pb-1"
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (!name.trim()) return
-            void createCalendar(host, name.trim()).then(() => {
-              setName('')
-              setAdding(false)
-            })
-          }}
-        >
-          <input
-            autoFocus
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            onBlur={() => !name.trim() && setAdding(false)}
-            placeholder={t('calendar.newCalendarName', { defaultValue: 'Calendar name' })}
-            className="w-full rounded-xl border border-border bg-raised px-2.5 py-1.5 text-[0.6875rem] text-primary outline-none focus:ring-1 focus:ring-accent"
-          />
-        </form>
-      )}
+      {adding && <NewCalendarDialog onClose={() => setAdding(false)} />}
       {calendars.length === 0 ? (
         <p className="px-3 py-1 text-[0.65625rem] font-medium text-secondary">
           {t('calendar.noCalendars', { defaultValue: 'No calendars yet.' })}
         </p>
       ) : (
-        calendars.map((calendar) => {
-          const key = calendarKey(calendar)
-          const owner = accounts.find((account) => account.id === calendar.accountId)
-          return (
-            <NavItem
-              key={key}
-              active={activeKey === key}
-              onClick={() => onSelect(key)}
-              title={owner?.email}
-            >
-              <span
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
-                style={{ backgroundColor: `${calendar.color || accountColor(calendar.accountId)}1a` }}
-              >
-                <CalendarDays
-                  size={12}
-                  style={{ color: calendar.color || accountColor(calendar.accountId) }}
-                />
-              </span>
-              <span className="truncate">{calendar.name}</span>
-            </NavItem>
-          )
-        })
+        // Grouped by where each calendar comes from, which is the distinction
+        // that decides how it syncs and whether it can be edited.
+        groupsBySource(calendars, accounts, t).map((group) => (
+          <div key={group.label}>
+            <p className="mt-2 mb-0.5 px-3 text-[0.625rem] font-semibold uppercase tracking-wide text-secondary/70">
+              {group.label}
+            </p>
+            {group.calendars.map((calendar) => {
+              const key = calendarKey(calendar)
+              return (
+                <NavItem key={key} active={activeKey === key} onClick={() => onSelect(key)}>
+                  <span
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+                    style={{
+                      backgroundColor: `${calendar.color || accountColor(calendar.accountId)}1a`,
+                    }}
+                  >
+                    <CalendarDays
+                      size={12}
+                      style={{ color: calendar.color || accountColor(calendar.accountId) }}
+                    />
+                  </span>
+                  <span className="truncate">{calendar.name}</span>
+                  {calendar.read_only && (
+                    <Lock size={11} className="ml-auto shrink-0 text-secondary/70" />
+                  )}
+                </NavItem>
+              )
+            })}
+          </div>
+        ))
       )}
     </>
   )

@@ -208,3 +208,47 @@ func (a *App) calendarSetColor(payload map[string]any) (any, error) {
 		"account": req.AccountID, "calendar": req.CalendarID, "color": req.Color,
 	})
 }
+
+// calendarCreateLocal adds a calendar that lives only in this copy of Meron.
+// Nothing syncs it and nothing else holds a copy, which the interface says.
+func (a *App) calendarCreateLocal(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string `json:"account_id"`
+		Name      string `json:"name"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, errors.New("a calendar needs a name")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.createLocal", map[string]any{
+		"account": req.AccountID, "name": req.Name,
+	})
+}
+
+// calendarSubscribe follows a published calendar file. The core fetches it
+// once before storing, so a URL that is not a calendar fails here rather than
+// becoming a subscription that never fills.
+func (a *App) calendarSubscribe(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string `json:"account_id"`
+		Name      string `json:"name"`
+		URL       string `json:"url"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return nil, errors.New("a calendar needs a name")
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.subscribe", map[string]any{
+		"account": req.AccountID, "name": req.Name, "url": req.URL,
+	})
+}

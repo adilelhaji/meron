@@ -274,6 +274,10 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.calendarUpdate(payload)
 	case "calendar.delete":
 		return a.calendarDelete(payload)
+	case "calendar.createLocal":
+		return a.calendarCreateLocal(payload)
+	case "calendar.subscribe":
+		return a.calendarSubscribe(payload)
 	case "calendar.createCalendar":
 		return a.calendarCreateCalendar(payload)
 	case "calendar.renameCalendar":
