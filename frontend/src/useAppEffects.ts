@@ -3,6 +3,7 @@ import { useValue } from '@legendapp/state/react'
 import { boot } from './boot'
 import { invoke } from './lib/bridge'
 import { ui$, showToast } from './states/ui'
+import { calendar$, loadWindow } from './states/calendar'
 import {
   mail$,
   loadFolders,
@@ -326,6 +327,23 @@ export function useAppEffects() {
       if (selectedAccount) void refreshCurrentMailbox().catch(console.error)
     })
 
+    // A calendar window is fetched from the cache and refreshed behind the
+    // request, so the agenda renders whatever was already stored and needs
+    // telling when the server's answer lands — on a first open the cache is
+    // empty, and without this the view would simply stay that way.
+    const offCalendarSynced = eventsOn(
+      'calendar.synced',
+      (detail: { from?: number; to?: number }) => {
+        const { from, to } = calendar$.peek()
+        if (to <= from) return
+        // Only re-read if the window that synced is the one on screen.
+        if (detail?.from !== undefined && detail?.to !== undefined) {
+          if (detail.from !== from || detail.to !== to) return
+        }
+        void loadWindow(from, to, false)
+      },
+    )
+
     const offSynced = eventsOn('mail.synced', (detail: { account?: string; folders?: boolean }) => {
       clearSyncErrorFor(detail?.account ?? null)
       // A message-only sync (no folders:true) still changes the true unread count,
@@ -347,6 +365,7 @@ export function useAppEffects() {
       if (typeof offError === 'function') offError()
       if (typeof offNew === 'function') offNew()
       if (typeof offSynced === 'function') offSynced()
+      if (typeof offCalendarSynced === 'function') offCalendarSynced()
     }
   }, [selectedAccount, selectedFolder, query])
 }
