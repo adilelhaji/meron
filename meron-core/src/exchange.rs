@@ -1137,6 +1137,12 @@ impl EwsSession {
                 // to decide and are preserved across syncs by the store.
                 enabled: true,
                 color: None,
+                kind: crate::calendar::CalendarKind::Account,
+                url: None,
+                // Exchange calendars are writable; a read-only one would be a
+                // shared calendar, which this backend does not list yet.
+                read_only: false,
+                synced_at: 0,
             });
         }
         Ok(calendars)

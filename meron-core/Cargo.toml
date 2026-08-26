@@ -41,6 +41,11 @@ ews = { git = "https://github.com/adilelhaji/ews-rs.git", branch = "calendar-ite
 # Already in the tree through `ews`, whose DateTime wraps `time`'s; declared
 # directly so calendar writes can build one. No new supply chain.
 time = "0.3"
+# Subscribed calendars are a file, not a server, so nothing expands their
+# recurrence rules for us. This parses iCalendar and — through the `rrule`
+# types it reexports — expands them, which is a job for an RFC implementation
+# rather than for hand-rolled date arithmetic.
+icalendar = { version = "0.17", features = ["recurrence"] }
 feed-rs = "2.3.1"
 quick-xml = "0.37.5"
 scraper = "0.27.0"

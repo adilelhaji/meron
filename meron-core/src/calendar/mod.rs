@@ -9,11 +9,50 @@
 //! The provider backends (Exchange today, Google next) map their own answers
 //! onto these types; everything above this line is provider-neutral.
 
+pub mod subscription;
+
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
-/// A calendar an account exposes.
+/// Where a calendar comes from.
+///
+/// This decides how it syncs and whether it can be written to, which is the
+/// distinction a reader actually reasons about when asking "why can I not edit
+/// this?" — so it is modelled rather than inferred.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CalendarKind {
+    /// Lives on the server of a mail account, and syncs with it.
+    #[default]
+    Account,
+    /// Lives only in this copy of Meron. Nothing syncs it and nothing else has
+    /// a copy — which the interface has to say plainly.
+    Local,
+    /// A calendar file fetched from a URL. Read-only: it belongs to whoever
+    /// publishes it.
+    Subscribed,
+}
+
+impl CalendarKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CalendarKind::Account => "account",
+            CalendarKind::Local => "local",
+            CalendarKind::Subscribed => "subscribed",
+        }
+    }
+
+    fn parse(value: &str) -> Self {
+        match value {
+            "local" => CalendarKind::Local,
+            "subscribed" => CalendarKind::Subscribed,
+            _ => CalendarKind::Account,
+        }
+    }
+}
+
+/// A calendar, wherever it comes from.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Calendar {
     /// The provider's own identifier for this calendar.
@@ -28,6 +67,18 @@ pub struct Calendar {
     pub enabled: bool,
     #[serde(default)]
     pub color: Option<String>,
+    #[serde(default)]
+    pub kind: CalendarKind,
+    /// Where a subscribed calendar is fetched from.
+    #[serde(default)]
+    pub url: Option<String>,
+    /// Whether events on it can be changed. Always true for a subscription:
+    /// the file belongs to whoever publishes it.
+    #[serde(default)]
+    pub read_only: bool,
+    /// When a subscription was last fetched, epoch seconds.
+    #[serde(default)]
+    pub synced_at: i64,
 }
 
 fn default_true() -> bool {
@@ -92,22 +143,28 @@ pub struct Event {
 pub fn upsert_calendars(conn: &Connection, account: &str, calendars: &[Calendar]) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     for calendar in calendars {
-        // `enabled` is deliberately not overwritten: it is the user's choice,
-        // and a resync of the calendar list must not silently re-show a
-        // calendar they hid.
+        // `enabled` and `color` are deliberately not overwritten: both are the
+        // user's choice, and a resync — which arrives with no opinion on
+        // either — must not undo them.
         tx.execute(
-            "INSERT INTO calendars(account, provider_id, name, is_default, color)
-             VALUES(?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO calendars(
+               account, provider_id, name, is_default, color, kind, url, read_only)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(account, provider_id) DO UPDATE SET
                name = excluded.name,
                is_default = excluded.is_default,
-               color = excluded.color",
+               kind = excluded.kind,
+               url = excluded.url,
+               read_only = excluded.read_only",
             params![
                 account,
                 calendar.id,
                 calendar.name,
                 calendar.is_default as i64,
-                calendar.color
+                calendar.color,
+                calendar.kind.as_str(),
+                calendar.url,
+                calendar.read_only as i64
             ],
         )?;
     }
@@ -117,7 +174,9 @@ pub fn upsert_calendars(conn: &Connection, account: &str, calendars: &[Calendar]
 
 pub fn get_calendars(conn: &Connection, account: &str) -> Result<Vec<Calendar>> {
     let mut stmt = conn.prepare(
-        "SELECT provider_id, name, is_default, enabled, color FROM calendars
+        "SELECT provider_id, name, is_default, enabled, color, kind, url, read_only,
+                synced_at
+         FROM calendars
          WHERE account = ?1 ORDER BY is_default DESC, name",
     )?;
     let calendars = stmt
@@ -128,6 +187,10 @@ pub fn get_calendars(conn: &Connection, account: &str) -> Result<Vec<Calendar>> 
                 is_default: row.get::<_, i64>(2)? != 0,
                 enabled: row.get::<_, i64>(3)? != 0,
                 color: row.get(4)?,
+                kind: CalendarKind::parse(&row.get::<_, String>(5)?),
+                url: row.get(6)?,
+                read_only: row.get::<_, i64>(7)? != 0,
+                synced_at: row.get(8)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -342,7 +405,7 @@ mod tests {
             name: "Calendario".to_string(),
             is_default: true,
             enabled: true,
-            color: None,
+            ..Default::default()
         }
     }
 
@@ -365,6 +428,66 @@ mod tests {
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].name, "Calendario del trabajo", "the name refreshes");
         assert!(!stored[0].enabled, "the user's choice does not");
+    }
+
+    #[test]
+    fn a_calendar_remembers_where_it_came_from() {
+        let conn = store();
+        upsert_calendars(
+            &conn,
+            "acct",
+            &[
+                a_calendar(),
+                Calendar {
+                    id: "local:1".to_string(),
+                    name: "Personal".to_string(),
+                    kind: CalendarKind::Local,
+                    enabled: true,
+                    ..Default::default()
+                },
+                Calendar {
+                    id: "sub:1".to_string(),
+                    name: "Festivos".to_string(),
+                    kind: CalendarKind::Subscribed,
+                    url: Some("https://example.org/holidays.ics".to_string()),
+                    read_only: true,
+                    enabled: true,
+                    ..Default::default()
+                },
+            ],
+        )
+        .unwrap();
+
+        let stored = get_calendars(&conn, "acct").unwrap();
+        let by_id = |id: &str| stored.iter().find(|c| c.id == id).cloned().unwrap();
+
+        assert_eq!(by_id("cal").kind, CalendarKind::Account);
+        assert_eq!(by_id("local:1").kind, CalendarKind::Local);
+
+        // A subscription keeps where it is fetched from, and that it cannot be
+        // written to: without the URL there is nothing to refresh, and without
+        // the flag the interface would offer edits the publisher would never
+        // receive.
+        let subscribed = by_id("sub:1");
+        assert_eq!(subscribed.kind, CalendarKind::Subscribed);
+        assert_eq!(subscribed.url.as_deref(), Some("https://example.org/holidays.ics"));
+        assert!(subscribed.read_only);
+    }
+
+    #[test]
+    fn a_colour_chosen_here_survives_a_resync_of_the_list() {
+        let conn = store();
+        upsert_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+        set_calendar_color(&conn, "acct", "cal", Some("#E8830C")).unwrap();
+
+        // The server does not know about colours and reports none, so keeping
+        // the user's choice is the whole point of storing it separately.
+        upsert_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+
+        assert_eq!(
+            get_calendars(&conn, "acct").unwrap()[0].color.as_deref(),
+            Some("#E8830C")
+        );
     }
 
     #[test]

@@ -567,6 +567,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 10 {
         migrate_v10(&tx)?;
     }
+    if version < 11 {
+        migrate_v11(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -683,6 +686,21 @@ fn migrate_v10(conn: &Connection) -> Result<()> {
     conn.execute_batch(CALENDARS_DDL)?;
     conn.execute_batch(CALENDAR_EVENTS_DDL)?;
     conn.execute_batch("PRAGMA user_version = 10;")?;
+    Ok(())
+}
+
+/// Where a calendar comes from, which decides how it syncs and whether it can
+/// be written to.
+///
+/// Existing rows are account calendars: they are all that existed before.
+fn migrate_v11(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "ALTER TABLE calendars ADD COLUMN kind TEXT NOT NULL DEFAULT 'account';
+         ALTER TABLE calendars ADD COLUMN url TEXT;
+         ALTER TABLE calendars ADD COLUMN read_only INTEGER NOT NULL DEFAULT 0;
+         ALTER TABLE calendars ADD COLUMN synced_at INTEGER NOT NULL DEFAULT 0;",
+    )?;
+    conn.execute_batch("PRAGMA user_version = 11;")?;
     Ok(())
 }
 

@@ -631,26 +631,55 @@ async fn sync_calendar_window(
         .await?;
     {
         let db = engine.db.lock().unwrap();
+        // Only the account's own calendars are refreshed from the server;
+        // local and subscribed ones are not its to report, and upserting the
+        // server's answer over them would drop them.
         calendar::upsert_calendars(&db, account, &calendars)?;
     }
-    let wanted: Vec<String> = {
+    let wanted: Vec<calendar::Calendar> = {
         let db = engine.db.lock().unwrap();
         calendar::get_calendars(&db, account)?
             .into_iter()
             .filter(|calendar| calendar.enabled)
-            .map(|calendar| calendar.id)
             .collect()
     };
 
-    for id in wanted {
-        let events = engine
-            .with_read_session(account, |session| {
-                let id = id.clone();
-                Box::pin(async move { session.events_in_window(&id, from, to).await })
-            })
-            .await?;
-        let db = engine.db.lock().unwrap();
-        calendar::replace_window(&db, account, &id, (from, to), &events)?;
+    for calendar in wanted {
+        match calendar.kind {
+            // Nothing to fetch: its events only ever came from here.
+            calendar::CalendarKind::Local => continue,
+            calendar::CalendarKind::Subscribed => {
+                let Some(url) = calendar.url.clone() else {
+                    continue;
+                };
+                let id = calendar.id.clone();
+                let body =
+                    tokio::task::spawn_blocking(move || calendar::subscription::fetch(&url))
+                        .await??;
+                let (events, skipped) =
+                    calendar::subscription::parse_window(&body, &id, from, to)?;
+                if skipped > 0 {
+                    meron_core::mlog!(
+                        meron_core::log::Level::Warn,
+                        "calendar",
+                        "{id}: {skipped} entr(ies) in the published file could not be read"
+                    );
+                }
+                let db = engine.db.lock().unwrap();
+                calendar::replace_window(&db, account, &id, (from, to), &events)?;
+            }
+            calendar::CalendarKind::Account => {
+                let id = calendar.id.clone();
+                let events = engine
+                    .with_read_session(account, |session| {
+                        let id = id.clone();
+                        Box::pin(async move { session.events_in_window(&id, from, to).await })
+                    })
+                    .await?;
+                let db = engine.db.lock().unwrap();
+                calendar::replace_window(&db, account, &id, (from, to), &events)?;
+            }
+        }
     }
     Ok(())
 }
@@ -1678,6 +1707,64 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         // Writes go straight to the server and then refresh the window they
         // land in, so the agenda shows what the server actually stored rather
         // than what was asked for.
+        // A local calendar has no server: it is a row here and nothing more,
+        // which is exactly what the user asked for when they chose "on this
+        // computer" — and what the interface must say, since nothing else has
+        // a copy of it.
+        "calendar.createLocal" => {
+            let account = req_str(p, "account")?;
+            let name = req_str(p, "name")?;
+            if name.trim().is_empty() {
+                anyhow::bail!("a calendar needs a name");
+            }
+            let id = format!("local:{}", uuid::Uuid::new_v4());
+            calendar::upsert_calendars(
+                &engine.db.lock().unwrap(),
+                &account,
+                &[calendar::Calendar {
+                    id: id.clone(),
+                    name,
+                    kind: calendar::CalendarKind::Local,
+                    enabled: true,
+                    ..Default::default()
+                }],
+            )?;
+            Ok(json!({ "id": id }))
+        }
+
+        // Subscribing fetches once before storing, so a wrong URL is reported
+        // now rather than as a calendar that silently never fills.
+        "calendar.subscribe" => {
+            let account = req_str(p, "account")?;
+            let name = req_str(p, "name")?;
+            let url = req_str(p, "url")?;
+            if !url.starts_with("https://") && !url.starts_with("http://") {
+                anyhow::bail!("a subscription needs an http(s) URL");
+            }
+            let probe_url = url.clone();
+            let body = tokio::task::spawn_blocking(move || {
+                calendar::subscription::fetch(&probe_url)
+            })
+            .await??;
+            let id = format!("sub:{}", uuid::Uuid::new_v4());
+            calendar::subscription::parse_window(&body, &id, 0, 1)
+                .context("that URL did not answer with a calendar")?;
+            calendar::upsert_calendars(
+                &engine.db.lock().unwrap(),
+                &account,
+                &[calendar::Calendar {
+                    id: id.clone(),
+                    name,
+                    kind: calendar::CalendarKind::Subscribed,
+                    url: Some(url),
+                    read_only: true,
+                    enabled: true,
+                    ..Default::default()
+                }],
+            )?;
+            Ok(json!({ "id": id }))
+        }
+
         "calendar.createCalendar" => {
             let account = req_str(p, "account")?;
             let name = req_str(p, "name")?;
