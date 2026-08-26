@@ -3,7 +3,7 @@ import { useValue } from '@legendapp/state/react'
 import { boot } from './boot'
 import { invoke } from './lib/bridge'
 import { ui$, showToast } from './states/ui'
-import { calendar$, loadWindow } from './states/calendar'
+import { calendar$, loadCalendars, loadWindow } from './states/calendar'
 import {
   mail$,
   loadFolders,
@@ -334,6 +334,10 @@ export function useAppEffects() {
     const offCalendarSynced = eventsOn(
       'calendar.synced',
       (detail: { from?: number; to?: number }) => {
+        // The list of calendars refreshes too: a sync is how a freshly added
+        // account's calendars are first discovered, and the settings rail
+        // would otherwise not show them until the dialog was reopened.
+        void loadCalendars()
         const { from, to } = calendar$.peek()
         if (to <= from) return
         // Re-read when the synced window overlaps the one on screen, not only

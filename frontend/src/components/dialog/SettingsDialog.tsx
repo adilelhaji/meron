@@ -34,6 +34,7 @@ import {
   Archive,
   Server,
   CalendarDays,
+  ChevronRight,
   Lock,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
@@ -377,6 +378,46 @@ function groupsBySource(
 /// collide with an account or board id.
 export function calendarKey(calendar: { accountId: string; id: string }): string {
   return `calendar:${calendar.accountId}:${calendar.id}`
+}
+
+/// The account's calendars, inside the account's own settings. Mail and
+/// calendar are set up together, so the account page is where a reader looks
+/// for them first; each row opens that calendar's settings. Only calendars
+/// living on the account's server belong here — local calendars and
+/// subscriptions merely listed under the account are not part of it.
+function AccountCalendarsGroup({ accountId }: { accountId: string }) {
+  const { t } = useTranslation()
+  const calendars = useValue(calendar$.calendars).filter(
+    (calendar) => calendar.accountId === accountId && calendar.kind === 'account',
+  )
+  if (calendars.length === 0) return null
+  return (
+    <SettingsGroup title={t('calendar.title', { defaultValue: 'Calendar' })}>
+      {calendars.map((calendar) => {
+        const color = calendar.color || accountColor(calendar.accountId)
+        return (
+          <button
+            key={calendar.id}
+            type="button"
+            onClick={() => ui$.accountSettingsId.set(calendarKey(calendar))}
+            className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover cursor-pointer"
+          >
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+              style={{ backgroundColor: `${color}1a` }}
+            >
+              <CalendarDays size={13} style={{ color }} />
+            </span>
+            <span className="min-w-0 flex-1 truncate text-xs font-medium text-primary">
+              {calendar.name}
+            </span>
+            {calendar.read_only && <Lock size={11} className="shrink-0 text-secondary/70" />}
+            <ChevronRight size={14} className="shrink-0 text-secondary/70" />
+          </button>
+        )
+      })}
+    </SettingsGroup>
+  )
 }
 
 /// The calendars group in the settings rail, one entry per calendar, with the
@@ -1090,6 +1131,7 @@ function AccountPanel({ account }: { account: Account }) {
         <AccountWallpaperCard account={account} />
       </SettingsGroup>
       <AccountTogglesSection account={account} isRSS={isRSS} />
+      {!isRSS && <AccountCalendarsGroup accountId={account.id} />}
       {!isRSS && <AccountProxyCard account={account} />}
       {!isRSS && <AccountAliasesCard account={account} />}
       {!isRSS && <AccountSignatureCard account={account} />}
