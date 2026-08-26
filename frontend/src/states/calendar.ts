@@ -1,6 +1,14 @@
 import { observable } from '@legendapp/state'
 import { invoke } from '../lib/bridge'
 import { accounts$ } from './accounts'
+import type { Account } from '../types'
+
+/// Whether an account keeps calendars on its server. Exchange does; plain
+/// IMAP has no calendar concept at all. Google joins this list when its
+/// backend lands.
+export function accountSupportsCalendar(account: Account): boolean {
+  return account.provider === 'exchange' || !!account.ews_url
+}
 
 /// One person on an event. `addr` is empty when the server identified them
 /// only by an internal directory name, which is why `name` is what gets shown.

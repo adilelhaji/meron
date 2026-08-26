@@ -3,6 +3,7 @@ import { useValue } from '@legendapp/state/react'
 import { CalendarDays, Cloud, HardDrive, Link2, X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import {
+  accountSupportsCalendar,
   createCalendar,
   createLocalCalendar,
   subscribeCalendar,
@@ -20,23 +21,30 @@ import { isRssAccount } from '../../lib/threadActions'
 export function NewCalendarDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const accounts = useValue(accounts$).filter((account) => !isRssAccount(account, account.id))
-  const [kind, setKind] = useState<CalendarKind>('account')
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? '')
+  // Only an account whose server keeps calendars can host a new one; a plain
+  // IMAP account has nowhere to put it. Local calendars and subscriptions are
+  // merely *listed under* an account, so any account can take those.
+  const capable = accounts.filter(accountSupportsCalendar)
+  const [kind, setKind] = useState<CalendarKind>(capable.length > 0 ? 'account' : 'local')
+  const [accountId, setAccountId] = useState(capable[0]?.id ?? accounts[0]?.id ?? '')
   const [name, setName] = useState('')
   const [url, setUrl] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
+  const pool = kind === 'account' ? capable : accounts
+  const chosen = pool.some((account) => account.id === accountId) ? accountId : (pool[0]?.id ?? '')
+
   const invalid =
-    !name.trim() || !accountId || (kind === 'subscribed' && !/^https?:\/\//.test(url.trim()))
+    !name.trim() || !chosen || (kind === 'subscribed' && !/^https?:\/\//.test(url.trim()))
 
   const submit = async () => {
     setBusy(true)
     setError('')
     try {
-      if (kind === 'account') await createCalendar(accountId, name.trim())
-      else if (kind === 'local') await createLocalCalendar(accountId, name.trim())
-      else await subscribeCalendar(accountId, name.trim(), url.trim())
+      if (kind === 'account') await createCalendar(chosen, name.trim())
+      else if (kind === 'local') await createLocalCalendar(chosen, name.trim())
+      else await subscribeCalendar(chosen, name.trim(), url.trim())
       onClose()
     } catch (err) {
       // Kept open with the message: the URL is the likeliest thing to be
@@ -104,6 +112,14 @@ export function NewCalendarDialog({ onClose }: { onClose: () => void }) {
                 })}
         </p>
 
+        {kind === 'account' && capable.length === 0 ? (
+          <p className="px-0.5 text-[0.6875rem] text-secondary">
+            {t('calendar.noServerAccounts', {
+              defaultValue:
+                'None of these accounts keeps calendars on a server. Exchange accounts do — their calendars arrive with the account.',
+            })}
+          </p>
+        ) : (
         <div className="flex flex-col gap-3">
           <Labelled label={t('calendar.name', { defaultValue: 'Name' })}>
             <input value={name} onChange={(e) => setName(e.target.value)} autoFocus className={inputClass} />
@@ -120,7 +136,7 @@ export function NewCalendarDialog({ onClose }: { onClose: () => void }) {
             </Labelled>
           )}
 
-          {accounts.length > 1 && (
+          {pool.length > 1 && (
             <Labelled
               label={
                 kind === 'account'
@@ -129,11 +145,11 @@ export function NewCalendarDialog({ onClose }: { onClose: () => void }) {
               }
             >
               <select
-                value={accountId}
+                value={chosen}
                 onChange={(e) => setAccountId(e.target.value)}
                 className={inputClass}
               >
-                {accounts.map((account) => (
+                {pool.map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.email}
                   </option>
@@ -144,6 +160,7 @@ export function NewCalendarDialog({ onClose }: { onClose: () => void }) {
 
           {error && <p className="text-[0.6875rem] text-rose-500">{error}</p>}
         </div>
+        )}
 
         <div className="mt-5 flex justify-end gap-2">
           <button

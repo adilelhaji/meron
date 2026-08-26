@@ -3,6 +3,7 @@ import { CalendarPanel } from './CalendarPanel'
 import { NewCalendarDialog } from './NewCalendarDialog'
 import {
   accountColor,
+  accountSupportsCalendar,
   calendar$,
   loadCalendars,
   type Calendar as CalendarModel,
@@ -385,14 +386,24 @@ export function calendarKey(calendar: { accountId: string; id: string }): string
 /// for them first; each row opens that calendar's settings. Only calendars
 /// living on the account's server belong here — local calendars and
 /// subscriptions merely listed under the account are not part of it.
-function AccountCalendarsGroup({ accountId }: { accountId: string }) {
+function AccountCalendarsGroup({ account }: { account: Account }) {
   const { t } = useTranslation()
   const calendars = useValue(calendar$.calendars).filter(
-    (calendar) => calendar.accountId === accountId && calendar.kind === 'account',
+    (calendar) => calendar.accountId === account.id && calendar.kind === 'account',
   )
-  if (calendars.length === 0) return null
+  // An account that cannot keep calendars gets no empty section; one that can
+  // shows the section even before its first sync has filled it, so the reader
+  // is told the calendars are coming rather than left to wonder.
+  if (!accountSupportsCalendar(account) && calendars.length === 0) return null
   return (
     <SettingsGroup title={t('calendar.title', { defaultValue: 'Calendar' })}>
+      {calendars.length === 0 && (
+        <p className="px-4 py-3.5 text-[0.6875rem] text-secondary">
+          {t('calendar.calendarsAppearOnSync', {
+            defaultValue: "The account's calendars appear here once its first sync finishes.",
+          })}
+        </p>
+      )}
       {calendars.map((calendar) => {
         const color = calendar.color || accountColor(calendar.accountId)
         return (
@@ -1131,7 +1142,7 @@ function AccountPanel({ account }: { account: Account }) {
         <AccountWallpaperCard account={account} />
       </SettingsGroup>
       <AccountTogglesSection account={account} isRSS={isRSS} />
-      {!isRSS && <AccountCalendarsGroup accountId={account.id} />}
+      {!isRSS && <AccountCalendarsGroup account={account} />}
       {!isRSS && <AccountProxyCard account={account} />}
       {!isRSS && <AccountAliasesCard account={account} />}
       {!isRSS && <AccountSignatureCard account={account} />}
