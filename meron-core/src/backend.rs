@@ -199,6 +199,31 @@ impl Session {
         }
     }
 
+    /// The account's calendars, or an empty list for a backend without any.
+    ///
+    /// IMAP carries no calendars at all, so an account on it reports none
+    /// rather than failing: a client asking every account what it has should
+    /// not have to know which protocols answer.
+    pub async fn list_calendars(&mut self) -> Result<Vec<crate::calendar::Calendar>> {
+        match self {
+            Session::Imap(_) => Ok(Vec::new()),
+            Session::Ews(session) => session.list_calendars().await,
+        }
+    }
+
+    /// The occurrences on a calendar between two instants.
+    pub async fn events_in_window(
+        &mut self,
+        calendar_id: &str,
+        from: i64,
+        to: i64,
+    ) -> Result<Vec<crate::calendar::Event>> {
+        match self {
+            Session::Imap(_) => Ok(Vec::new()),
+            Session::Ews(session) => session.events_in_window(calendar_id, from, to).await,
+        }
+    }
+
     /// Transmits a message. Only the Exchange backend implements this: IMAP
     /// accounts submit through SMTP, which is not a session operation.
     pub async fn send_mime(&mut self, raw: Vec<u8>) -> Result<()> {

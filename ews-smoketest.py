@@ -194,6 +194,38 @@ def main():
         else:
             failures += 1
 
+        print("\n5. calendar: list and one 90-day window")
+        cal = check("calendar.list", core.call("calendar.list", {"account": account}))
+        # The list is empty until the first sync populates it, so ask for a
+        # window (which syncs behind the request) and then look again.
+        import time as _time
+        now = int(_time.time())
+        window = check("calendar.events", core.call(
+            "calendar.events",
+            {"account": account, "from": now, "to": now + 90 * 24 * 3600},
+        ))
+        if window is not None:
+            core.wait_event("calendar.synced", timeout=120)
+            cal = check("calendar.list (after sync)",
+                        core.call("calendar.list", {"account": account}))
+            names = [c.get("name") for c in (cal or {}).get("calendars", [])]
+            print(f"        {len(names)} calendar(s): {', '.join(names[:6])}")
+            window = check("calendar.events (after sync)", core.call(
+                "calendar.events",
+                {"account": account, "from": now, "to": now + 90 * 24 * 3600,
+                 "refresh": False},
+            ))
+            events = (window or {}).get("events", [])
+            print(f"        {len(events)} occurrence(s) cached")
+            for event in events[:5]:
+                start = _time.strftime("%Y-%m-%d %H:%M", _time.localtime(event["start"]))
+                who = (event.get("organizer") or {}).get("name", "")
+                print(f"          {start}  {event['subject'][:40]:42} {who}")
+            if not events:
+                print("  WARN  no occurrences cached (an empty calendar is possible)")
+        else:
+            failures += 1
+
         if headers:
             uid = headers[0].get("uid")
             print(f"\n4. read message uid {uid} (GetItem with MIME)")

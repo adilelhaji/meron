@@ -262,6 +262,12 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.mailSync(payload)
 	case "watch.start", "watch.stop":
 		return a.watchFolder(command, payload)
+	case "calendar.list":
+		return a.calendarList(payload)
+	case "calendar.events":
+		return a.calendarEvents(payload)
+	case "calendar.setEnabled":
+		return a.calendarSetEnabled(payload)
 	case "mail.folderList":
 		return a.folderList(payload)
 	case "mail.folderCreate":

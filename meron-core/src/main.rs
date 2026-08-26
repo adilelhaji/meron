@@ -28,7 +28,7 @@ use meron_core::engine::*;
 use meron_core::engine::{Engine, EngineHost};
 use meron_core::protocol::{Request, ping_response, ready_event};
 use meron_core::{
-    backup, changelog, exchange, imap, mail_model, parse, proxy, rss, secrets, smtp, store,
+    backup, calendar, changelog, exchange, imap, mail_model, parse, proxy, rss, secrets, smtp, store,
     thread_list, thread_read, unified,
 };
 
@@ -562,6 +562,97 @@ fn spawn_rss_sync(engine: Arc<Engine>, out: Writer, account: String) {
             Err(_) => emit(&out, "error", json!({ "message": "rss sync timed out" })).await,
         }
     });
+}
+
+/// Refreshes an account's calendars and the occurrences in one window.
+///
+/// Deduped per account *and window*: a client scrolling through months would
+/// otherwise stack a sync per view, while two different windows are genuinely
+/// different work.
+fn spawn_calendar_sync(
+    engine: Arc<Engine>,
+    out: Writer,
+    account: String,
+    from: i64,
+    to: i64,
+) {
+    if engine.is_paused(&account) {
+        return;
+    }
+    let key = format!("calendar:{account}:{from}:{to}");
+    if !engine.syncing.lock().unwrap().insert(key.clone()) {
+        return;
+    }
+    tokio::spawn(async move {
+        let result = retry_background_sync(
+            &format!("calendar sync for {account}"),
+            || !engine.is_paused(&account),
+            || sync_calendar_window(&engine, &account, from, to),
+        )
+        .await;
+        engine.syncing.lock().unwrap().remove(&key);
+        match result {
+            Ok(_) => {
+                emit(
+                    &out,
+                    "calendar.synced",
+                    json!({ "account": account, "from": from, "to": to }),
+                )
+                .await
+            }
+            Err(e) if e.is::<BackgroundSyncCancelled>() => {}
+            Err(e) => {
+                emit(
+                    &out,
+                    "calendar.syncError",
+                    json!({ "account": account, "message": format!("calendar sync: {e:#}") }),
+                )
+                .await
+            }
+        }
+    });
+}
+
+/// Pulls the calendar list, then one window of occurrences per enabled
+/// calendar.
+///
+/// A calendar the user hid is not fetched at all: the point of hiding one is
+/// not to pay for it.
+async fn sync_calendar_window(
+    engine: &Arc<Engine>,
+    account: &str,
+    from: i64,
+    to: i64,
+) -> anyhow::Result<()> {
+    let calendars = engine
+        .with_read_session(account, |session| {
+            Box::pin(async move { session.list_calendars().await })
+        })
+        .await?;
+    {
+        let db = engine.db.lock().unwrap();
+        calendar::upsert_calendars(&db, account, &calendars)?;
+    }
+    let wanted: Vec<String> = {
+        let db = engine.db.lock().unwrap();
+        calendar::get_calendars(&db, account)?
+            .into_iter()
+            .filter(|calendar| calendar.enabled)
+            .map(|calendar| calendar.id)
+            .collect()
+    };
+
+    for id in wanted {
+        let events = engine
+            .with_read_session(account, |session| {
+                let id = id.clone();
+                Box::pin(async move { session.events_in_window(&id, from, to).await })
+            })
+            .await?;
+        let db = engine.db.lock().unwrap();
+        calendar::replace_window(&db, account, &id, (from, to), &events)?;
+    }
+    Ok(())
 }
 
 fn spawn_folder_sync(engine: Arc<Engine>, out: Writer, account: String) {
@@ -1546,6 +1637,44 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         // avoid a sync→event→reload loop.
         // RSS accounts return final Folder JSON (one synthetic Inbox); mail
         // returns raw rows the bridge formats. Routed by the account's engine.
+        "calendar.list" => {
+            let account = req_str(p, "account")?;
+            let calendars = calendar::get_calendars(&engine.db.lock().unwrap(), &account)?;
+            Ok(json!({ "calendars": serde_json::to_value(calendars)? }))
+        }
+
+        "calendar.setEnabled" => {
+            let account = req_str(p, "account")?;
+            let id = req_str(p, "calendar")?;
+            let enabled = p
+                .get("enabled")
+                .and_then(Value::as_bool)
+                .context("missing bool param: enabled")?;
+            calendar::set_calendar_enabled(&engine.db.lock().unwrap(), &account, &id, enabled)?;
+            Ok(json!({ "ok": true }))
+        }
+
+        // Answers from the cache and refreshes behind the request, the same
+        // contract `folders.list` and `messages.recent` give: a view renders
+        // at once and settles when the server answers.
+        "calendar.events" => {
+            let account = req_str(p, "account")?;
+            let from = req_i64(p, "from")?;
+            let to = req_i64(p, "to")?;
+            if to <= from {
+                anyhow::bail!("calendar window ends before it starts");
+            }
+            let events = calendar::events_in_window(
+                &engine.db.lock().unwrap(),
+                &account,
+                (from, to),
+            )?;
+            if p.get("refresh").and_then(Value::as_bool).unwrap_or(true) {
+                spawn_calendar_sync(engine.clone(), out.clone(), account, from, to);
+            }
+            Ok(json!({ "events": serde_json::to_value(events)? }))
+        }
+
         "folders.list" => {
             let account = req_str(p, "account")?;
             if is_rss(engine, &account)? {
@@ -3292,6 +3421,13 @@ fn req_u16(params: &Value, key: &str) -> anyhow::Result<u16> {
         .and_then(Value::as_u64)
         .map(|n| n as u16)
         .ok_or_else(|| anyhow::anyhow!("missing number param: {key}"))
+}
+
+fn req_i64(params: &Value, key: &str) -> anyhow::Result<i64> {
+    params
+        .get(key)
+        .and_then(Value::as_i64)
+        .with_context(|| format!("missing number param: {key}"))
 }
 
 fn req_u32(params: &Value, key: &str) -> anyhow::Result<u32> {
