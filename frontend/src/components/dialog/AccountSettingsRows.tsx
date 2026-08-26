@@ -4,7 +4,7 @@ import { InfoTip } from '../tooltip/InfoTip'
 import { SelectInput, TextInput } from '../field/Field'
 
 // iOS/chat-style switch, matching the look used across the settings UI.
-function Switch({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+export function Switch({ checked, onChange }: { checked: boolean; onChange: () => void }) {
   return (
     <button
       role="switch"

@@ -5,6 +5,7 @@ import {
   accountColor,
   accountSupportsCalendar,
   calendar$,
+  createCalendar,
   importAccountCalendars,
   loadCalendars,
   setCalendarEnabled,
@@ -61,7 +62,7 @@ import { update$ } from '../../states/update'
 import type { Account } from '../../types'
 import { Avatar } from '../avatar/Avatar'
 import { IconButton } from '../button/IconButton'
-import { NumberRow, SegmentedRow, SettingRow, SettingsGroup, ToggleRow, SelectRow } from './AccountSettingsRows'
+import { NumberRow, SegmentedRow, SettingRow, SettingsGroup, Switch, ToggleRow, SelectRow } from './AccountSettingsRows'
 import { supportedI18nLanguages, languageNativeNames, type SupportedI18nLanguage } from '../../lib/i18n'
 import { ThemeSettingsSection } from './ThemeSettingsSection'
 import { FontSettingsSection } from './FontSettingsSection'
@@ -382,22 +383,42 @@ export function calendarKey(calendar: { accountId: string; id: string }): string
   return `calendar:${calendar.accountId}:${calendar.id}`
 }
 
-/// The account's calendars, managed inside the account's own settings. Mail
-/// and calendar are set up together, so this is where their controls live:
-/// each calendar shows or hides in place, and the import row asks the server
-/// again — nothing here navigates away from the account. Only calendars
-/// living on the account's server belong here; local calendars and
-/// subscriptions merely listed under the account are not part of it.
+/// The account's calendars, managed inside the account's own settings, the
+/// way Thunderbird's network-calendar flow works: the rows are the list of
+/// calendars the server offers, each with a checkbox-like switch deciding
+/// whether it shows; a calendar's name opens its properties (rename, colour,
+/// removal) in a dialog rather than navigating away; and the action row can
+/// re-ask the server for calendars or add a new one to this account.
 function AccountCalendarsGroup({ account }: { account: Account }) {
   const { t } = useTranslation()
   const [importing, setImporting] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [propertiesFor, setPropertiesFor] = useState<string | null>(null)
   const calendars = useValue(calendar$.calendars).filter(
     (calendar) => calendar.accountId === account.id && calendar.kind === 'account',
   )
-  // An account that cannot keep calendars gets no empty section; one that can
-  // shows the section even before its first sync has filled it, so the reader
-  // is told the calendars are coming rather than left to wonder.
-  if (!accountSupportsCalendar(account) && calendars.length === 0) return null
+  const supports = accountSupportsCalendar(account)
+  const isGoogle = account.auth_type === 'gmail_oauth' || account.provider === 'gmail'
+  // An account that cannot keep calendars gets no empty section — except a
+  // Google account, which gets told why rather than showing nothing at all.
+  if (!supports && !isGoogle && calendars.length === 0) return null
+
+  if (!supports && isGoogle) {
+    return (
+      <SettingsGroup title={t('calendar.title', { defaultValue: 'Calendar' })}>
+        <p className="px-4 py-3.5 text-[0.6875rem] text-secondary">
+          {t('calendar.googleNotYet', {
+            defaultValue:
+              'Google calendars cannot be connected yet; Google Calendar support is on its way.',
+          })}
+        </p>
+      </SettingsGroup>
+    )
+  }
+
+  // The dialog resolves the calendar by id on every render, so a rename shows
+  // through immediately and a removal closes the dialog by itself.
+  const selected = calendars.find((calendar) => calendar.id === propertiesFor) ?? null
 
   const runImport = async () => {
     setImporting(true)
@@ -409,6 +430,7 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
   }
 
   return (
+    <>
     <SettingsGroup title={t('calendar.title', { defaultValue: 'Calendar' })}>
       {calendars.length === 0 && (
         <p className="px-4 py-3.5 text-[0.6875rem] text-secondary">
@@ -420,25 +442,32 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
       {calendars.map((calendar) => {
         const color = calendar.color || accountColor(calendar.accountId)
         return (
-          <ToggleRow
-            key={calendar.id}
-            icon={
-              <span
-                className="flex h-6 w-6 items-center justify-center rounded-md"
-                style={{ backgroundColor: `${color}1a` }}
-              >
-                <CalendarDays size={13} style={{ color }} />
-              </span>
-            }
-            title={calendar.name}
-            checked={calendar.enabled}
-            onChange={() =>
-              void setCalendarEnabled(calendar.accountId, calendar.id, !calendar.enabled)
-            }
-          />
+          <div key={calendar.id} className="flex items-center gap-3 px-4 py-3">
+            <span
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+              style={{ backgroundColor: `${color}1a` }}
+            >
+              <CalendarDays size={13} style={{ color }} />
+            </span>
+            <button
+              type="button"
+              onClick={() => setPropertiesFor(calendar.id)}
+              title={t('calendar.properties', { defaultValue: 'Calendar properties' })}
+              className="min-w-0 flex-1 truncate text-left text-xs font-medium text-primary transition-colors hover:text-accent cursor-pointer"
+            >
+              {calendar.name}
+            </button>
+            {calendar.read_only && <Lock size={11} className="shrink-0 text-secondary/70" />}
+            <Switch
+              checked={calendar.enabled}
+              onChange={() =>
+                void setCalendarEnabled(calendar.accountId, calendar.id, !calendar.enabled)
+              }
+            />
+          </div>
         )
       })}
-      <div className="px-4 py-3">
+      <div className="flex items-center gap-1.5 px-4 py-3">
         <button
           type="button"
           disabled={importing}
@@ -448,8 +477,139 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
           <RefreshCw size={13} className={importing ? 'animate-spin' : ''} />
           {t('calendar.importFromAccount', { defaultValue: "Import the account's calendars" })}
         </button>
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="flex items-center gap-1.5 rounded-xl px-2.5 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent/10 cursor-pointer"
+        >
+          <Plus size={13} />
+          {t('calendar.addCalendar', { defaultValue: 'Add calendar' })}
+        </button>
       </div>
     </SettingsGroup>
+    {selected && (
+      <CalendarPropertiesDialog calendar={selected} onClose={() => setPropertiesFor(null)} />
+    )}
+    {adding && (
+      <AddAccountCalendarDialog accountId={account.id} onClose={() => setAdding(false)} />
+    )}
+    </>
+  )
+}
+
+/// A calendar's properties in a dialog, like Thunderbird's: the same controls
+/// as the calendar's settings page, opened over the account page so the
+/// reader never leaves the account they were configuring.
+function CalendarPropertiesDialog({
+  calendar,
+  onClose,
+}: {
+  calendar: CalendarModel
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-app p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-primary">
+            <CalendarDays size={15} className="text-accent" />
+            {t('calendar.properties', { defaultValue: 'Calendar properties' })}
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-secondary hover:bg-hover hover:text-primary cursor-pointer"
+            aria-label={t('calendar.close', { defaultValue: 'Close' })}
+          >
+            <X size={15} />
+          </button>
+        </div>
+        <CalendarPanel calendar={calendar} />
+      </div>
+    </div>
+  )
+}
+
+/// Creating one more calendar on this account's server. The account is fixed
+/// — the dialog was opened from its page — so the only question is the name.
+function AddAccountCalendarDialog({
+  accountId,
+  onClose,
+}: {
+  accountId: string
+  onClose: () => void
+}) {
+  const { t } = useTranslation()
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async () => {
+    setBusy(true)
+    setError('')
+    try {
+      await createCalendar(accountId, name.trim())
+      onClose()
+    } catch (err) {
+      setError(String(err))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-border bg-app p-5 shadow-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-primary">
+          <CalendarDays size={15} className="text-accent" />
+          {t('calendar.addCalendar', { defaultValue: 'Add calendar' })}
+        </h2>
+        <label className="flex w-full flex-col gap-1.5">
+          <span className="pl-0.5 text-[0.6875rem] font-semibold text-secondary">
+            {t('calendar.newCalendarName', { defaultValue: 'Calendar name' })}
+          </span>
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && name.trim() && !busy) void submit()
+            }}
+            autoFocus
+            className="w-full rounded-xl border border-border bg-raised px-3 py-2 text-xs text-primary outline-none transition-all focus:border-transparent focus:bg-chats focus:ring-1 focus:ring-accent"
+          />
+        </label>
+        {error && <p className="mt-2 text-[0.6875rem] text-rose-500">{error}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl px-3 py-2 text-xs font-medium text-secondary transition-colors hover:bg-hover hover:text-primary cursor-pointer"
+          >
+            {t('calendar.cancel', { defaultValue: 'Cancel' })}
+          </button>
+          <button
+            type="button"
+            disabled={!name.trim() || busy}
+            onClick={() => void submit()}
+            className="rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+          >
+            {t('calendar.add', { defaultValue: 'Add' })}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
