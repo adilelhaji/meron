@@ -475,6 +475,7 @@ impl EwsSession {
         {
             return Ok(folders.to_vec());
         }
+        let listing_started = std::time::Instant::now();
         let client = self.client.clone();
         let round =
             tokio::task::spawn_blocking(move || client.folder_hierarchy(None)).await??;
@@ -536,6 +537,11 @@ impl EwsSession {
                 role: String::new(),
             });
         }
+        ews_debug(&format!(
+            "listed {} folders in {}ms",
+            folders.len(),
+            listing_started.elapsed().as_millis()
+        ));
         self.listing = Some((std::time::Instant::now(), folders.clone()));
         Ok(folders)
     }
@@ -759,7 +765,12 @@ impl EwsSession {
         dest_folder: &str,
         uids: &[u32],
     ) -> anyhow::Result<()> {
+        let started = std::time::Instant::now();
         let destination = self.folder_ref(dest_folder).await?;
+        ews_debug(&format!(
+            "move: resolved {dest_folder} in {}ms",
+            started.elapsed().as_millis()
+        ));
         let items = self.items_for_uids(source_folder, uids)?;
         if items.is_empty() {
             return Ok(());
@@ -767,6 +778,11 @@ impl EwsSession {
         let client = self.client.clone();
         let moved = items.clone();
         tokio::task::spawn_blocking(move || client.move_items(&destination, &moved)).await??;
+        ews_debug(&format!(
+            "move: {} item(s) to {dest_folder} in {}ms total",
+            items.len(),
+            started.elapsed().as_millis()
+        ));
         self.forget_items(source_folder, &items)
     }
 
@@ -838,6 +854,29 @@ impl EwsSession {
             crate::store::forget_ews_item(&conn, &self.account, folder, id)?;
         }
         Ok(())
+    }
+
+    /// The folder holding a role, answered from the store when it can be.
+    ///
+    /// Listing the hierarchy costs two round trips and is cached per session,
+    /// but the pool holds several sessions, so a role lookup that always
+    /// listed would re-list on each of them — which is what made a delete take
+    /// over a second of folder listings after the message had already moved.
+    /// The store's folder rows carry the roles the last sync recorded, so the
+    /// answer is usually local; the listing is the fallback for an account
+    /// whose folders have not been synced yet.
+    pub async fn role_folder(&mut self, role: &str) -> anyhow::Result<Option<String>> {
+        let cached = self.with_store(|conn, account| {
+            crate::store::folder_for_role(conn, account, role).map_err(Into::into)
+        })?;
+        if cached.is_some() {
+            return Ok(cached);
+        }
+        let folders = self.list_folders().await?;
+        Ok(folders
+            .into_iter()
+            .find(|folder| folder.special_use.as_deref() == Some(role))
+            .map(|folder| folder.name))
     }
 
     /// Unread messages in `folder` from the last `days`, for body prefetch.

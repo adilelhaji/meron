@@ -299,6 +299,12 @@ impl Session {
         role: &str,
         looks_like: fn(&str) -> bool,
     ) -> Result<Option<String>> {
+        // Exchange answers this from the store when it can: listing its
+        // hierarchy is two round trips, and the pool would pay them on every
+        // session. IMAP's LIST is a single cheap command, so it keeps asking.
+        if let Session::Ews(session) = self {
+            return session.role_folder(role).await;
+        }
         let folders = self.list_folders().await?;
         let by_role = folders
             .iter()

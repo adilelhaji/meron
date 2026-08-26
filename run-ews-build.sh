@@ -9,6 +9,7 @@ export XDG_CACHE_HOME="$HOME/meron-ews-test/cache"
 # desktop's secret service, so the test build neither reads nor writes the
 # real Meron's stored passwords. "off" would keep them in memory only, and an
 # account would lose its password on every restart.
+export MERON_EWS_DEBUG="${MERON_EWS_DEBUG:-1}"
 export MERON_KEYRING="${MERON_KEYRING:-file}"
 mkdir -p "$XDG_CONFIG_HOME" "$XDG_DATA_HOME" "$XDG_CACHE_HOME"
 exec "$(dirname "$(readlink -f "$0")")/build/bin/meron" "$@"
