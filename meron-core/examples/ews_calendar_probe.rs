@@ -117,9 +117,16 @@ fn main() -> anyhow::Result<()> {
         password: env("EWS_PASSWORD"),
     });
 
+    // A wide window is what settles whether the server expands a series: a
+    // weekly meeting should return one occurrence per week, not one master.
+    let days: i64 = std::env::var("EWS_DAYS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(14);
+
     println!("\n1. does the calendar answer at all, and does it expand series?");
-    let events = calendar_view(&client, 14, Vec::new())?;
-    println!("   {} occurrence(s) in the next 14 days", events.len());
+    let events = calendar_view(&client, days, Vec::new())?;
+    println!("   {} occurrence(s) in the next {days} days", events.len());
     if events.is_empty() {
         println!("   (an empty calendar cannot answer question 2 — try a wider window)");
     }
@@ -130,7 +137,7 @@ fn main() -> anyhow::Result<()> {
         let property = PathToElement::FieldURI {
             field_URI: name.to_string(),
         };
-        match calendar_view(&client, 14, vec![property]) {
+        match calendar_view(&client, days, vec![property]) {
             Ok(_) => {
                 println!("   ok       {name}");
                 accepted_typed.push(*name);
@@ -139,7 +146,7 @@ fn main() -> anyhow::Result<()> {
         }
     }
     for (label, property) in mapi_candidates() {
-        match calendar_view(&client, 14, vec![property]) {
+        match calendar_view(&client, days, vec![property]) {
             Ok(_) => println!("   ok       MAPI {label}"),
             Err(err) => println!("   REJECTED MAPI {label}  ({err})"),
         }
@@ -152,7 +159,7 @@ fn main() -> anyhow::Result<()> {
             field_URI: name.to_string(),
         })
         .collect();
-    let events = calendar_view(&client, 14, properties)?;
+    let events = calendar_view(&client, days, properties)?;
     for event in events.iter().take(10) {
         println!(
             "   {} .. {}  {:?}{}",

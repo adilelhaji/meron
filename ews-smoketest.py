@@ -108,6 +108,8 @@ def main():
     ap.add_argument("--probe", action="store_true",
                     help="instead of the smoke test, report which envelope "
                          "properties this server accepts")
+    ap.add_argument("--days", type=int, default=14,
+                    help="calendar probe: how many days ahead to look")
     ap.add_argument("--probe-calendar", action="store_true",
                     help="instead of the smoke test, report what the server "
                          "will tell us about calendar events")
@@ -128,7 +130,8 @@ def main():
         if not os.path.exists(probe):
             sys.exit(f"probe not built: cargo build --release --example {name}")
         env = dict(os.environ, EWS_URL=args.url, EWS_USER=args.user,
-                   EWS_PASSWORD=password, EWS_FOLDER=args.folder)
+                   EWS_PASSWORD=password, EWS_FOLDER=args.folder,
+                   EWS_DAYS=str(args.days))
         return subprocess.call([probe], env=env)
 
     profile = tempfile.mkdtemp(prefix="meron-ews-smoketest-")
