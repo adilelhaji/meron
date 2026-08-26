@@ -154,6 +154,59 @@ CREATE UNIQUE INDEX IF NOT EXISTS ews_item_ids_item_idx
   ON ews_item_ids(account, folder, item_id);
 ";
 
+/// The calendars an account exposes, and whether the user wants each shown.
+///
+/// `provider_id` is the server's own identifier for the calendar folder;
+/// `enabled` is the local choice, so hiding a calendar never means forgetting
+/// it exists.
+const CALENDARS_DDL: &str = "
+CREATE TABLE IF NOT EXISTS calendars (
+  account     TEXT NOT NULL,
+  provider_id TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  is_default  INTEGER NOT NULL DEFAULT 0,
+  enabled     INTEGER NOT NULL DEFAULT 1,
+  color       TEXT,
+  PRIMARY KEY (account, provider_id)
+);
+";
+
+/// Calendar occurrences, cached per synced window.
+///
+/// One row is one *occurrence*, not one series: servers expand recurrences for
+/// a requested date range, so a recurring meeting arrives as a discrete event
+/// per instance and this client never interprets recurrence rules. The
+/// consequence for the cache is that a window's rows are a snapshot of that
+/// window — a sync replaces them rather than merging, which is also what makes
+/// a deleted or moved occurrence disappear without needing a tombstone.
+///
+/// `start_utc`/`end_utc` are epoch seconds. All-day events still carry
+/// instants, which the server resolves against the calendar's own timezone —
+/// including across daylight-saving boundaries, where a series' UTC times
+/// shift while its local time does not.
+const CALENDAR_EVENTS_DDL: &str = "
+CREATE TABLE IF NOT EXISTS calendar_events (
+  account      TEXT NOT NULL,
+  calendar_id  TEXT NOT NULL,
+  event_id     TEXT NOT NULL,
+  change_key   TEXT,
+  subject      TEXT NOT NULL DEFAULT '',
+  location     TEXT,
+  start_utc    INTEGER NOT NULL,
+  end_utc      INTEGER NOT NULL,
+  all_day      INTEGER NOT NULL DEFAULT 0,
+  is_recurring INTEGER NOT NULL DEFAULT 0,
+  is_cancelled INTEGER NOT NULL DEFAULT 0,
+  free_busy    TEXT,
+  my_response  TEXT,
+  organizer    TEXT,
+  attendees    TEXT,
+  PRIMARY KEY (account, calendar_id, event_id)
+);
+CREATE INDEX IF NOT EXISTS calendar_events_window_idx
+  ON calendar_events(account, start_utc, end_utc);
+";
+
 const MAIL_SEARCH_HITS_DDL: &str = "
 CREATE TABLE IF NOT EXISTS mail_search_hits (
   token      TEXT NOT NULL,
@@ -511,6 +564,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 9 {
         migrate_v9(&tx)?;
     }
+    if version < 10 {
+        migrate_v10(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -617,6 +673,16 @@ fn migrate_v9(conn: &Connection) -> Result<()> {
     conn.execute_batch(EWS_ITEM_IDS_DDL)?;
     conn.execute_batch("ALTER TABLE folder_state ADD COLUMN sync_state TEXT;")?;
     conn.execute_batch("PRAGMA user_version = 9;")?;
+    Ok(())
+}
+
+/// Calendars and their events. Mail and calendar share an account but nothing
+/// else: a calendar is not a folder and an event is not a message, so they get
+/// their own tables rather than overloading the mail ones.
+fn migrate_v10(conn: &Connection) -> Result<()> {
+    conn.execute_batch(CALENDARS_DDL)?;
+    conn.execute_batch(CALENDAR_EVENTS_DDL)?;
+    conn.execute_batch("PRAGMA user_version = 10;")?;
     Ok(())
 }
 

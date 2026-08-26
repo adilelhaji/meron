@@ -7,6 +7,7 @@
 
 pub mod backend;
 pub mod backup;
+pub mod calendar;
 pub mod changelog;
 pub mod engine;
 pub mod exchange;

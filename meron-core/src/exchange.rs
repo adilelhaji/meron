@@ -18,6 +18,7 @@ use std::time::Duration;
 
 use ::ews::create_item::CreateItem;
 use ::ews::delete_item::DeleteItem;
+use ::ews::find_item::{FindItem, Traversal};
 use ::ews::get_folder::GetFolder;
 use ::ews::get_item::GetItem;
 use ::ews::move_item::MoveItem;
@@ -31,8 +32,10 @@ use ::ews::update_item::{
 use ::ews::{
     BaseFolderId, BaseItemId, BaseShape, CopyMoveItemData, FolderShape, ItemId, ItemShape,
     DeleteType, Message, MessageDisposition, MimeContent, Operation, OperationResponse,
-    PathToElement, RealItem, ResponseClass,
+    PathToElement, RealItem, ResponseClass, View,
 };
+
+use crate::calendar::{Calendar, Event, Participant};
 
 /// A folder or item reference as `(id, change_key)`. The change key is
 /// required by write operations (Exchange rejects stale ones) and optional
@@ -110,6 +113,43 @@ impl EwsClient {
             sync_scope: None,
         })?;
         single_message(into_successes(response).context("SyncFolderItems")?)
+    }
+
+    /// Occurrences on a calendar between two instants, expanded by the server.
+    pub fn calendar_view(
+        &self,
+        calendar: &EwsId,
+        from: i64,
+        to: i64,
+        max: usize,
+    ) -> anyhow::Result<Vec<Message>> {
+        let stamp = |seconds: i64| {
+            chrono::DateTime::from_timestamp(seconds, 0)
+                .unwrap_or_default()
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string()
+        };
+        let response = self.call(FindItem {
+            traversal: Traversal::Shallow,
+            item_shape: ItemShape {
+                base_shape: BaseShape::IdOnly,
+                include_mime_content: None,
+                additional_properties: Some(event_properties()),
+            },
+            view: Some(View::CalendarView {
+                max_entries_returned: Some(max),
+                start_date: stamp(from),
+                end_date: stamp(to),
+            }),
+            parent_folder_ids: vec![folder_id(calendar)],
+        })?;
+        let mut items = Vec::new();
+        for message in into_successes(response).context("FindItem CalendarView")? {
+            for item in message.root_folder.items.inner {
+                items.push(item.inner_message().clone());
+            }
+        }
+        Ok(items)
     }
 
     /// Fetches envelope fields for the given items in one call, without
@@ -369,6 +409,10 @@ pub async fn validate(config: EwsConfig) -> anyhow::Result<()> {
 /// call, so a folder's first sync costs two round trips per batch.
 const SYNC_BATCH: u16 = 512;
 
+/// Ceiling on one calendar window. A busy three-month view stays well inside
+/// it, and a runaway range cannot pull an unbounded answer.
+const EVENT_PAGE: usize = 1000;
+
 /// An authenticated Exchange session for one account.
 ///
 /// The EWS client is blocking (`ureq`, as everywhere else in the core), so
@@ -387,6 +431,8 @@ pub struct EwsSession {
     /// Drafts, Trash) lists the hierarchy, and a single sync resolves several,
     /// which would otherwise cost two round trips each.
     listing: Option<(std::time::Instant, Vec<crate::imap::Folder>)>,
+    /// Calendar id to its Exchange reference, hydrated by `list_calendars`.
+    calendars: std::collections::HashMap<String, EwsId>,
     /// Folder named by the last `prepare_flag_update`. IMAP's flag calls carry
     /// no folder because they act on the selected mailbox; EWS addresses items
     /// by id, so the session remembers what was selected to resolve them.
@@ -405,6 +451,7 @@ impl EwsSession {
             db,
             folders: std::collections::HashMap::new(),
             listing: None,
+            calendars: std::collections::HashMap::new(),
             selected: None,
         }
     }
@@ -858,6 +905,121 @@ impl EwsSession {
         Ok(())
     }
 
+    /// The account's calendars.
+    ///
+    /// The hierarchy sync that lists mail folders sees these too — they are
+    /// simply a different folder class — so this reuses it rather than paying
+    /// a second enumeration.
+    pub async fn list_calendars(&mut self) -> anyhow::Result<Vec<Calendar>> {
+        let client = self.client.clone();
+        let round = tokio::task::spawn_blocking(move || client.folder_hierarchy(None)).await??;
+        let default = {
+            let client = self.client.clone();
+            tokio::task::spawn_blocking(move || {
+                EwsSession::distinguished_folder(&client, "calendar")
+            })
+            .await??
+        };
+
+        let mut calendars = Vec::new();
+        for change in round.changes.inner {
+            let ::ews::sync_folder_hierarchy::Change::Create { folder } = change else {
+                continue;
+            };
+            let ::ews::Folder::CalendarFolder {
+                folder_id: Some(id),
+                display_name: Some(name),
+                ..
+            } = folder
+            else {
+                continue;
+            };
+            let is_default = default.as_deref() == Some(id.id.as_str());
+            self.calendars
+                .insert(id.id.clone(), (id.id.clone(), id.change_key.clone()));
+            calendars.push(Calendar {
+                id: id.id,
+                name,
+                is_default,
+                // The server has no opinion on either: both are this client's
+                // to decide and are preserved across syncs by the store.
+                enabled: true,
+                color: None,
+            });
+        }
+        Ok(calendars)
+    }
+
+    /// The occurrences on one calendar between two instants.
+    ///
+    /// A `CalendarView` is what makes the server expand recurring series into
+    /// discrete occurrences, so nothing here interprets a recurrence rule.
+    pub async fn events_in_window(
+        &mut self,
+        calendar_id: &str,
+        from: i64,
+        to: i64,
+    ) -> anyhow::Result<Vec<Event>> {
+        let reference = match self.calendars.get(calendar_id) {
+            Some(reference) => reference.clone(),
+            None => {
+                self.list_calendars().await?;
+                self.calendars
+                    .get(calendar_id)
+                    .cloned()
+                    .with_context(|| format!("no Exchange calendar {calendar_id}"))?
+            }
+        };
+        let client = self.client.clone();
+        let owner = calendar_id.to_string();
+        let items = tokio::task::spawn_blocking(move || {
+            client.calendar_view(&reference, from, to, EVENT_PAGE)
+        })
+        .await??;
+        ews_debug(&format!(
+            "calendar {owner}: {} occurrence(s) in window",
+            items.len()
+        ));
+        items
+            .iter()
+            .map(|item| to_event(item, &owner))
+            .collect::<anyhow::Result<Vec<_>>>()
+    }
+
+    /// The id of a well-known folder, or `None` when the mailbox has none.
+    fn distinguished_folder(client: &EwsClient, id: &str) -> anyhow::Result<Option<String>> {
+        let response = client.call(GetFolder {
+            folder_shape: FolderShape {
+                base_shape: BaseShape::IdOnly,
+            },
+            folder_ids: vec![BaseFolderId::DistinguishedFolderId {
+                id: id.to_string(),
+                change_key: None,
+                mailbox: None,
+            }],
+        })?;
+        for message in response.into_response_messages() {
+            let (ResponseClass::Success(message) | ResponseClass::Warning(message)) = message
+            else {
+                continue;
+            };
+            for folder in message.folders.inner {
+                if let ::ews::Folder::CalendarFolder {
+                    folder_id: Some(id),
+                    ..
+                }
+                | ::ews::Folder::Folder {
+                    folder_id: Some(id),
+                    ..
+                } = folder
+                {
+                    return Ok(Some(id.id));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// The folder holding a role, answered from the store when it can be.
     ///
     /// Listing the hierarchy costs two round trips and is cached per session,
@@ -954,6 +1116,122 @@ fn holds_mail(folder_class: Option<&String>) -> bool {
         None => true,
         Some(class) => class == MAIL_FOLDER_CLASS,
     }
+}
+
+// ---- Calendar ---------------------------------------------------------------
+
+/// The properties a calendar fetch asks for. Every one of these was verified
+/// against a live server; `message:InReplyTo` taught us that a single
+/// unsupported name costs the whole request.
+fn event_properties() -> Vec<PathToElement> {
+    [
+        "item:Subject",
+        "calendar:Start",
+        "calendar:End",
+        "calendar:IsAllDayEvent",
+        "calendar:Location",
+        "calendar:IsRecurring",
+        "calendar:IsCancelled",
+        "calendar:LegacyFreeBusyStatus",
+        "calendar:MyResponseType",
+        "calendar:Organizer",
+        "calendar:RequiredAttendees",
+        "calendar:OptionalAttendees",
+    ]
+    .into_iter()
+    .map(|uri| PathToElement::FieldURI {
+        field_URI: uri.to_string(),
+    })
+    .collect()
+}
+
+/// Reads one mailbox as a participant.
+///
+/// An on-premises server answers with an internal directory identifier rather
+/// than an address for its own people — `/O=ORG/OU=.../CN=PCLAVE` — which is
+/// unreadable and cannot be mailed to. The display name is what gets shown;
+/// the identifier is kept out of `addr`, which is reserved for something that
+/// really is an address. Turning one into the other needs `ResolveNames`,
+/// which the crate does not implement yet, and is only actually required to
+/// invite someone.
+fn participant(mailbox: &::ews::Mailbox, response: Option<::ews::ResponseType>) -> Participant {
+    let addr = mailbox
+        .email_address
+        .clone()
+        .filter(|value| value.contains('@'))
+        .unwrap_or_default();
+    Participant {
+        name: mailbox.name.clone().unwrap_or_default(),
+        addr,
+        response: response.map(response_name).unwrap_or_default(),
+    }
+}
+
+fn response_name(response: ::ews::ResponseType) -> String {
+    match response {
+        ::ews::ResponseType::Accept => "accept",
+        ::ews::ResponseType::Decline => "decline",
+        ::ews::ResponseType::Tentative => "tentative",
+        ::ews::ResponseType::Organizer => "organizer",
+        ::ews::ResponseType::NoResponseReceived => "none",
+        ::ews::ResponseType::Unknown => "",
+    }
+    .to_string()
+}
+
+fn free_busy_name(status: ::ews::LegacyFreeBusyStatus) -> String {
+    match status {
+        ::ews::LegacyFreeBusyStatus::Free => "free",
+        ::ews::LegacyFreeBusyStatus::Tentative => "tentative",
+        ::ews::LegacyFreeBusyStatus::Busy => "busy",
+        ::ews::LegacyFreeBusyStatus::OOF => "oof",
+        ::ews::LegacyFreeBusyStatus::WorkingElsewhere => "workingelsewhere",
+        ::ews::LegacyFreeBusyStatus::NoData => "",
+    }
+    .to_string()
+}
+
+/// Projects one server occurrence onto the shared event model.
+fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
+    let id = item
+        .item_id
+        .as_ref()
+        .context("EWS returned a calendar item without an id")?;
+    // An occurrence with no time is not an occurrence; refusing it is better
+    // than drawing it at the epoch.
+    let start = item
+        .start
+        .as_ref()
+        .context("EWS returned a calendar item without a start")?;
+    let end = item.end.as_ref().unwrap_or(start);
+    Ok(Event {
+        id: id.id.clone(),
+        calendar_id: calendar_id.to_string(),
+        change_key: id.change_key.clone(),
+        subject: item.subject.clone().unwrap_or_default(),
+        location: item.location.clone(),
+        start: start.0.unix_timestamp(),
+        end: end.0.unix_timestamp(),
+        all_day: item.is_all_day_event.unwrap_or(false),
+        is_recurring: item.is_recurring.unwrap_or(false),
+        is_cancelled: item.is_cancelled.unwrap_or(false),
+        free_busy: item
+            .legacy_free_busy_status
+            .map(free_busy_name)
+            .unwrap_or_default(),
+        my_response: item.my_response_type.map(response_name).unwrap_or_default(),
+        organizer: item
+            .organizer
+            .as_ref()
+            .map(|who| participant(&who.mailbox, Some(::ews::ResponseType::Organizer))),
+        attendees: item
+            .required_attendees
+            .iter()
+            .chain(item.optional_attendees.iter())
+            .flat_map(|list| list.0.iter())
+            .map(|attendee| participant(&attendee.mailbox, attendee.response_type))
+            .collect(),
+    })
 }
 
 /// The properties an envelope fetch asks for, beyond the id the base shape
@@ -1673,6 +1951,97 @@ mod tests {
     </m:SyncFolderItemsResponse>
   </s:Body>
 </s:Envelope>"#;
+
+    /// One occurrence as an on-premises server really answers: an internal
+    /// organizer identified by a directory name rather than an address.
+    const CALENDAR_VIEW_RESPONSE: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Header/><s:Body>
+  <m:FindItemResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+    <m:ResponseMessages><m:FindItemResponseMessage ResponseClass="Success">
+      <m:ResponseCode>NoError</m:ResponseCode>
+      <m:RootFolder TotalItemsInView="1" IncludesLastItemInRange="true">
+        <t:Items>
+          <t:CalendarItem>
+            <t:ItemId Id="AAMkEV=" ChangeKey="CK-EV"/>
+            <t:Subject>Reunió equip</t:Subject>
+            <t:Start>2026-09-03T09:00:00Z</t:Start>
+            <t:End>2026-09-03T11:00:00Z</t:End>
+            <t:IsAllDayEvent>false</t:IsAllDayEvent>
+            <t:LegacyFreeBusyStatus>Busy</t:LegacyFreeBusyStatus>
+            <t:Location>Sala oval</t:Location>
+            <t:IsRecurring>true</t:IsRecurring>
+            <t:Organizer>
+              <t:Mailbox>
+                <t:Name>Pere Clavé</t:Name>
+                <t:EmailAddress>/O=CONSORCI/OU=GRUPO/CN=RECIPIENTS/CN=PCLAVE</t:EmailAddress>
+                <t:RoutingType>EX</t:RoutingType>
+              </t:Mailbox>
+            </t:Organizer>
+            <t:RequiredAttendees>
+              <t:Attendee>
+                <t:Mailbox>
+                  <t:Name>Adil</t:Name>
+                  <t:EmailAddress>adil@example.org</t:EmailAddress>
+                </t:Mailbox>
+                <t:ResponseType>Accept</t:ResponseType>
+              </t:Attendee>
+            </t:RequiredAttendees>
+            <t:MyResponseType>Accept</t:MyResponseType>
+          </t:CalendarItem>
+        </t:Items>
+      </m:RootFolder>
+    </m:FindItemResponseMessage></m:ResponseMessages>
+  </m:FindItemResponse></s:Body></s:Envelope>"#;
+
+    #[tokio::test]
+    async fn a_calendar_window_maps_occurrences_and_keeps_names_readable() {
+        let (url, server) = serve_soap_once(CALENDAR_VIEW_RESPONSE);
+        let (mut session, _db) = test_session(url);
+        session
+            .calendars
+            .insert("cal".to_string(), ("AAMkCAL=".to_string(), None));
+
+        let events = session
+            .events_in_window("cal", 1787_000_000, 1790_000_000)
+            .await
+            .expect("window should map");
+
+        assert_eq!(events.len(), 1);
+        let event = &events[0];
+        assert_eq!(event.subject, "Reunió equip");
+        assert_eq!(event.location.as_deref(), Some("Sala oval"));
+        // 2026-09-03 09:00–11:00 UTC.
+        assert_eq!(event.start, 1788426000);
+        assert_eq!(event.end, 1788433200);
+        assert!(event.is_recurring, "an expanded occurrence knows it is one");
+        assert_eq!(event.free_busy, "busy");
+        assert_eq!(event.my_response, "accept");
+
+        // The organizer is internal, so the server answers with a directory
+        // identifier. Showing that would be unreadable and mailing it would
+        // fail, so the name carries the person and `addr` stays empty until
+        // something can resolve it.
+        let organizer = event.organizer.as_ref().expect("organizer");
+        assert_eq!(organizer.name, "Pere Clavé");
+        assert_eq!(organizer.addr, "", "a directory identifier is not an address");
+
+        // A real address passes through untouched.
+        assert_eq!(event.attendees.len(), 1);
+        assert_eq!(event.attendees[0].addr, "adil@example.org");
+        assert_eq!(event.attendees[0].response, "accept");
+
+        let request = server.join().expect("server thread");
+        assert!(request.contains("CalendarView"), "the server must expand series: {request}");
+
+        server_assert_window(&request);
+    }
+
+    /// The window must reach the server as the dates asked for, or a day view
+    /// would quietly show a different day.
+    fn server_assert_window(request: &str) {
+        assert!(request.contains("StartDate=\"2026-"), "missing start: {request}");
+        assert!(request.contains("EndDate=\"2026-"), "missing end: {request}");
+    }
 
     #[tokio::test]
     async fn a_second_sync_resumes_instead_of_re_enumerating() {
