@@ -382,6 +382,10 @@ pub struct EwsSession {
     /// Folder wire name to its Exchange id, hydrated by `list_folders`.
     /// Exchange addresses folders by id, the core by name.
     folders: std::collections::HashMap<String, EwsId>,
+    /// The last folder listing and when it was taken. Resolving roles (Sent,
+    /// Drafts, Trash) lists the hierarchy, and a single sync resolves several,
+    /// which would otherwise cost two round trips each.
+    listing: Option<(std::time::Instant, Vec<crate::imap::Folder>)>,
     /// Folder named by the last `prepare_flag_update`. IMAP's flag calls carry
     /// no folder because they act on the selected mailbox; EWS addresses items
     /// by id, so the session remembers what was selected to resolve them.
@@ -399,6 +403,7 @@ impl EwsSession {
             account: account.to_string(),
             db,
             folders: std::collections::HashMap::new(),
+            listing: None,
             selected: None,
         }
     }
@@ -461,6 +466,15 @@ impl EwsSession {
     /// stored sync state: the map is per-session and must be complete, and a
     /// delta round would only report what changed since another session.
     pub async fn list_folders(&mut self) -> anyhow::Result<Vec<crate::imap::Folder>> {
+        // Short-lived so a folder created elsewhere still appears promptly,
+        // long enough that one sync does not re-list for every role it
+        // resolves.
+        const LISTING_TTL: std::time::Duration = std::time::Duration::from_secs(60);
+        if let Some((taken, folders)) = self.listing.as_ref()
+            && taken.elapsed() < LISTING_TTL
+        {
+            return Ok(folders.to_vec());
+        }
         let client = self.client.clone();
         let round =
             tokio::task::spawn_blocking(move || client.folder_hierarchy(None)).await??;
@@ -522,74 +536,70 @@ impl EwsSession {
                 role: String::new(),
             });
         }
+        self.listing = Some((std::time::Instant::now(), folders.clone()));
         Ok(folders)
     }
 
-    /// Enumerates a folder and returns its most recent messages as envelopes,
-    /// under the local uids their items map to.
+    /// Brings a folder up to date and returns its most recent messages.
     ///
-    /// The sync state is deliberately not consumed here: this mirrors IMAP's
-    /// `fetch_recent`, whose contract is "the newest N messages as they stand
-    /// now", and the caller reconciles against the cache. Resuming from a
-    /// stored state is what the incremental path will use once the engine
-    /// drives EWS deltas directly.
+    /// The first call enumerates the folder and numbers every item; later
+    /// calls resume from the server's sync state and see only what changed,
+    /// which is what keeps a large folder from being re-listed on every sync.
+    /// Envelopes are then fetched for the newest `limit` messages known
+    /// locally — the set the caller asked for, whether or not any of them
+    /// changed this round.
     pub async fn fetch_recent(
         &mut self,
         folder: &str,
         limit: u32,
     ) -> anyhow::Result<crate::imap::RecentBatch> {
         let folder_ref = self.folder_ref(folder).await?;
-        let client = self.client.clone();
-        let round = tokio::task::spawn_blocking(move || {
-            client.item_sync(&folder_ref, None, SYNC_BATCH)
-        })
-        .await??;
+        let mut state = self.with_store(|conn, account| {
+            crate::store::get_folder_sync_state(conn, account, folder)
+        })?;
 
-        // A from-scratch round lists the folder in server order, oldest first;
-        // the newest `limit` are the tail.
-        let mut item_ids = Vec::new();
-        for change in round.changes.inner {
-            if let ::ews::sync_folder_items::Change::Create { item } = change
-                && let Some(id) = item.inner_message().item_id.as_ref()
-            {
-                item_ids.push((id.id.clone(), id.change_key.clone()));
+        // Rounds are capped server-side, so a first enumeration takes several.
+        loop {
+            let client = self.client.clone();
+            let target = folder_ref.clone();
+            let resumed = state.clone();
+            let round = tokio::task::spawn_blocking(move || {
+                client.item_sync(&target, resumed, SYNC_BATCH)
+            })
+            .await??;
+            let changes = round.changes.inner.len();
+            self.apply_changes(folder, round.changes.inner)?;
+            state = Some(round.sync_state.clone());
+            self.with_store(|conn, account| {
+                crate::store::set_folder_sync_state(conn, account, folder, &round.sync_state)
+            })?;
+            ews_debug(&format!(
+                "item sync {folder}: {changes} changes applied, last_in_range={}",
+                round.includes_last_item_in_range
+            ));
+            if round.includes_last_item_in_range || changes == 0 {
+                break;
             }
         }
-        // Mint uids for the whole enumeration before taking the tail, so uids
-        // ascend with arrival the way IMAP uids do. Mapping only the fetched
-        // tail would give the newest messages the lowest uids, and every
-        // older message synced later a higher one — inverting the order the
-        // rest of the core assumes.
-        self.map_items(folder, &item_ids)?;
 
-        let start = item_ids.len().saturating_sub(limit as usize);
-        let total = item_ids.len();
-        let wanted = item_ids.split_off(start);
-        ews_debug(&format!(
-            "item sync {folder}: {total} items listed, {} requested, last_in_range={}",
-            wanted.len(),
-            round.includes_last_item_in_range
-        ));
-
-        let envelopes = if wanted.is_empty() {
+        let uids = self.with_store(|conn, account| {
+            crate::store::newest_ews_uids(conn, account, folder, limit)
+        })?;
+        let items = self.items_for_uids(folder, &uids)?;
+        let envelopes = if items.is_empty() {
             Vec::new()
         } else {
             let client = self.client.clone();
-            let fetched =
-                tokio::task::spawn_blocking(move || client.fetch_envelopes(&wanted)).await?;
-            match fetched {
+            let wanted = items.clone();
+            match tokio::task::spawn_blocking(move || client.fetch_envelopes(&wanted)).await? {
                 Ok(envelopes) => envelopes,
                 Err(err) => {
-                    ews_debug(&format!("item sync {folder}: envelope fetch failed: {err:#}"));
+                    ews_debug(&format!("{folder}: envelope fetch failed: {err:#}"));
                     return Err(err);
                 }
             }
         };
 
-        ews_debug(&format!(
-            "item sync {folder}: {} envelopes returned",
-            envelopes.len()
-        ));
         let messages = self.assign_uids(folder, envelopes)?;
         Ok(crate::imap::RecentBatch {
             // Exchange has no UIDVALIDITY: item ids are stable for the life of
@@ -597,9 +607,73 @@ impl EwsSession {
             // IMAP UIDVALIDITY bump does. A fixed 1 keeps the stored value
             // meaningful ("never reset") instead of fabricating a changing one.
             uidvalidity: 1,
-            uid_next: messages.iter().map(|m| m.uid).max().unwrap_or(0) + 1,
+            uid_next: uids.iter().copied().max().unwrap_or(0) + 1,
             messages,
         })
+    }
+
+    /// Applies one sync round to the local mapping: new items are numbered in
+    /// server order, deleted ones lose their mapping, and read-flag changes
+    /// are written straight to the cached rows — Exchange reports those here,
+    /// so the flag sync the IMAP path uses is not needed.
+    fn apply_changes(
+        &self,
+        folder: &str,
+        changes: Vec<::ews::sync_folder_items::Change>,
+    ) -> anyhow::Result<()> {
+        use ::ews::sync_folder_items::Change;
+        let mut conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        // One transaction for the batch: a round can carry hundreds of
+        // changes, and a statement each would dominate the sync.
+        let tx = conn.transaction()?;
+        for change in changes {
+            match change {
+                Change::Create { item } | Change::Update { item } => {
+                    if let Some(id) = item.inner_message().item_id.as_ref() {
+                        crate::store::map_ews_item(
+                            &tx,
+                            &self.account,
+                            folder,
+                            &id.id,
+                            id.change_key.as_deref(),
+                        )?;
+                    }
+                }
+                Change::Delete { item_id } => {
+                    crate::store::forget_ews_item(&tx, &self.account, folder, &item_id.id)?;
+                }
+                Change::ReadFlagChange { item_id, is_read } => {
+                    if let Some(uid) =
+                        crate::store::uid_for_ews_item(&tx, &self.account, folder, &item_id.id)?
+                    {
+                        crate::store::update_message_seen(
+                            &tx,
+                            &self.account,
+                            folder,
+                            uid,
+                            is_read,
+                        )?;
+                    }
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Runs `op` against the store with this session's account.
+    fn with_store<T>(
+        &self,
+        op: impl FnOnce(&rusqlite::Connection, &str) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let conn = self
+            .db
+            .lock()
+            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
+        op(&conn, &self.account)
     }
 
     /// Downloads one message and parses it into the renderable form.
@@ -762,18 +836,6 @@ impl EwsSession {
             .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
         for (id, _) in items {
             crate::store::forget_ews_item(&conn, &self.account, folder, id)?;
-        }
-        Ok(())
-    }
-
-    /// Mints (or confirms) the local uid for each item, in the order given.
-    fn map_items(&self, folder: &str, items: &[EwsId]) -> anyhow::Result<()> {
-        let conn = self
-            .db
-            .lock()
-            .map_err(|_| anyhow::anyhow!("store lock poisoned"))?;
-        for (id, change_key) in items {
-            crate::store::map_ews_item(&conn, &self.account, folder, id, change_key.as_deref())?;
         }
         Ok(())
     }
@@ -1569,6 +1631,46 @@ mod tests {
     </m:SyncFolderItemsResponse>
   </s:Body>
 </s:Envelope>"#;
+
+    #[tokio::test]
+    async fn a_second_sync_resumes_instead_of_re_enumerating() {
+        // Three replies: the first round, its (empty) envelope follow-up, and
+        // the second round.
+        let empty_items = r#"<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><s:Header/><s:Body>
+  <m:GetItemResponse xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages" xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+    <m:ResponseMessages><m:GetItemResponseMessage ResponseClass="Success">
+      <m:ResponseCode>NoError</m:ResponseCode><m:Items/>
+    </m:GetItemResponseMessage></m:ResponseMessages>
+  </m:GetItemResponse></s:Body></s:Envelope>"#;
+        let (url, server) = serve_soap(vec![
+            THREE_ITEM_SYNC_RESPONSE.to_string(),
+            empty_items.to_string(),
+            THREE_ITEM_SYNC_RESPONSE.to_string(),
+            empty_items.to_string(),
+        ]);
+        let (mut session, _db) = test_session(url);
+        session
+            .folders
+            .insert("INBOX".to_string(), ("AAMkINBOX=".to_string(), None));
+
+        session.fetch_recent("INBOX", 5).await.expect("first sync");
+        session.fetch_recent("INBOX", 5).await.expect("second sync");
+
+        let requests = server.join().expect("server thread");
+        assert!(
+            !requests[0].contains("<t:SyncState>"),
+            "the first sync has no state to resume from: {}",
+            requests[0]
+        );
+        // The state the first round returned must be sent back, or the server
+        // would enumerate the whole folder again on every sync.
+        assert!(
+            requests[2].contains("c3RhdGU="),
+            "the second sync must resume from the stored state: {}",
+            requests[2]
+        );
+    }
 
     #[tokio::test]
     async fn folder_lookup_fails_loud_for_an_unknown_name() {

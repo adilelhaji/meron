@@ -121,7 +121,7 @@ impl Creds {
     }
 }
 
-#[derive(serde::Serialize, Default)]
+#[derive(serde::Serialize, Default, Clone)]
 pub struct Folder {
     /// Canonical wire name, modified UTF-7 when the server speaks it. Everything
     /// that addresses the mailbox — SELECT, cached message rows, saved Kanban

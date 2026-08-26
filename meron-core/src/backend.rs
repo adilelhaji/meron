@@ -287,32 +287,46 @@ impl Session {
         }
     }
 
+    /// The folder holding a special-use role, preferring what the server
+    /// declares and falling back to the name heuristics.
+    ///
+    /// Derived from the folder listing rather than implemented per backend:
+    /// both report the role a server assigns (IMAP through its LIST
+    /// attributes, Exchange through its distinguished folder ids), and the
+    /// name fallback is shared.
+    async fn find_role_folder(
+        &mut self,
+        role: &str,
+        looks_like: fn(&str) -> bool,
+    ) -> Result<Option<String>> {
+        let folders = self.list_folders().await?;
+        let by_role = folders
+            .iter()
+            .find(|folder| folder.special_use.as_deref() == Some(role))
+            .map(|folder| folder.name.clone());
+        let by_name = folders
+            .iter()
+            .find(|folder| looks_like(&folder.name))
+            .map(|folder| folder.name.clone());
+        Ok(by_role.or(by_name))
+    }
+
     pub async fn find_sent_folder(&mut self) -> Result<Option<String>> {
-        match self {
-            Session::Imap(session) => imap::find_sent_folder(session).await,
-            Session::Ews(_) => ews_unsupported("find_sent_folder"),
-        }
+        self.find_role_folder("sent", imap::looks_like_sent).await
     }
 
     pub async fn find_trash_folder(&mut self) -> Result<Option<String>> {
-        match self {
-            Session::Imap(session) => imap::find_trash_folder(session).await,
-            Session::Ews(_) => ews_unsupported("find_trash_folder"),
-        }
+        self.find_role_folder("trash", imap::looks_like_trash).await
     }
 
     pub async fn find_archive_folder(&mut self) -> Result<Option<String>> {
-        match self {
-            Session::Imap(session) => imap::find_archive_folder(session).await,
-            Session::Ews(_) => ews_unsupported("find_archive_folder"),
-        }
+        self.find_role_folder("archive", imap::looks_like_archive)
+            .await
     }
 
     pub async fn find_drafts_folder(&mut self) -> Result<Option<String>> {
-        match self {
-            Session::Imap(session) => imap::find_drafts_folder(session).await,
-            Session::Ews(_) => ews_unsupported("find_drafts_folder"),
-        }
+        self.find_role_folder("drafts", imap::looks_like_drafts)
+            .await
     }
 
     pub async fn fetch_full_message(

@@ -1876,6 +1876,32 @@ pub fn map_ews_item(
     Ok(next as u32)
 }
 
+/// The newest `limit` mapped uids in a folder, oldest first.
+///
+/// Uids ascend with arrival, so the highest are the newest; the sync path uses
+/// this to decide which messages to fetch envelopes for without re-enumerating
+/// the folder.
+pub fn newest_ews_uids(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    limit: u32,
+) -> Result<Vec<u32>> {
+    let mut stmt = conn.prepare(
+        "SELECT uid FROM (
+             SELECT uid FROM ews_item_ids
+             WHERE account = ?1 AND folder = ?2
+             ORDER BY uid DESC LIMIT ?3
+         ) ORDER BY uid",
+    )?;
+    let uids = stmt
+        .query_map(params![account, folder, limit], |row| {
+            row.get::<_, i64>(0).map(|uid| uid as u32)
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(uids)
+}
+
 /// The EWS item behind a local uid, as `(item_id, change_key)`.
 pub fn ews_item_for_uid(
     conn: &Connection,
@@ -1892,6 +1918,24 @@ pub fn ews_item_for_uid(
         )
         .ok();
     Ok(item)
+}
+
+/// The local uid an EWS item maps to, if it has been seen before.
+pub fn uid_for_ews_item(
+    conn: &Connection,
+    account: &str,
+    folder: &str,
+    item_id: &str,
+) -> Result<Option<u32>> {
+    let uid = conn
+        .query_row(
+            "SELECT uid FROM ews_item_ids WHERE account = ?1 AND folder = ?2 AND item_id = ?3",
+            params![account, folder, item_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .ok()
+        .map(|uid| uid as u32);
+    Ok(uid)
 }
 
 /// Drop the mapping for items deleted server-side. The uid is not recycled.
