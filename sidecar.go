@@ -365,6 +365,8 @@ func sidecarCallTimeout(method string) time.Duration {
 	// it gets the same budget as a folder sync rather than the default.
 	case "calendar.events":
 		return 30 * time.Second
+	case "calendar.create", "calendar.update", "calendar.delete":
+		return 30 * time.Second
 	case "calendar.list", "calendar.setEnabled":
 		return 5 * time.Second
 	case "folders.list", "folders.create", "folders.archive", "messages.recent", "messages.sync", "rss.markRead", "rss.markAllRead", "watch.start", "watch.stop", "discard_draft", "account.addRss", "feed.add", "rss.importOpml":

@@ -1675,6 +1675,76 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "events": serde_json::to_value(events)? }))
         }
 
+        // Writes go straight to the server and then refresh the window they
+        // land in, so the agenda shows what the server actually stored rather
+        // than what was asked for.
+        "calendar.create" => {
+            let account = req_str(p, "account")?;
+            let event: calendar::Event = serde_json::from_value(
+                p.get("event").cloned().context("missing param: event")?,
+            )
+            .context("event")?;
+            if event.end < event.start {
+                anyhow::bail!("an event cannot end before it starts");
+            }
+            let created = engine
+                .with_write_session(&account, |session| {
+                    let event = event.clone();
+                    Box::pin(async move { session.create_event(&event).await })
+                })
+                .await?;
+            spawn_calendar_sync(
+                engine.clone(),
+                out.clone(),
+                account,
+                created.start,
+                created.end.max(created.start + 1),
+            );
+            Ok(json!({ "event": serde_json::to_value(created)? }))
+        }
+
+        "calendar.update" => {
+            let account = req_str(p, "account")?;
+            let event: calendar::Event = serde_json::from_value(
+                p.get("event").cloned().context("missing param: event")?,
+            )
+            .context("event")?;
+            if event.end < event.start {
+                anyhow::bail!("an event cannot end before it starts");
+            }
+            engine
+                .with_write_session(&account, |session| {
+                    let event = event.clone();
+                    Box::pin(async move { session.update_event(&event).await })
+                })
+                .await?;
+            spawn_calendar_sync(
+                engine.clone(),
+                out.clone(),
+                account,
+                event.start,
+                event.end.max(event.start + 1),
+            );
+            Ok(json!({ "ok": true }))
+        }
+
+        "calendar.delete" => {
+            let account = req_str(p, "account")?;
+            let id = req_str(p, "event")?;
+            let change_key = p.get("change_key").and_then(Value::as_str);
+            engine
+                .with_write_session(&account, |session| {
+                    let id = id.clone();
+                    let change_key = change_key.map(str::to_string);
+                    Box::pin(async move { session.delete_event(&id, change_key.as_deref()).await })
+                })
+                .await?;
+            // Drop the cached row now: the agenda should not keep showing an
+            // event the server has already accepted the deletion of.
+            calendar::forget_event(&engine.db.lock().unwrap(), &account, &id)?;
+            Ok(json!({ "ok": true }))
+        }
+
         "folders.list" => {
             let account = req_str(p, "account")?;
             if is_rss(engine, &account)? {

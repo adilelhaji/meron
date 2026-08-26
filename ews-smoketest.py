@@ -110,6 +110,10 @@ def main():
                          "properties this server accepts")
     ap.add_argument("--days", type=int, default=14,
                     help="calendar probe: how many days ahead to look")
+    ap.add_argument("--write-calendar", action="store_true",
+                    help="also exercise creating, editing and deleting an "
+                         "event. Writes to your real calendar, then removes "
+                         "what it wrote; nobody is notified.")
     ap.add_argument("--probe-calendar", action="store_true",
                     help="instead of the smoke test, report what the server "
                          "will tell us about calendar events")
@@ -225,6 +229,45 @@ def main():
                 print("  WARN  no occurrences cached (an empty calendar is possible)")
         else:
             failures += 1
+
+        if args.write_calendar:
+            print("\n6. calendar writes (create, edit, delete)")
+            calendars = (cal or {}).get("calendars", [])
+            target = next((c for c in calendars if c.get("is_default")), None) or (
+                calendars[0] if calendars else None
+            )
+            if not target:
+                print("  FAIL  no calendar to write to")
+                failures += 1
+            else:
+                # A day ahead, clearly labelled, and removed at the end: this
+                # touches a real work calendar.
+                start = ((now // 3600) + 24) * 3600
+                draft = {
+                    "id": "", "calendar_id": target["id"], "subject": "Meron smoke test — ignore",
+                    "location": "—", "start": start, "end": start + 1800,
+                    "all_day": False, "is_recurring": False, "is_cancelled": False,
+                    "free_busy": "", "my_response": "", "attendees": [],
+                }
+                made = check("calendar.create", core.call(
+                    "calendar.create", {"account": account, "event": draft}))
+                if made is None:
+                    failures += 1
+                else:
+                    event = made["event"]
+                    print(f"        created id={event['id'][:24]}…")
+                    event["subject"] = "Meron smoke test — edited"
+                    event["end"] = start + 3600
+                    if check("calendar.update", core.call(
+                            "calendar.update", {"account": account, "event": event})) is None:
+                        failures += 1
+                    if check("calendar.delete", core.call(
+                            "calendar.delete",
+                            {"account": account, "event": event["id"],
+                             "change_key": event.get("change_key") or ""})) is None:
+                        failures += 1
+                    else:
+                        print("        removed again — nothing left on the calendar")
 
         if headers:
             uid = headers[0].get("uid")

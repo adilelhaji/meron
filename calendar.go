@@ -65,3 +65,64 @@ func (a *App) calendarSetEnabled(payload map[string]any) (any, error) {
 		"enabled":  req.Enabled,
 	})
 }
+
+// calendarCreate adds an event and returns it with the id the server assigned.
+//
+// Creating an appointment never notifies anyone: inviting people is a
+// deliberate act, and doing it as a side effect of writing something in your
+// own calendar would mail real people by accident.
+func (a *App) calendarCreate(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string         `json:"account_id"`
+		Event     map[string]any `json:"event"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.create", map[string]any{
+		"account": req.AccountID,
+		"event":   req.Event,
+	})
+}
+
+// calendarUpdate applies a changed event. The event carries the change key it
+// was read with, which the server checks so an edit made elsewhere is not
+// silently overwritten.
+func (a *App) calendarUpdate(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string         `json:"account_id"`
+		Event     map[string]any `json:"event"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.update", map[string]any{
+		"account": req.AccountID,
+		"event":   req.Event,
+	})
+}
+
+func (a *App) calendarDelete(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string `json:"account_id"`
+		EventID   string `json:"event_id"`
+		ChangeKey string `json:"change_key"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.delete", map[string]any{
+		"account":    req.AccountID,
+		"event":      req.EventID,
+		"change_key": req.ChangeKey,
+	})
+}

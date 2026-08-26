@@ -251,6 +251,15 @@ pub fn events_in_window(
     Ok(events)
 }
 
+/// Drops one cached occurrence, after the server accepted its deletion.
+pub fn forget_event(conn: &Connection, account: &str, event_id: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM calendar_events WHERE account = ?1 AND event_id = ?2",
+        params![account, event_id],
+    )?;
+    Ok(())
+}
+
 /// Drops everything an account cached, for account removal.
 pub fn delete_account_calendars(conn: &Connection, account: &str) -> Result<()> {
     conn.execute(

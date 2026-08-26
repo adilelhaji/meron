@@ -224,6 +224,31 @@ impl Session {
         }
     }
 
+    /// Creates an event, returning it with the id the server assigned.
+    pub async fn create_event(
+        &mut self,
+        event: &crate::calendar::Event,
+    ) -> Result<crate::calendar::Event> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
+            Session::Ews(session) => session.create_event(event).await,
+        }
+    }
+
+    pub async fn update_event(&mut self, event: &crate::calendar::Event) -> Result<()> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
+            Session::Ews(session) => session.update_event(event).await,
+        }
+    }
+
+    pub async fn delete_event(&mut self, id: &str, change_key: Option<&str>) -> Result<()> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
+            Session::Ews(session) => session.delete_event(id, change_key).await,
+        }
+    }
+
     /// Transmits a message. Only the Exchange backend implements this: IMAP
     /// accounts submit through SMTP, which is not a session operation.
     pub async fn send_mime(&mut self, raw: Vec<u8>) -> Result<()> {

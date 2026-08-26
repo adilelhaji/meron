@@ -115,6 +115,121 @@ impl EwsClient {
         single_message(into_successes(response).context("SyncFolderItems")?)
     }
 
+    /// Creates an event on a calendar and returns its new id.
+    pub fn create_event(&self, calendar: &EwsId, event: &Event) -> anyhow::Result<EwsId> {
+        let response = self.call(CreateItem {
+            message_disposition: None,
+            // The server refuses to create a calendar item without this, even
+            // for an appointment with no attendees. SendToNone is what keeps
+            // writing something in your own calendar from mailing anyone:
+            // inviting people is a deliberate act, and belongs with meeting
+            // invitations rather than with saving an appointment.
+            send_meeting_invitations: Some(
+                ::ews::create_item::SendMeetingInvitations::SendToNone,
+            ),
+            saved_item_folder_id: Some(folder_id(calendar)),
+            items: vec![RealItem::CalendarItem(event_item(event))],
+        })?;
+        let message = single_message(into_successes(response).context("CreateItem calendar")?)?;
+        let created = message
+            .items
+            .inner
+            .first()
+            .and_then(|item| item.inner_message().item_id.clone())
+            .context("Exchange created the event but returned no id")?;
+        Ok((created.id, created.change_key))
+    }
+
+    /// Applies a changed event, field by field.
+    ///
+    /// EWS updates one property per change, so a full replacement is expressed
+    /// as a set of field updates. `change_key` carries the version the caller
+    /// read: Exchange rejects a stale one rather than silently overwriting an
+    /// edit made elsewhere.
+    pub fn update_event(&self, item: &EwsId, event: &Event) -> anyhow::Result<()> {
+        // Each change carries exactly one property, inside an item of the
+        // type being updated: a calendar field in a Message is rejected.
+        let field = |uri: &str, item: Message| ItemChangeDescription::SetItemField {
+            field_uri: PathToElement::FieldURI {
+                field_URI: uri.to_string(),
+            },
+            item: RealItem::CalendarItem(item),
+        };
+        let mut updates = vec![
+            field(
+                "item:Subject",
+                Message {
+                    subject: Some(event.subject.clone()),
+                    ..Message::default()
+                },
+            ),
+            field(
+                "calendar:Start",
+                Message {
+                    start: Some(ews_time(event.start)),
+                    ..Message::default()
+                },
+            ),
+            field(
+                "calendar:End",
+                Message {
+                    end: Some(ews_time(event.end)),
+                    ..Message::default()
+                },
+            ),
+            field(
+                "calendar:IsAllDayEvent",
+                Message {
+                    is_all_day_event: Some(event.all_day),
+                    ..Message::default()
+                },
+            ),
+        ];
+        if let Some(location) = &event.location {
+            updates.push(field(
+                "calendar:Location",
+                Message {
+                    location: Some(location.clone()),
+                    ..Message::default()
+                },
+            ));
+        }
+
+        let response = self.call(UpdateItem {
+            message_disposition: MessageDisposition::SaveOnly,
+            // Required on a calendar update for the same reason as on create,
+            // and set to notify nobody for the same reason too.
+            send_meeting_invitations_or_cancellations: Some(
+                ::ews::update_item::SendMeetingInvitationsOrCancellations::SendToNone,
+            ),
+            conflict_resolution: Some(ConflictResolution::AlwaysOverwrite),
+            item_changes: vec![ItemChange {
+                item_change: ItemChangeInner {
+                    item_id: item_id(item),
+                    updates: Updates { inner: updates },
+                },
+            }],
+        })?;
+        into_successes(response).context("UpdateItem calendar")?;
+        Ok(())
+    }
+
+    /// Deletes an event.
+    pub fn delete_event(&self, item: &EwsId) -> anyhow::Result<()> {
+        let response = self.call(DeleteItem {
+            delete_type: DeleteType::MoveToDeletedItems,
+            // Deleting a meeting you organize would normally notify the
+            // attendees; this does not, for the same reason the others do not.
+            // Cancelling a meeting properly belongs with invitations.
+            send_meeting_cancellations: Some(::ews::delete_item::SendMeetingCancellations::SendToNone),
+            affected_task_occurrences: None,
+            suppress_read_receipts: None,
+            item_ids: vec![item_id(item)],
+        })?;
+        into_successes(response).context("DeleteItem calendar")?;
+        Ok(())
+    }
+
     /// Occurrences on a calendar between two instants, expanded by the server.
     pub fn calendar_view(
         &self,
@@ -216,6 +331,8 @@ impl EwsClient {
     pub fn send_mime(&self, mime: &[u8]) -> anyhow::Result<()> {
         let response = self.call(CreateItem {
             message_disposition: Some(MessageDisposition::SendAndSaveCopy),
+            // Only meaningful for calendar items; a mail message has none.
+            send_meeting_invitations: None,
             saved_item_folder_id: None,
             items: vec![RealItem::Message(Message {
                 mime_content: Some(MimeContent {
@@ -232,6 +349,7 @@ impl EwsClient {
     pub fn set_read(&self, items: &[EwsId], is_read: bool) -> anyhow::Result<()> {
         let response = self.call(UpdateItem {
             message_disposition: MessageDisposition::SaveOnly,
+            send_meeting_invitations_or_cancellations: None,
             conflict_resolution: Some(ConflictResolution::AutoResolve),
             item_changes: items
                 .iter()
@@ -243,10 +361,10 @@ impl EwsClient {
                                 field_uri: PathToElement::FieldURI {
                                     field_URI: "message:IsRead".to_string(),
                                 },
-                                message: Message {
+                                item: RealItem::Message(Message {
                                     is_read: Some(is_read),
                                     ..Message::default()
-                                },
+                                }),
                             }],
                         },
                     },
@@ -960,16 +1078,7 @@ impl EwsSession {
         from: i64,
         to: i64,
     ) -> anyhow::Result<Vec<Event>> {
-        let reference = match self.calendars.get(calendar_id) {
-            Some(reference) => reference.clone(),
-            None => {
-                self.list_calendars().await?;
-                self.calendars
-                    .get(calendar_id)
-                    .cloned()
-                    .with_context(|| format!("no Exchange calendar {calendar_id}"))?
-            }
-        };
+        let reference = self.calendar_ref(calendar_id).await?;
         let client = self.client.clone();
         let owner = calendar_id.to_string();
         let items = tokio::task::spawn_blocking(move || {
@@ -984,6 +1093,48 @@ impl EwsSession {
             .iter()
             .map(|item| to_event(item, &owner))
             .collect::<anyhow::Result<Vec<_>>>()
+    }
+
+    /// Creates an event on a calendar, returning it with the id the server
+    /// assigned.
+    pub async fn create_event(&mut self, event: &Event) -> anyhow::Result<Event> {
+        let calendar = self.calendar_ref(&event.calendar_id).await?;
+        let client = self.client.clone();
+        let payload = event.clone();
+        let (id, change_key) =
+            tokio::task::spawn_blocking(move || client.create_event(&calendar, &payload)).await??;
+        Ok(Event {
+            id,
+            change_key,
+            ..event.clone()
+        })
+    }
+
+    /// Applies a changed event.
+    pub async fn update_event(&mut self, event: &Event) -> anyhow::Result<()> {
+        let item = (event.id.clone(), event.change_key.clone());
+        let client = self.client.clone();
+        let payload = event.clone();
+        tokio::task::spawn_blocking(move || client.update_event(&item, &payload)).await?
+    }
+
+    /// Deletes an event.
+    pub async fn delete_event(&mut self, event_id: &str, change_key: Option<&str>) -> anyhow::Result<()> {
+        let item = (event_id.to_string(), change_key.map(str::to_string));
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || client.delete_event(&item)).await?
+    }
+
+    /// The Exchange reference for a calendar, listing them if needed.
+    async fn calendar_ref(&mut self, calendar_id: &str) -> anyhow::Result<EwsId> {
+        if let Some(reference) = self.calendars.get(calendar_id) {
+            return Ok(reference.clone());
+        }
+        self.list_calendars().await?;
+        self.calendars
+            .get(calendar_id)
+            .cloned()
+            .with_context(|| format!("no Exchange calendar {calendar_id}"))
     }
 
     /// The id of a well-known folder, or `None` when the mailbox has none.
@@ -1143,6 +1294,30 @@ fn event_properties() -> Vec<PathToElement> {
         field_URI: uri.to_string(),
     })
     .collect()
+}
+
+/// The item a create or update writes.
+///
+/// Only what the caller can actually set: whether an event recurs, is
+/// cancelled or is a meeting are the server's to decide, and sending them
+/// would be claiming something we do not know.
+fn event_item(event: &Event) -> Message {
+    Message {
+        subject: Some(event.subject.clone()),
+        start: Some(ews_time(event.start)),
+        end: Some(ews_time(event.end)),
+        is_all_day_event: Some(event.all_day),
+        location: event.location.clone(),
+        ..Message::default()
+    }
+}
+
+/// Builds the wire timestamp a write needs from epoch seconds.
+fn ews_time(epoch_seconds: i64) -> ::ews::DateTime {
+    ::ews::DateTime(
+        time::OffsetDateTime::from_unix_timestamp(epoch_seconds)
+            .unwrap_or(time::OffsetDateTime::UNIX_EPOCH),
+    )
 }
 
 /// Reads one mailbox as a participant.
@@ -1580,6 +1755,7 @@ mod tests {
     fn build_request_for_send_encodes_mime_and_disposition() {
         let request = build_request(CreateItem {
             message_disposition: Some(MessageDisposition::SendAndSaveCopy),
+            send_meeting_invitations: None,
             saved_item_folder_id: None,
             items: vec![RealItem::Message(Message {
                 mime_content: Some(MimeContent {
@@ -1599,6 +1775,7 @@ mod tests {
     fn build_request_for_read_flag_targets_the_field_uri() {
         let request = build_request(UpdateItem {
             message_disposition: MessageDisposition::SaveOnly,
+            send_meeting_invitations_or_cancellations: None,
             conflict_resolution: Some(ConflictResolution::AutoResolve),
             item_changes: vec![ItemChange {
                 item_change: ItemChangeInner {
@@ -1608,10 +1785,10 @@ mod tests {
                             field_uri: PathToElement::FieldURI {
                                 field_URI: "message:IsRead".to_string(),
                             },
-                            message: Message {
+                            item: RealItem::Message(Message {
                                 is_read: Some(true),
                                 ..Message::default()
-                            },
+                            }),
                         }],
                     },
                 },

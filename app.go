@@ -268,6 +268,12 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.calendarEvents(payload)
 	case "calendar.setEnabled":
 		return a.calendarSetEnabled(payload)
+	case "calendar.create":
+		return a.calendarCreate(payload)
+	case "calendar.update":
+		return a.calendarUpdate(payload)
+	case "calendar.delete":
+		return a.calendarDelete(payload)
 	case "mail.folderList":
 		return a.folderList(payload)
 	case "mail.folderCreate":

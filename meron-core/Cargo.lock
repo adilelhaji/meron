@@ -917,7 +917,7 @@ dependencies = [
 [[package]]
 name = "ews"
 version = "0.1.1"
-source = "git+https://github.com/adilelhaji/ews-rs.git?branch=calendar-item-properties#6ba608b36e2f44edacf026ba241d065ed57b8ce4"
+source = "git+https://github.com/adilelhaji/ews-rs.git?branch=calendar-item-properties#1af80413a089ded6b3f38032c27b12e9affdbc08"
 dependencies = [
  "ews_proc_macros",
  "quick-xml 0.31.0",
@@ -1908,6 +1908,7 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "socket2",
+ "time",
  "tokio",
  "tokio-rustls",
  "ureq",

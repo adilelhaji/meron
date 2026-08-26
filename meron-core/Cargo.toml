@@ -38,6 +38,9 @@ keyring = { version = "3", features = ["apple-native", "windows-native", "sync-s
 # arrangement the repo already uses for its async-imap fork. Back to crates.io
 # once Thunderbird releases the change.
 ews = { git = "https://github.com/adilelhaji/ews-rs.git", branch = "calendar-item-properties" }
+# Already in the tree through `ews`, whose DateTime wraps `time`'s; declared
+# directly so calendar writes can build one. No new supply chain.
+time = "0.3"
 feed-rs = "2.3.1"
 quick-xml = "0.37.5"
 scraper = "0.27.0"
