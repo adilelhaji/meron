@@ -4,7 +4,7 @@ import { useTranslation } from '../../lib/i18n'
 import {
   accountColor,
   calendar$,
-  editEvent,
+  openEvent,
   newEvent,
   setCalendarView,
   startOfDay,
@@ -121,7 +121,7 @@ export function WeekView({
                 <button
                   key={`${event.accountId}:${event.id}`}
                   type="button"
-                  onClick={() => editEvent(event)}
+                  onClick={() => openEvent(event)}
                   onContextMenu={(mouse) => {
                     mouse.preventDefault()
                     onEventMenu(mouse.clientX, mouse.clientY, event)
@@ -178,7 +178,7 @@ export function WeekView({
                   <button
                     key={`${event.accountId}:${event.id}`}
                     type="button"
-                    onClick={() => editEvent(event)}
+                    onClick={() => openEvent(event)}
                     onContextMenu={(mouse) => {
                       mouse.preventDefault()
                       onEventMenu(mouse.clientX, mouse.clientY, event)

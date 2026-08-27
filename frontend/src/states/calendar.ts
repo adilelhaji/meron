@@ -81,6 +81,9 @@ export const calendar$ = observable({
   calendars: [] as Calendar[],
   loading: false,
   error: '',
+  /// The event being read, or null. Separate from `editing`: opening an event
+  /// asks "what is this", and only then "change this".
+  viewing: null as CalendarEvent | null,
   view: 'agenda' as CalendarViewMode,
   /// The day the current view is anchored on, as local-midnight epoch ms.
   anchor: startOfDay(new Date()).getTime(),
@@ -326,7 +329,18 @@ export function newEvent(startAt?: number): EventDraft | null {
   return draft
 }
 
+export function openEvent(event: CalendarEvent) {
+  calendar$.viewing.set({ ...event })
+}
+
+export function closeDetails() {
+  calendar$.viewing.set(null)
+}
+
 export function editEvent(event: CalendarEvent) {
+  // Editing supersedes reading: the details close behind the editor rather
+  // than stacking two dialogs on top of each other.
+  calendar$.viewing.set(null)
   calendar$.editing.set({ ...event })
 }
 
@@ -368,6 +382,7 @@ export async function deleteEvent(event: CalendarEvent) {
       change_key: event.change_key ?? '',
     })
     closeEditor()
+    calendar$.viewing.set(null)
     calendar$.events.set(calendar$.events.peek().filter((candidate) => candidate.id !== event.id))
   } catch (err) {
     calendar$.error.set(String(err))

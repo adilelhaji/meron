@@ -52,6 +52,11 @@ struct CalendarListEntry {
     access_role: String,
     #[serde(default)]
     deleted: bool,
+    /// The colour this calendar is drawn in on Google's own clients, as
+    /// `#rrggbb`. Worth carrying: a reader who has told Google that work is
+    /// green should not have to say it again here.
+    #[serde(rename = "backgroundColor", default)]
+    background_color: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -263,7 +268,9 @@ pub fn list_calendars(token: &str) -> Result<Vec<Calendar>> {
                 // Both are this client's to decide and are preserved across
                 // syncs by the store.
                 enabled: true,
-                color: None,
+                color: entry
+                    .background_color
+                    .filter(|colour| colour.starts_with('#') && colour.len() == 7),
                 kind: CalendarKind::Account,
                 url: None,
                 // Anything below "writer" is someone else's calendar shared
@@ -585,11 +592,12 @@ mod tests {
     #[test]
     fn a_calendar_someone_else_owns_is_read_only() {
         let list: CalendarList = serde_json::from_str(
-            r#"{"items":[
-                 {"id":"me@gmail.com","summary":"Personal","primary":true,"accessRole":"owner"},
+            r##"{"items":[
+                 {"id":"me@gmail.com","summary":"Personal","primary":true,"accessRole":"owner",
+                  "backgroundColor":"#9fe1e7"},
                  {"id":"team@group.calendar.google.com","summary":"Equip","accessRole":"reader"},
                  {"id":"gone@x","summary":"Fora","accessRole":"owner","deleted":true}
-               ]}"#,
+               ]}"##,
         )
         .expect("parse");
         // Exercised through the same mapping the request path uses.
@@ -602,12 +610,18 @@ mod tests {
                 name: entry.summary,
                 is_default: entry.primary,
                 read_only: !matches!(entry.access_role.as_str(), "owner" | "writer"),
+                color: entry.background_color,
                 ..Default::default()
             })
             .collect();
 
         assert_eq!(calendars.len(), 2, "a calendar removed from the list is gone");
         assert!(calendars[0].is_default && !calendars[0].read_only);
+        assert_eq!(
+            calendars[0].color.as_deref(),
+            Some("#9fe1e7"),
+            "the colour Google draws it in comes along"
+        );
         assert!(calendars[1].read_only, "reader access cannot be edited");
     }
 

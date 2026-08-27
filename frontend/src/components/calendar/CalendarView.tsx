@@ -17,6 +17,8 @@ import { AgendaList } from './AgendaView'
 import { MonthView } from './MonthView'
 import { WeekView } from './WeekView'
 import { EventEditor } from './EventEditor'
+import { EventDetails } from './EventDetails'
+import { CalendarList } from './CalendarList'
 import { EventContextMenu, type EventContextMenuState } from './EventContextMenu'
 
 /// The calendar surface: one header — period, navigation, view switcher — over
@@ -46,6 +48,7 @@ export function CalendarView() {
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-app">
       <EventEditor />
+      <EventDetails />
       {menu && <EventContextMenu state={menu} onClose={() => setMenu(null)} />}
       <header className="flex items-center gap-2 border-b border-border px-5 py-3">
         <CalendarDays size={17} className="shrink-0 text-accent" />
@@ -101,10 +104,13 @@ export function CalendarView() {
         </div>
       </header>
 
-      {view === 'agenda' && <AgendaList onEventMenu={onEventMenu} />}
-      {view === 'month' && <MonthView onEventMenu={onEventMenu} />}
-      {view === 'week' && <WeekView days={7} onEventMenu={onEventMenu} />}
-      {view === 'day' && <WeekView days={1} onEventMenu={onEventMenu} />}
+      <div className="flex min-h-0 flex-1">
+        <CalendarList />
+        {view === 'agenda' && <AgendaList onEventMenu={onEventMenu} />}
+        {view === 'month' && <MonthView onEventMenu={onEventMenu} />}
+        {view === 'week' && <WeekView days={7} onEventMenu={onEventMenu} />}
+        {view === 'day' && <WeekView days={1} onEventMenu={onEventMenu} />}
+      </div>
     </div>
   )
 }

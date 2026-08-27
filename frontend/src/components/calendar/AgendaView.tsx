@@ -5,7 +5,7 @@ import { useTranslation } from '../../lib/i18n'
 import {
   accountColor,
   calendar$,
-  editEvent,
+  openEvent,
   groupByDay,
   type CalendarEvent,
 } from '../../states/calendar'
@@ -63,7 +63,7 @@ function EventRow({
   const color = accountColor(event.accountId)
   return (
     <li
-      onClick={() => editEvent(event)}
+      onClick={() => openEvent(event)}
       onContextMenu={(mouse) => {
         mouse.preventDefault()
         onContextMenu(mouse.clientX, mouse.clientY)

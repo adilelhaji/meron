@@ -202,9 +202,13 @@ pub fn replace_account_calendars(
 
 /// One calendar's row, inside a caller's transaction.
 fn upsert_one(tx: &rusqlite::Transaction<'_>, account: &str, calendar: &Calendar) -> Result<()> {
-    // `enabled` and `color` are deliberately not overwritten: both are the
-    // user's choice, and a resync — which arrives with no opinion on
-    // either — must not undo them.
+    // `enabled` is deliberately not overwritten: it is the user's choice, and
+    // a resync — which arrives with no opinion on it — must not undo it.
+    //
+    // `color` is the user's choice too, but only once they have made one:
+    // until then the server's own colour is worth adopting, since a reader who
+    // has told Google that work is green should not have to say it again here.
+    // COALESCE is what keeps a chosen colour and fills in an unchosen one.
     tx.execute(
         "INSERT INTO calendars(
            account, provider_id, name, is_default, color, kind, url, read_only)
@@ -214,7 +218,8 @@ fn upsert_one(tx: &rusqlite::Transaction<'_>, account: &str, calendar: &Calendar
            is_default = excluded.is_default,
            kind = excluded.kind,
            url = excluded.url,
-           read_only = excluded.read_only",
+           read_only = excluded.read_only,
+           color = COALESCE(calendars.color, excluded.color)",
         params![
             account,
             calendar.id,
@@ -485,6 +490,29 @@ mod tests {
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].name, "Calendario del trabajo", "the name refreshes");
         assert!(!stored[0].enabled, "the user's choice does not");
+    }
+
+    #[test]
+    fn the_servers_colour_fills_in_until_the_user_picks_one() {
+        let conn = store();
+        let from_google = Calendar {
+            color: Some("#9fe1e7".to_string()),
+            ..a_calendar()
+        };
+        upsert_calendars(&conn, "acct", &[from_google.clone()]).unwrap();
+        assert_eq!(
+            get_calendars(&conn, "acct").unwrap()[0].color.as_deref(),
+            Some("#9fe1e7"),
+            "with no choice of the reader's, the server's colour is adopted"
+        );
+
+        set_calendar_color(&conn, "acct", "cal", Some("#E24C3B")).unwrap();
+        upsert_calendars(&conn, "acct", &[from_google]).unwrap();
+        assert_eq!(
+            get_calendars(&conn, "acct").unwrap()[0].color.as_deref(),
+            Some("#E24C3B"),
+            "once chosen here, a resync does not take it back"
+        );
     }
 
     #[test]
