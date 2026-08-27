@@ -1,7 +1,13 @@
 import { SquarePen, Trash2 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
-import { calendar$, deleteEvent, editEvent, type CalendarEvent } from '../../states/calendar'
+import {
+  calendar$,
+  deleteEvent,
+  editEvent,
+  openEvent,
+  type CalendarEvent,
+} from '../../states/calendar'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
 import { MenuItem } from '../menu/MenuItem'
 
@@ -55,7 +61,11 @@ export function EventContextMenu({
         danger
         disabled={readOnly}
         onClick={() => {
-          void deleteEvent(state.event)
+          // One of a series: the choice between this day and all of them
+          // cannot be made here, so it is put where it can be asked rather
+          // than answered on the reader's behalf.
+          if (state.event.is_recurring && state.event.series_id) openEvent(state.event)
+          else void deleteEvent(state.event)
           onClose()
         }}
       />

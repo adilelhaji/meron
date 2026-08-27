@@ -127,31 +127,43 @@ pub async fn create_event(engine: &Arc<Engine>, account: &str, event: &Event) ->
     }
 }
 
-pub async fn update_event(engine: &Arc<Engine>, account: &str, event: &Event) -> Result<()> {
+/// Applies a changed event to the occurrence alone, or to its whole series.
+pub async fn update_event(
+    engine: &Arc<Engine>,
+    account: &str,
+    event: &Event,
+    whole_series: bool,
+) -> Result<()> {
     match route_with_token(engine, account).await? {
         (Route::Exchange, _) => {
             let event = event.clone();
             engine
                 .with_write_session(account, |session| {
                     let event = event.clone();
-                    Box::pin(async move { session.update_event(&event).await })
+                    Box::pin(async move { session.update_event(&event, whole_series).await })
                 })
                 .await
         }
         (Route::Google, token) => {
             let event = event.clone();
-            blocking(move || super::google::update_event(&token, &event)).await
+            blocking(move || super::google::update_event(&token, &event, whole_series)).await
         }
         (Route::None, _) => anyhow::bail!("this account has no calendar"),
     }
 }
 
+/// Deletes an occurrence, or the whole series it belongs to.
+///
+/// `series_id` is what Google needs to reach the master; Exchange finds it
+/// from the occurrence's own id.
 pub async fn delete_event(
     engine: &Arc<Engine>,
     account: &str,
     calendar_id: &str,
     event_id: &str,
     change_key: Option<&str>,
+    series_id: Option<&str>,
+    whole_series: bool,
 ) -> Result<()> {
     match route_with_token(engine, account).await? {
         (Route::Exchange, _) => {
@@ -161,14 +173,23 @@ pub async fn delete_event(
                 .with_write_session(account, |session| {
                     let id = id.clone();
                     let change_key = change_key.clone();
-                    Box::pin(async move { session.delete_event(&id, change_key.as_deref()).await })
+                    Box::pin(async move {
+                        session
+                            .delete_event(&id, change_key.as_deref(), whole_series)
+                            .await
+                    })
                 })
                 .await
         }
         (Route::Google, token) => {
             let calendar_id = calendar_id.to_string();
-            let event_id = event_id.to_string();
-            blocking(move || super::google::delete_event(&token, &calendar_id, &event_id)).await
+            // Deleting a whole series means deleting the master; an occurrence
+            // is deleted by its own id, which leaves the rest standing.
+            let target = match (whole_series, series_id) {
+                (true, Some(series)) => series.to_string(),
+                _ => event_id.to_string(),
+            };
+            blocking(move || super::google::delete_event(&token, &calendar_id, &target)).await
         }
         (Route::None, _) => anyhow::bail!("this account has no calendar"),
     }

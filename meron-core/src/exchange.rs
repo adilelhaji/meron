@@ -220,7 +220,12 @@ impl EwsClient {
     /// as a set of field updates. `change_key` carries the version the caller
     /// read: Exchange rejects a stale one rather than silently overwriting an
     /// edit made elsewhere.
-    pub fn update_event(&self, item: &EwsId, event: &Event) -> anyhow::Result<()> {
+    pub fn update_event(
+        &self,
+        item: &EwsId,
+        event: &Event,
+        whole_series: bool,
+    ) -> anyhow::Result<()> {
         // Each change carries exactly one property, inside an item of the
         // type being updated: a calendar field in a Message is rejected.
         let field = |uri: &str, item: Message| ItemChangeDescription::SetItemField {
@@ -308,7 +313,7 @@ impl EwsClient {
             conflict_resolution: Some(ConflictResolution::AlwaysOverwrite),
             item_changes: vec![ItemChange {
                 item_change: ItemChangeInner {
-                    item_id: item_id(item),
+                    item_id: scoped_item_id(item, whole_series),
                     updates: Updates { inner: updates },
                 },
             }],
@@ -318,7 +323,7 @@ impl EwsClient {
     }
 
     /// Deletes an event.
-    pub fn delete_event(&self, item: &EwsId) -> anyhow::Result<()> {
+    pub fn delete_event(&self, item: &EwsId, whole_series: bool) -> anyhow::Result<()> {
         let response = self.call(DeleteItem {
             delete_type: DeleteType::MoveToDeletedItems,
             // Deleting a meeting you organize would normally notify the
@@ -327,7 +332,7 @@ impl EwsClient {
             send_meeting_cancellations: Some(::ews::delete_item::SendMeetingCancellations::SendToNone),
             affected_task_occurrences: None,
             suppress_read_receipts: None,
-            item_ids: vec![item_id(item)],
+            item_ids: vec![scoped_item_id(item, whole_series)],
         })?;
         into_successes(response).context("DeleteItem calendar")?;
         Ok(())
@@ -1235,19 +1240,25 @@ impl EwsSession {
         })
     }
 
-    /// Applies a changed event.
-    pub async fn update_event(&mut self, event: &Event) -> anyhow::Result<()> {
+    /// Applies a changed event, to the occurrence alone or to its whole series.
+    pub async fn update_event(&mut self, event: &Event, whole_series: bool) -> anyhow::Result<()> {
         let item = (event.id.clone(), event.change_key.clone());
         let client = self.client.clone();
         let payload = event.clone();
-        tokio::task::spawn_blocking(move || client.update_event(&item, &payload)).await?
+        tokio::task::spawn_blocking(move || client.update_event(&item, &payload, whole_series))
+            .await?
     }
 
-    /// Deletes an event.
-    pub async fn delete_event(&mut self, event_id: &str, change_key: Option<&str>) -> anyhow::Result<()> {
+    /// Deletes an event, or the whole series it belongs to.
+    pub async fn delete_event(
+        &mut self,
+        event_id: &str,
+        change_key: Option<&str>,
+        whole_series: bool,
+    ) -> anyhow::Result<()> {
         let item = (event_id.to_string(), change_key.map(str::to_string));
         let client = self.client.clone();
-        tokio::task::spawn_blocking(move || client.delete_event(&item)).await?
+        tokio::task::spawn_blocking(move || client.delete_event(&item, whole_series)).await?
     }
 
     pub async fn create_calendar(&mut self, name: &str) -> anyhow::Result<String> {
@@ -1852,6 +1863,22 @@ fn item_id(reference: &EwsId) -> BaseItemId {
     }
 }
 
+/// The item a write should address: the occurrence itself, or the series it
+/// belongs to.
+///
+/// An occurrence id cannot reach its master any other way, which is why the
+/// series case is a different kind of identifier rather than a different id.
+fn scoped_item_id(reference: &EwsId, whole_series: bool) -> BaseItemId {
+    if whole_series {
+        BaseItemId::RecurringMasterItemId {
+            occurrence_id: reference.0.clone(),
+            change_key: reference.1.clone(),
+        }
+    } else {
+        item_id(reference)
+    }
+}
+
 fn basic_auth(username: &str, password: &str) -> String {
     let credentials =
         base64::engine::general_purpose::STANDARD.encode(format!("{username}:{password}"));
@@ -1882,6 +1909,33 @@ mod tests {
         ::ews::FolderId {
             id: id.to_string(),
             change_key: None,
+        }
+    }
+
+    #[test]
+    fn a_write_addresses_the_occurrence_or_its_master_but_never_both() {
+        let reference = ("AAMkOccurrence=".to_string(), Some("CK1".to_string()));
+
+        // This day only: the occurrence's own id.
+        match scoped_item_id(&reference, false) {
+            BaseItemId::ItemId { id, change_key } => {
+                assert_eq!(id, "AAMkOccurrence=");
+                assert_eq!(change_key.as_deref(), Some("CK1"));
+            }
+            other => panic!("an occurrence must be addressed by its own id: {other:?}"),
+        }
+
+        // The whole series: the master, reached through that same occurrence.
+        // Getting this wrong would change appointments the reader never opened.
+        match scoped_item_id(&reference, true) {
+            BaseItemId::RecurringMasterItemId {
+                occurrence_id,
+                change_key,
+            } => {
+                assert_eq!(occurrence_id, "AAMkOccurrence=");
+                assert_eq!(change_key.as_deref(), Some("CK1"));
+            }
+            other => panic!("a series must be addressed through its master: {other:?}"),
         }
     }
 

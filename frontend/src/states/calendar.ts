@@ -446,12 +446,16 @@ export function closeEditor() {
 }
 
 /// Saves the open draft, creating it or updating it as appropriate.
-export async function saveEvent(draft: EventDraft) {
+/// Which occurrences a change reaches: the one in hand, or every one of its
+/// series.
+export type EditScope = 'occurrence' | 'series'
+
+export async function saveEvent(draft: EventDraft, scope: EditScope = 'occurrence') {
   calendar$.saving.set(true)
   calendar$.error.set('')
   try {
     if (draft.id) {
-      await invoke('calendar.update', { account_id: draft.accountId, event: draft })
+      await invoke('calendar.update', { account_id: draft.accountId, event: draft, scope })
     } else {
       await invoke('calendar.create', { account_id: draft.accountId, event: draft })
     }
@@ -466,20 +470,30 @@ export async function saveEvent(draft: EventDraft) {
   }
 }
 
-export async function deleteEvent(event: CalendarEvent) {
+export async function deleteEvent(event: CalendarEvent, scope: EditScope = 'occurrence') {
   calendar$.error.set('')
   try {
     await invoke('calendar.delete', {
       account_id: event.accountId,
       event_id: event.id,
       // Exchange finds an event by its own id; Google needs the calendar
-      // holding it.
+      // holding it, and the series when a whole one is going.
       calendar_id: event.calendar_id,
       change_key: event.change_key ?? '',
+      series_id: event.series_id ?? '',
+      scope,
     })
     closeEditor()
     calendar$.viewing.set(null)
-    calendar$.events.set(calendar$.events.peek().filter((candidate) => candidate.id !== event.id))
+    calendar$.events.set(
+      calendar$.events
+        .peek()
+        .filter((candidate) =>
+          scope === 'series' && event.series_id
+            ? candidate.series_id !== event.series_id
+            : candidate.id !== event.id,
+        ),
+    )
   } catch (err) {
     calendar$.error.set(String(err))
   }

@@ -1927,7 +1927,14 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if event.end < event.start {
                 anyhow::bail!("an event cannot end before it starts");
             }
-            calendar::route::update_event(&engine, &account, &event).await?;
+            // Which of the two questions an edit answers: this day, or every
+            // day the series falls on. Absent means this one, which is what a
+            // caller that has never heard of series should get.
+            let whole_series = p
+                .get("scope")
+                .and_then(Value::as_str)
+                .is_some_and(|scope| scope == "series");
+            calendar::route::update_event(&engine, &account, &event, whole_series).await?;
             spawn_calendar_sync(
                 engine.clone(),
                 out.clone(),
@@ -1950,17 +1957,33 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 .and_then(Value::as_str)
                 .map(str::to_string)
                 .unwrap_or_default();
+            let whole_series = p
+                .get("scope")
+                .and_then(Value::as_str)
+                .is_some_and(|scope| scope == "series");
+            let series_id = p.get("series").and_then(Value::as_str);
             calendar::route::delete_event(
                 &engine,
                 &account,
                 &calendar_id,
                 &id,
                 change_key,
+                series_id,
+                whole_series,
             )
             .await?;
-            // Drop the cached row now: the agenda should not keep showing an
-            // event the server has already accepted the deletion of.
-            calendar::forget_event(&engine.db.lock().unwrap(), &account, &id)?;
+            // Drop the cached rows now: the agenda should not keep showing what
+            // the server has already accepted the deletion of. A series takes
+            // all of its occurrences with it.
+            {
+                let db = engine.db.lock().unwrap();
+                match (whole_series, series_id) {
+                    (true, Some(series)) => {
+                        calendar::forget_series(&db, &account, series)?;
+                    }
+                    _ => calendar::forget_event(&db, &account, &id)?,
+                }
+            }
             Ok(json!({ "ok": true }))
         }
 

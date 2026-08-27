@@ -370,11 +370,18 @@ pub fn create_event(token: &str, event: &Event) -> Result<Event> {
 /// Updates an event in place. PATCH rather than PUT: only the fields this
 /// client owns are sent, so anything Google keeps that Meron does not model —
 /// conferencing links, reminders, colours — survives the edit.
-pub fn update_event(token: &str, event: &Event) -> Result<()> {
+pub fn update_event(token: &str, event: &Event, whole_series: bool) -> Result<()> {
+    // Changing the series means changing the master it was expanded from;
+    // changing this one means changing the instance, which Google records as
+    // an exception and leaves the rest of the series alone.
+    let target = match (whole_series, event.series_id.as_deref()) {
+        (true, Some(series)) => series,
+        _ => event.id.as_str(),
+    };
     let url = format!(
         "{API}/calendars/{}/events/{}",
         urlencode(&event.calendar_id),
-        urlencode(&event.id),
+        urlencode(target),
     );
     call(token, "PATCH", &url, Some(event_body(event)?))?;
     Ok(())

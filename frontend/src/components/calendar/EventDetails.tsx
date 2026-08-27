@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
+import { useState } from 'react'
 import {
   calendar$,
   eventColor,
@@ -23,6 +24,7 @@ import {
   editEvent,
   type CalendarEvent,
 } from '../../states/calendar'
+import { ScopeAsk } from './ScopeAsk'
 
 /// An event at full size, to read rather than to edit.
 ///
@@ -35,6 +37,7 @@ export function EventDetails() {
   const event = useValue(calendar$.viewing)
   const calendars = useValue(calendar$.calendars)
   const events = useValue(calendar$.events)
+  const [asking, setAsking] = useState(false)
   useEscapeKey(closeDetails, Boolean(event))
   if (!event) return null
 
@@ -183,6 +186,17 @@ export function EventDetails() {
           )}
         </div>
 
+        {asking && (
+          <ScopeAsk
+            action="delete"
+            onCancel={() => setAsking(false)}
+            onChoose={(scope) => {
+              setAsking(false)
+              void deleteEvent(event, scope)
+            }}
+          />
+        )}
+
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/60 px-5 py-3">
           {readOnly ? (
             <p className="mr-auto text-[0.6875rem] text-secondary">
@@ -193,7 +207,11 @@ export function EventDetails() {
           ) : (
             <button
               type="button"
-              onClick={() => void deleteEvent(event)}
+              onClick={() =>
+                event.is_recurring && event.series_id
+                  ? setAsking(true)
+                  : void deleteEvent(event)
+              }
               className="mr-auto inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-rose-500 transition-colors hover:bg-rose-500/10 cursor-pointer"
             >
               <Trash2 size={13} />

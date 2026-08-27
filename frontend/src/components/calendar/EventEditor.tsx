@@ -7,10 +7,12 @@ import {
   closeEditor,
   deleteEvent,
   saveEvent,
+  type EditScope,
   type EventDraft,
   type Frequency,
   type Recurrence,
 } from '../../states/calendar'
+import { ScopeAsk } from './ScopeAsk'
 
 /// Creates or edits one event.
 ///
@@ -26,6 +28,7 @@ export function EventEditor() {
   const error = useValue(calendar$.error)
   const calendars = useValue(calendar$.calendars)
   const [local, setLocal] = useState<EventDraft | null>(null)
+  const [pendingScope, setPendingScope] = useState<'save' | 'delete' | null>(null)
 
   // Adopt the draft once per opening, so typing is not overwritten by the
   // observable it came from.
@@ -33,8 +36,13 @@ export function EventEditor() {
   if (!draft || !event) return null
 
   const set = (patch: Partial<EventDraft>) => setLocal({ ...event, ...patch })
+  // Which action is waiting on "this one or all of them?", if any.
+  const asking = pendingScope
   const isNew = !event.id
   const invalid = !event.subject.trim() || event.end < event.start
+  // Only an occurrence of a real series raises the question; a one-off, or an
+  // event being created, has only one answer.
+  const repeats = !isNew && event.is_recurring && Boolean(event.series_id)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeEditor}>
@@ -179,11 +187,23 @@ export function EventEditor() {
           <p className="shrink-0 px-5 pt-2 text-[0.6875rem] text-rose-500">{error}</p>
         )}
 
+        {asking && (
+          <ScopeAsk
+            action={asking}
+            onCancel={() => setPendingScope(null)}
+            onChoose={(scope: EditScope) => {
+              setPendingScope(null)
+              if (asking === 'save') void saveEvent(event, scope)
+              else void deleteEvent(event, scope)
+            }}
+          />
+        )}
+
         <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/60 px-5 py-4">
           {!isNew ? (
             <button
               type="button"
-              onClick={() => void deleteEvent(event)}
+              onClick={() => (repeats ? setPendingScope('delete') : void deleteEvent(event))}
               className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-rose-500 transition-colors hover:bg-rose-500/10 cursor-pointer"
             >
               <Trash2 size={13} />
@@ -203,7 +223,7 @@ export function EventEditor() {
             <button
               type="button"
               disabled={invalid || saving}
-              onClick={() => void saveEvent(event)}
+              onClick={() => (repeats ? setPendingScope('save') : void saveEvent(event))}
               className="rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             >
               {t('calendar.save', { defaultValue: 'Save' })}

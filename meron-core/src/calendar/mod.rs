@@ -519,6 +519,18 @@ pub fn events_in_window(
     Ok(events)
 }
 
+/// Drops every cached occurrence of a series.
+///
+/// A series deleted on the server leaves nothing behind, so neither should the
+/// cache: forgetting only the occurrence the reader clicked would leave the
+/// rest on screen until the next sync, looking like a delete that half worked.
+pub fn forget_series(conn: &Connection, account: &str, series_id: &str) -> Result<usize> {
+    Ok(conn.execute(
+        "DELETE FROM calendar_events WHERE account = ?1 AND series_id = ?2",
+        params![account, series_id],
+    )?)
+}
+
 /// Reminders that have come due and have not been raised yet.
 ///
 /// Only for events still ahead: a reminder for something already started has

@@ -256,17 +256,26 @@ impl Session {
         }
     }
 
-    pub async fn update_event(&mut self, event: &crate::calendar::Event) -> Result<()> {
+    pub async fn update_event(
+        &mut self,
+        event: &crate::calendar::Event,
+        whole_series: bool,
+    ) -> Result<()> {
         match self {
             Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
-            Session::Ews(session) => session.update_event(event).await,
+            Session::Ews(session) => session.update_event(event, whole_series).await,
         }
     }
 
-    pub async fn delete_event(&mut self, id: &str, change_key: Option<&str>) -> Result<()> {
+    pub async fn delete_event(
+        &mut self,
+        id: &str,
+        change_key: Option<&str>,
+        whole_series: bool,
+    ) -> Result<()> {
         match self {
             Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
-            Session::Ews(session) => session.delete_event(id, change_key).await,
+            Session::Ews(session) => session.delete_event(id, change_key, whole_series).await,
         }
     }
 

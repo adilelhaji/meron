@@ -927,7 +927,7 @@ dependencies = [
 [[package]]
 name = "ews"
 version = "0.1.1"
-source = "git+https://github.com/adilelhaji/ews-rs.git?branch=calendar-item-properties#b2064ff63670dd8f4b19b9de83d9b9e91ddcfbfb"
+source = "git+https://github.com/adilelhaji/ews-rs.git?branch=calendar-item-properties#6cbecaf7f0e5ab7066cfe77b8acd63a6f8717745"
 dependencies = [
  "ews_proc_macros",
  "quick-xml 0.31.0",
