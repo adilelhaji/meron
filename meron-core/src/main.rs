@@ -634,7 +634,7 @@ async fn sync_calendar_window(
         // Only the account's own calendars are refreshed from the server;
         // local and subscribed ones are not its to report, and upserting the
         // server's answer over them would drop them.
-        calendar::upsert_calendars(&db, account, &calendars)?;
+        calendar::replace_account_calendars(&db, account, &calendars)?;
     }
     let wanted: Vec<calendar::Calendar> = {
         let db = engine.db.lock().unwrap();
@@ -1803,7 +1803,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                     Box::pin(async move { session.list_calendars().await })
                 })
                 .await?;
-            calendar::upsert_calendars(&engine.db.lock().unwrap(), &account, &calendars)?;
+            calendar::replace_account_calendars(&engine.db.lock().unwrap(), &account, &calendars)?;
             Ok(json!({ "id": id }))
         }
 

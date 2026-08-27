@@ -1241,7 +1241,14 @@ impl EwsSession {
     }
 
     pub async fn delete_calendar(&mut self, calendar_id: &str) -> anyhow::Result<()> {
-        let reference = self.calendar_ref(calendar_id).await?;
+        let Some(reference) = self.calendar_ref_opt(calendar_id).await? else {
+            // The server does not have it: removed from here before, or from
+            // another client. What was asked for is already true, and failing
+            // would leave the user a calendar they cannot get rid of.
+            self.calendars.remove(calendar_id);
+            self.listing = None;
+            return Ok(());
+        };
         let client = self.client.clone();
         tokio::task::spawn_blocking(move || client.delete_calendar(&reference)).await??;
         self.calendars.remove(calendar_id);
@@ -1251,14 +1258,21 @@ impl EwsSession {
 
     /// The Exchange reference for a calendar, listing them if needed.
     async fn calendar_ref(&mut self, calendar_id: &str) -> anyhow::Result<EwsId> {
+        self.calendar_ref_opt(calendar_id)
+            .await?
+            .with_context(|| format!("no Exchange calendar {calendar_id}"))
+    }
+
+    /// The Exchange reference for a calendar, or `None` when the server has no
+    /// such calendar. A failure to reach the server is an error, not a `None`:
+    /// the two mean different things to a caller deciding whether something
+    /// still exists.
+    async fn calendar_ref_opt(&mut self, calendar_id: &str) -> anyhow::Result<Option<EwsId>> {
         if let Some(reference) = self.calendars.get(calendar_id) {
-            return Ok(reference.clone());
+            return Ok(Some(reference.clone()));
         }
         self.list_calendars().await?;
-        self.calendars
-            .get(calendar_id)
-            .cloned()
-            .with_context(|| format!("no Exchange calendar {calendar_id}"))
+        Ok(self.calendars.get(calendar_id).cloned())
     }
 
     /// The id of a well-known folder, or `None` when the mailbox has none.

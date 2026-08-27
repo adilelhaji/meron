@@ -143,32 +143,87 @@ pub struct Event {
 pub fn upsert_calendars(conn: &Connection, account: &str, calendars: &[Calendar]) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
     for calendar in calendars {
-        // `enabled` and `color` are deliberately not overwritten: both are the
-        // user's choice, and a resync — which arrives with no opinion on
-        // either — must not undo them.
-        tx.execute(
-            "INSERT INTO calendars(
-               account, provider_id, name, is_default, color, kind, url, read_only)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(account, provider_id) DO UPDATE SET
-               name = excluded.name,
-               is_default = excluded.is_default,
-               kind = excluded.kind,
-               url = excluded.url,
-               read_only = excluded.read_only",
-            params![
-                account,
-                calendar.id,
-                calendar.name,
-                calendar.is_default as i64,
-                calendar.color,
-                calendar.kind.as_str(),
-                calendar.url,
-                calendar.read_only as i64
-            ],
-        )?;
+        upsert_one(&tx, account, calendar)?;
     }
     tx.commit()?;
+    Ok(())
+}
+
+/// Records a server's complete listing of an account's calendars.
+///
+/// A listing is the whole truth about what that account's server offers, so a
+/// calendar absent from it is one that no longer exists — removed here, or
+/// from another client. Keeping its row would show the user a calendar they
+/// cannot open and cannot get rid of, so the row goes with it. Local
+/// calendars and subscriptions are not the server's to report and are left
+/// untouched.
+pub fn replace_account_calendars(
+    conn: &Connection,
+    account: &str,
+    calendars: &[Calendar],
+) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    for calendar in calendars {
+        upsert_one(&tx, account, calendar)?;
+    }
+
+    // An empty listing is not taken as "the account has no calendars": a
+    // mailbox always keeps at least its default one, so an empty answer is a
+    // fault rather than a fact, and acting on it would delete everything the
+    // user has. Nothing is pruned until the server says something.
+    if !calendars.is_empty() {
+        let offered: std::collections::HashSet<&str> =
+            calendars.iter().map(|calendar| calendar.id.as_str()).collect();
+        let stale: Vec<String> = {
+            let mut stmt = tx.prepare(
+                "SELECT provider_id FROM calendars WHERE account = ?1 AND kind = 'account'",
+            )?;
+            let rows = stmt.query_map(params![account], |row| row.get::<_, String>(0))?;
+            rows.filter_map(|id| id.ok())
+                .filter(|id| !offered.contains(id.as_str()))
+                .collect()
+        };
+        for id in stale {
+            tx.execute(
+                "DELETE FROM calendar_events WHERE account = ?1 AND calendar_id = ?2",
+                params![account, id],
+            )?;
+            tx.execute(
+                "DELETE FROM calendars WHERE account = ?1 AND provider_id = ?2",
+                params![account, id],
+            )?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+/// One calendar's row, inside a caller's transaction.
+fn upsert_one(tx: &rusqlite::Transaction<'_>, account: &str, calendar: &Calendar) -> Result<()> {
+    // `enabled` and `color` are deliberately not overwritten: both are the
+    // user's choice, and a resync — which arrives with no opinion on
+    // either — must not undo them.
+    tx.execute(
+        "INSERT INTO calendars(
+           account, provider_id, name, is_default, color, kind, url, read_only)
+         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT(account, provider_id) DO UPDATE SET
+           name = excluded.name,
+           is_default = excluded.is_default,
+           kind = excluded.kind,
+           url = excluded.url,
+           read_only = excluded.read_only",
+        params![
+            account,
+            calendar.id,
+            calendar.name,
+            calendar.is_default as i64,
+            calendar.color,
+            calendar.kind.as_str(),
+            calendar.url,
+            calendar.read_only as i64
+        ],
+    )?;
     Ok(())
 }
 
@@ -428,6 +483,63 @@ mod tests {
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].name, "Calendario del trabajo", "the name refreshes");
         assert!(!stored[0].enabled, "the user's choice does not");
+    }
+
+    #[test]
+    fn a_calendar_the_server_no_longer_offers_is_dropped() {
+        let conn = store();
+        let extra = Calendar {
+            id: "cal2".to_string(),
+            name: "Cumpleaños".to_string(),
+            is_default: false,
+            enabled: true,
+            ..Default::default()
+        };
+        replace_account_calendars(&conn, "acct", &[a_calendar(), extra]).unwrap();
+        let on_cal2 = Event {
+            calendar_id: "cal2".to_string(),
+            ..event("e1", 10, 20)
+        };
+        replace_window(&conn, "acct", "cal2", (0, 100), &[on_cal2]).unwrap();
+
+        // Removed here or from another client: the next listing simply does
+        // not mention it. Keeping the row would show a calendar that cannot be
+        // opened and cannot be removed.
+        replace_account_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+
+        let stored = get_calendars(&conn, "acct").unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored[0].id, "cal");
+        let events = events_in_window(&conn, "acct", (0, 100)).unwrap();
+        assert!(events.is_empty(), "its events go with it");
+    }
+
+    #[test]
+    fn a_listing_only_speaks_for_the_account_and_only_when_it_says_something() {
+        let conn = store();
+        let local = Calendar {
+            id: "local:1".to_string(),
+            name: "Personal".to_string(),
+            kind: CalendarKind::Local,
+            enabled: true,
+            ..Default::default()
+        };
+        upsert_calendars(&conn, "acct", &[local]).unwrap();
+        replace_account_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+        assert_eq!(
+            get_calendars(&conn, "acct").unwrap().len(),
+            2,
+            "a local calendar is not the server's to report, and survives its listing"
+        );
+
+        // An empty answer from a mailbox that always keeps a default calendar
+        // is a fault, not a fact; acting on it would delete everything.
+        replace_account_calendars(&conn, "acct", &[]).unwrap();
+        assert_eq!(
+            get_calendars(&conn, "acct").unwrap().len(),
+            2,
+            "nothing is pruned until the server says something"
+        );
     }
 
     #[test]
