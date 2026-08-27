@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2E63F0"/>
+      <stop offset="1" stop-color="#15316E"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="1024" height="1024" rx="224" fill="url(#bg)"/>
+  <g transform="translate(10,-10)">
+    <!-- Far wing, raised high behind the body, pale -->
+    <path fill="#C9DAFB" d="
+      M 660 360
+      C 590 270, 470 200, 290 185
+      C 420 235, 510 305, 560 400
+      C 590 380, 622 367, 660 360
+      Z"/>
+    <!-- Body: pointed head upper-right, deeply forked tail lower-left -->
+    <path fill="#FFFFFF" d="
+      M 745 285
+      L 810 262
+      C 818 259, 821 266, 815 272
+      L 762 330
+      C 745 460, 655 560, 545 615
+      C 505 705, 425 790, 315 845
+      C 370 760, 412 695, 438 645
+      C 392 662, 328 672, 255 665
+      C 370 625, 465 572, 518 520
+      C 552 420, 635 330, 745 285
+      Z"/>
+    <!-- Near wing, swept back below the far one, white over the blue -->
+    <path fill="#FFFFFF" d="
+      M 640 385
+      C 545 330, 405 305, 215 340
+      C 350 358, 455 400, 525 465
+      C 558 432, 595 405, 640 385
+      Z"/>
+  </g>
+</svg>

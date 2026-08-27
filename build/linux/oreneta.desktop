@@ -1,13 +1,13 @@
 [Desktop Entry]
 Type=Application
-Name=Meron
+Name=Oreneta
 GenericName=Mail Client
 Comment=Modern mail and feed client
-Exec=meron %u
-Icon=meron
+Exec=oreneta %u
+Icon=oreneta
 Terminal=false
 Categories=Network;Email;Feed;
 MimeType=x-scheme-handler/mailto;
 StartupNotify=true
-StartupWMClass=meron
+StartupWMClass=oreneta
 Keywords=Email;Mail;Feed;RSS;
