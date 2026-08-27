@@ -324,7 +324,7 @@ func (a *App) serveOAuthRedirect(listener net.Listener) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(w, "<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-align:center;padding-top:100px;background-color:#f8fafc;color:#1e293b;\"><h1>Authenticated</h1><p>You can close this tab and return to Meron.</p></body></html>")
+		_, _ = io.WriteString(w, "<html><body style=\"font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-align:center;padding-top:100px;background-color:#f8fafc;color:#1e293b;\"><h1>Authenticated</h1><p>You can close this tab and return to Oreneta.</p></body></html>")
 		go server.Shutdown(context.Background())
 
 		profile, err := exchangeOAuthCode(provider, code, verifier, redirectURI)

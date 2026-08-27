@@ -58,7 +58,7 @@ func (a *App) exportBackup(payload map[string]any) (any, error) {
 		DefaultFilename:      backupFilename(time.Now()),
 		CanCreateDirectories: true,
 		Filters: []wailsRuntime.FileFilter{
-			{DisplayName: "Meron backup (*.json)", Pattern: "*.json"},
+			{DisplayName: "Oreneta backup (*.json)", Pattern: "*.json"},
 		},
 	})
 	if err != nil {
@@ -92,7 +92,7 @@ func (a *App) importBackup(payload map[string]any) (any, error) {
 		chosen, err := wailsRuntime.OpenFileDialog(a.ctx, wailsRuntime.OpenDialogOptions{
 			Title: "Restore backup",
 			Filters: []wailsRuntime.FileFilter{
-				{DisplayName: "Meron backup (*.json)", Pattern: "*.json"},
+				{DisplayName: "Oreneta backup (*.json)", Pattern: "*.json"},
 			},
 		})
 		if err != nil {

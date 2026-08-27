@@ -309,7 +309,7 @@ func (m *updateManifest) assetFor(goos, goarch, kind string) (updateAsset, bool)
 }
 
 func updateUserAgent() string {
-	return "Meron/" + appVersion() + " (" + runtime.GOOS + "; " + runtime.GOARCH + ")"
+	return "Oreneta/" + appVersion() + " (" + runtime.GOOS + "; " + runtime.GOARCH + ")"
 }
 
 // ------------------------------------------------------------------ Download

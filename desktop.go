@@ -16,7 +16,7 @@ import (
 
 // installDesktopEntry writes a .desktop file and icon into the user's
 // XDG data dir so GNOME/KDE/etc. show the app's logo in the dock and
-// switcher, and registers Meron as the user's mailto: handler. Safe to
+// switcher, and registers Oreneta as the user's mailto: handler. Safe to
 // call on every startup: it only rewrites files when their content has changed.
 func installDesktopEntry() {
 	if runtime.GOOS != "linux" {
@@ -41,20 +41,20 @@ func installDesktopEntry() {
 		dataHome = filepath.Join(home, ".local", "share")
 	}
 
-	iconPath := filepath.Join(dataHome, "icons", "meron.png")
-	desktopPath := filepath.Join(dataHome, "applications", "meron.desktop")
+	iconPath := filepath.Join(dataHome, "icons", "oreneta.png")
+	desktopPath := filepath.Join(dataHome, "applications", "oreneta.desktop")
 
 	writeIfChanged(iconPath, appIconPNG)
 
 	desktop := fmt.Sprintf(`[Desktop Entry]
 Type=Application
-Name=Meron
-Comment=Messages that spark joy
+Name=Oreneta
+Comment=Mail and calendar, at home with Exchange
 Exec=%s %%u
-Icon=meron
+Icon=oreneta
 Terminal=false
-Categories=Office;Network;Email;
-StartupWMClass=meron
+Categories=Office;Network;Email;Calendar;
+StartupWMClass=oreneta
 MimeType=x-scheme-handler/mailto;
 `, desktopExecArg(exe))
 	writeIfChanged(desktopPath, []byte(desktop))
