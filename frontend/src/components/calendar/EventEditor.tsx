@@ -146,7 +146,11 @@ export function EventEditor() {
           </div>
 
           <label className="flex items-center gap-2 text-xs text-primary">
-            <input type="checkbox" checked={event.all_day} onChange={(e) => set({ all_day: e.target.checked })} />
+            <input
+              type="checkbox"
+              checked={event.all_day}
+              onChange={(e) => set(asAllDay(event, e.target.checked))}
+            />
             {t('calendar.allDay', { defaultValue: 'All day' })}
           </label>
 
@@ -317,11 +321,20 @@ function DateAndTime({
 }) {
   const date = new Date(value * 1000)
   const pad = (n: number) => String(n).padStart(2, '0')
-  const dateValue = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  // An all-day event is a date, stored at midnight UTC because a date has no
+  // hour of its own; reading it in the reader's zone would name the day before
+  // west of Greenwich. Anything with an hour is read where the reader is.
+  const dateValue = allDay
+    ? `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())}`
+    : `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 
   const setDate = (text: string) => {
     const [year, month, day] = text.split('-').map(Number)
     if (!year || !month || !day) return
+    if (allDay) {
+      onChange(Math.floor(Date.UTC(year, month - 1, day) / 1000))
+      return
+    }
     const next = new Date(value * 1000)
     next.setFullYear(year, month - 1, day)
     onChange(Math.floor(next.getTime() / 1000))
@@ -513,6 +526,34 @@ function RepeatFields({
       )}
     </div>
   )
+}
+
+/// Turning "all day" on or off rewrites the instants into what the other kind
+/// of time means.
+///
+/// An all-day event covers whole dates, stored as midnight UTC with an
+/// exclusive end — without this, ticking the box left a 15:32 start and an end
+/// on the same date, which a server reads as an event that ends before it
+/// begins.
+function asAllDay(event: EventDraft, allDay: boolean): Partial<EventDraft> {
+  if (allDay) {
+    const start = new Date(event.start * 1000)
+    const first = Date.UTC(start.getFullYear(), start.getMonth(), start.getDate()) / 1000
+    return { all_day: true, start: first, end: first + 86400 }
+  }
+  // Back to a timed event: the date it covered, at a working hour.
+  const date = new Date(event.start * 1000)
+  const start = new Date(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate(),
+    9,
+    0,
+    0,
+    0,
+  )
+  const seconds = Math.floor(start.getTime() / 1000)
+  return { all_day: false, start: seconds, end: seconds + 3600 }
 }
 
 /// Monday first, matching the weekday numbering used throughout.

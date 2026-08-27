@@ -16,6 +16,7 @@ import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
 import { useState } from 'react'
 import {
+  allDayLocalDays,
   calendar$,
   eventColor,
   seriesInWindow,
@@ -265,13 +266,13 @@ function formatRange(event: CalendarEvent): string {
     date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
   if (event.all_day) {
-    // An all-day event ends at midnight of the day *after* the last one it
-    // covers, so the raw end names a day the event is not on. Stepping back a
-    // second lands on the last day it actually covers.
-    const lastDay = new Date((event.end - 1) * 1000)
-    return start.toDateString() === lastDay.toDateString()
-      ? day(start)
-      : `${day(start)} → ${day(lastDay)}`
+    // Dates, read as dates. The stored instants are midnight UTC because a
+    // date has no hour, so reading them in the reader's zone would name the
+    // wrong days; and the end is exclusive, naming the day after the last.
+    const days = allDayLocalDays(event)
+    const firstDay = new Date(days[0])
+    const lastDay = new Date(days[days.length - 1])
+    return days.length === 1 ? day(firstDay) : `${day(firstDay)} → ${day(lastDay)}`
   }
   const sameDay = start.toDateString() === end.toDateString()
   return sameDay

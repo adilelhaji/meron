@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import {
+  allDayLocalDays,
   calendar$,
   eventColor,
   openEvent,
@@ -47,12 +48,19 @@ export function MonthView({
 
   const byDay = useMemo(() => {
     const map = new Map<number, CalendarEvent[]>()
-    for (const event of events) {
-      const start = new Date(event.start * 1000)
-      const key = startOfDay(start).getTime()
+    const put = (key: number, event: CalendarEvent) => {
       const bucket = map.get(key)
       if (bucket) bucket.push(event)
       else map.set(key, [event])
+    }
+    for (const event of events) {
+      // An all-day event covers dates, and shows on each of them; anything
+      // else is placed by the instant it starts at.
+      if (event.all_day) {
+        for (const day of allDayLocalDays(event)) put(day, event)
+        continue
+      }
+      put(startOfDay(new Date(event.start * 1000)).getTime(), event)
     }
     for (const bucket of map.values()) bucket.sort((a, b) => a.start - b.start)
     return map

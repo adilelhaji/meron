@@ -346,6 +346,25 @@ function isFeedAccount(id: string): boolean {
 }
 
 /// Groups a window's events by local day, for an agenda that reads as a diary.
+/// The days an all-day event covers, as the local midnights the views key on.
+///
+/// An all-day event is a run of calendar dates, not a span of instants: it is
+/// stored at midnight UTC because a date has no hour of its own. Reading those
+/// instants in the reader's timezone would smear each date onto the next — a
+/// holiday on the 27th showing on the 27th and the 28th east of Greenwich — so
+/// the dates are read back as dates, in the zone they were written in.
+export function allDayLocalDays(event: CalendarEvent): number[] {
+  const first = new Date(event.start * 1000)
+  // The end is exclusive: a one-day event ends at midnight of the next.
+  const days = Math.max(1, Math.round((event.end - event.start) / 86400))
+  return Array.from({ length: days }, (_, offset) => {
+    const date = new Date(
+      Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate() + offset),
+    )
+    return new Date(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()).getTime()
+  })
+}
+
 /// One day's entry in the agenda: the event, and whether this is a later day
 /// of one that started earlier.
 export type DayEntry = { event: CalendarEvent; continues: boolean }
@@ -370,6 +389,12 @@ export function groupByDay(events: CalendarEvent[]): { day: number; events: DayE
   }
 
   for (const event of events) {
+    if (event.all_day) {
+      // Dates, not instants: see allDayLocalDays.
+      allDayLocalDays(event).forEach((day, index) => add(day, { event, continues: index > 0 }))
+      continue
+    }
+
     const firstDay = midnightOf(event.start)
     add(firstDay, { event, continues: false })
 

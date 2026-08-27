@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import {
+  allDayLocalDays,
   calendar$,
   eventColor,
   openEvent,
@@ -70,10 +71,15 @@ export function WeekView({
   const allDayByColumn = useMemo(
     () =>
       columns.map((date) => {
-        const dayStart = date.getTime() / 1000
+        const key = date.getTime()
+        const dayStart = key / 1000
         const dayEnd = new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1).getTime() / 1000
-        return events.filter(
-          (event) => allDay(event) && event.start < dayEnd && event.end > dayStart,
+        return events.filter((event) =>
+          // A true all-day event covers dates, and its dates are read as
+          // dates; a long timed event is still a span of instants.
+          event.all_day
+            ? allDayLocalDays(event).includes(key)
+            : allDay(event) && event.start < dayEnd && event.end > dayStart,
         )
       }),
     [columns, events],
