@@ -75,12 +75,24 @@ function EventRow({
     >
       <span className="mt-1 h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: color }} />
       <div className="w-20 shrink-0 pt-0.5 text-[0.6875rem] font-medium tabular-nums text-secondary">
-        {event.all_day
-          ? spanInDays(event) > 1
-            ? // A holiday that runs a week is not "All day", it is a week.
-              t('calendar.lastsDays', { defaultValue: '{count} days', count: spanInDays(event) })
-            : t('calendar.allDay', { defaultValue: 'All day' })
-          : `${formatTime(event.start)}–${formatTime(event.end)}`}
+        {event.all_day ? (
+          spanInDays(event) > 1 ? (
+            // A holiday that runs a week is not "All day", it is a week.
+            t('calendar.lastsDays', { defaultValue: '{count} days', count: spanInDays(event) })
+          ) : (
+            t('calendar.allDay', { defaultValue: 'All day' })
+          )
+        ) : (
+          <>
+            {`${formatTime(event.start)}–${formatTime(event.end)}`}
+            {/* Ends on another day: without saying so, an event running until
+                the same clock time tomorrow reads as one lasting no time at
+                all. */}
+            {!sameDay(event) && (
+              <span className="block text-secondary/80">{formatEndDay(event)}</span>
+            )}
+          </>
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <p
@@ -110,6 +122,21 @@ function EventRow({
       </div>
     </li>
   )
+}
+
+/// Whether an event starts and ends on the same day, as the reader sees it.
+function sameDay(event: CalendarEvent): boolean {
+  const start = new Date(event.start * 1000)
+  const end = new Date(event.end * 1000)
+  return start.toDateString() === end.toDateString()
+}
+
+/// The day an event ends on, short enough for the agenda's time column.
+function formatEndDay(event: CalendarEvent): string {
+  return `→ ${new Date(event.end * 1000).toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+  })}`
 }
 
 /// How many days an all-day event covers. Its end is exclusive — midnight of

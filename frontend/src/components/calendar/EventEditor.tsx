@@ -220,12 +220,14 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
 /// Epoch seconds to what a datetime-local input expects, in local time — the
 /// timezone the person editing is in, which is the only one they can reason
 /// about.
-/// A date and a time, as two controls rather than one `datetime-local`.
+/// A date, an hour and a minute, as three controls rather than one
+/// `datetime-local`.
 ///
 /// The engine this app runs on renders `datetime-local` with a date picker and
 /// no way to reach the time, which left every event stuck at whatever hour it
-/// already had. A plain date input and a list of times work the same
-/// everywhere, and are what the calendars people are used to offer anyway.
+/// already had. Plain controls work the same everywhere; hour and minute are
+/// separate so any time is reachable exactly, without hunting through a list
+/// of every minute in the day.
 function DateAndTime({
   value,
   allDay,
@@ -238,7 +240,6 @@ function DateAndTime({
   const date = new Date(value * 1000)
   const pad = (n: number) => String(n).padStart(2, '0')
   const dateValue = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-  const timeValue = `${pad(date.getHours())}:${pad(date.getMinutes())}`
 
   const setDate = (text: string) => {
     const [year, month, day] = text.split('-').map(Number)
@@ -248,9 +249,7 @@ function DateAndTime({
     onChange(Math.floor(next.getTime() / 1000))
   }
 
-  const setTime = (text: string) => {
-    const [hours, minutes] = text.split(':').map(Number)
-    if (Number.isNaN(hours) || Number.isNaN(minutes)) return
+  const setClock = (hours: number, minutes: number) => {
     const next = new Date(value * 1000)
     next.setHours(hours, minutes, 0, 0)
     onChange(Math.floor(next.getTime() / 1000))
@@ -261,26 +260,40 @@ function DateAndTime({
       <input type="date" value={dateValue} onChange={(e) => setDate(e.target.value)} className={inputClass} />
       {/* An all-day event has no hour to set, so none is offered. */}
       {!allDay && (
-        <select value={timeValue} onChange={(e) => setTime(e.target.value)} className={`${inputClass} w-28`}>
-          {/* The event's own time, when it does not fall on a quarter hour:
-              an invitation at 14:37 must survive being looked at. */}
-          {!QUARTER_HOURS.includes(timeValue) && <option value={timeValue}>{timeValue}</option>}
-          {QUARTER_HOURS.map((time) => (
-            <option key={time} value={time}>
-              {time}
-            </option>
-          ))}
-        </select>
+        <div className="flex shrink-0 items-center gap-1">
+          <select
+            value={date.getHours()}
+            onChange={(e) => setClock(Number(e.target.value), date.getMinutes())}
+            className={`${inputClass} w-16`}
+            aria-label="hh"
+          >
+            {HOURS.map((hour) => (
+              <option key={hour} value={hour}>
+                {pad(hour)}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-secondary">:</span>
+          <select
+            value={date.getMinutes()}
+            onChange={(e) => setClock(date.getHours(), Number(e.target.value))}
+            className={`${inputClass} w-16`}
+            aria-label="mm"
+          >
+            {MINUTES.map((minute) => (
+              <option key={minute} value={minute}>
+                {pad(minute)}
+              </option>
+            ))}
+          </select>
+        </div>
       )}
     </div>
   )
 }
 
-/// Every quarter hour of the day, which is how calendars have always offered
-/// times to pick from.
-const QUARTER_HOURS = Array.from({ length: 24 * 4 }, (_, index) => {
-  const hours = Math.floor(index / 4)
-  const minutes = (index % 4) * 15
-  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-})
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour)
+/// Every minute, so a meeting at 14:37 can be both kept and typed.
+const MINUTES = Array.from({ length: 60 }, (_, minute) => minute)
+
 
