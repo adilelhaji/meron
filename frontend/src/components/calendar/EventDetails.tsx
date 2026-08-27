@@ -211,7 +211,15 @@ function formatRange(event: CalendarEvent): string {
   const time = (date: Date) =>
     date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
 
-  if (event.all_day) return day(start)
+  if (event.all_day) {
+    // An all-day event ends at midnight of the day *after* the last one it
+    // covers, so the raw end names a day the event is not on. Stepping back a
+    // second lands on the last day it actually covers.
+    const lastDay = new Date((event.end - 1) * 1000)
+    return start.toDateString() === lastDay.toDateString()
+      ? day(start)
+      : `${day(start)} → ${day(lastDay)}`
+  }
   const sameDay = start.toDateString() === end.toDateString()
   return sameDay
     ? `${day(start)} · ${time(start)}–${time(end)}`

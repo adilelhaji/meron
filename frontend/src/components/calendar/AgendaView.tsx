@@ -76,7 +76,10 @@ function EventRow({
       <span className="mt-1 h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: color }} />
       <div className="w-20 shrink-0 pt-0.5 text-[0.6875rem] font-medium tabular-nums text-secondary">
         {event.all_day
-          ? t('calendar.allDay', { defaultValue: 'All day' })
+          ? spanInDays(event) > 1
+            ? // A holiday that runs a week is not "All day", it is a week.
+              t('calendar.lastsDays', { defaultValue: '{count} days', count: spanInDays(event) })
+            : t('calendar.allDay', { defaultValue: 'All day' })
           : `${formatTime(event.start)}–${formatTime(event.end)}`}
       </div>
       <div className="min-w-0 flex-1">
@@ -107,6 +110,12 @@ function EventRow({
       </div>
     </li>
   )
+}
+
+/// How many days an all-day event covers. Its end is exclusive — midnight of
+/// the day after the last one — so the arithmetic is a plain division.
+function spanInDays(event: CalendarEvent): number {
+  return Math.max(1, Math.round((event.end - event.start) / 86400))
 }
 
 export function formatTime(epochSeconds: number): string {
