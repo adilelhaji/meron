@@ -2,8 +2,8 @@ import { useMemo } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import {
-  accountColor,
   calendar$,
+  eventColor,
   openEvent,
   newEvent,
   setCalendarView,
@@ -58,10 +58,7 @@ export function MonthView({
     return map
   }, [events])
 
-  const colorOf = (event: CalendarEvent) =>
-    calendars.find(
-      (calendar) => calendar.accountId === event.accountId && calendar.id === event.calendar_id,
-    )?.color || accountColor(event.accountId)
+  const colorOf = (event: CalendarEvent) => eventColor(event, calendars)
 
   const openDay = (date: Date) => {
     calendar$.anchor.set(date.getTime())

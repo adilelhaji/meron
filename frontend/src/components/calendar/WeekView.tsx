@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { useTranslation } from '../../lib/i18n'
 import {
-  accountColor,
   calendar$,
+  eventColor,
   openEvent,
   newEvent,
   setCalendarView,
@@ -50,10 +50,7 @@ export function WeekView({
     scroller.current?.scrollTo({ top: 7.5 * HOUR_PX })
   }, [days, anchorMs])
 
-  const colorOf = (event: CalendarEvent) =>
-    calendars.find(
-      (calendar) => calendar.accountId === event.accountId && calendar.id === event.calendar_id,
-    )?.color || accountColor(event.accountId)
+  const colorOf = (event: CalendarEvent) => eventColor(event, calendars)
 
   const allDay = (event: CalendarEvent) => event.all_day || event.end - event.start >= 24 * 3600
 

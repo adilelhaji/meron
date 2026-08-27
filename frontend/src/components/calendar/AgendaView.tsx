@@ -3,8 +3,8 @@ import { useValue } from '@legendapp/state/react'
 import { MapPin, Repeat } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import {
-  accountColor,
   calendar$,
+  eventColor,
   openEvent,
   groupByDay,
   type CalendarEvent,
@@ -60,7 +60,8 @@ function EventRow({
   onContextMenu: (x: number, y: number) => void
 }) {
   const { t } = useTranslation()
-  const color = accountColor(event.accountId)
+  const calendars = useValue(calendar$.calendars)
+  const color = eventColor(event, calendars)
   return (
     <li
       onClick={() => openEvent(event)}

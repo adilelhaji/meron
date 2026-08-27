@@ -172,6 +172,16 @@ export function accountColor(accountId: string): string {
   return ACCOUNT_COLORS[(index < 0 ? 0 : index) % ACCOUNT_COLORS.length]
 }
 
+/// The colour an event is drawn in: its calendar's, falling back to its
+/// account's while the calendar list is still loading or when the calendar has
+/// no colour of its own. One place, so every view agrees.
+export function eventColor(event: CalendarEvent, calendars: Calendar[]): string {
+  const calendar = calendars.find(
+    (candidate) => candidate.accountId === event.accountId && candidate.id === event.calendar_id,
+  )
+  return calendar?.color || accountColor(event.accountId)
+}
+
 /// Loads a window across every account, merged and sorted by start.
 ///
 /// Each account answers from its own cache and refreshes behind the request,

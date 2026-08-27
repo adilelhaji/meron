@@ -3,8 +3,8 @@ import { CalendarDays, Clock, MapPin, Repeat, SquarePen, Trash2, User, Users, X 
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
 import {
-  accountColor,
   calendar$,
+  eventColor,
   closeDetails,
   deleteEvent,
   editEvent,
@@ -27,7 +27,7 @@ export function EventDetails() {
   const calendar = calendars.find(
     (candidate) => candidate.accountId === event.accountId && candidate.id === event.calendar_id,
   )
-  const color = calendar?.color || accountColor(event.accountId)
+  const color = eventColor(event, calendars)
   const readOnly = Boolean(calendar?.read_only)
 
   return (
@@ -63,6 +63,11 @@ export function EventDetails() {
         <div className="flex flex-col gap-3 px-5 pb-4">
           <Row icon={<Clock size={14} />}>
             <span className="text-primary">{formatRange(event)}</span>
+            {/* How far off and how long: the two questions asked of a date
+                that the date itself does not answer. */}
+            <span className="mt-0.5 text-secondary">
+              {[relativeWhen(event, t), formatDuration(event, t)].filter(Boolean).join(' · ')}
+            </span>
             {event.is_recurring && (
               <span className="mt-0.5 flex items-center gap-1 text-secondary">
                 <Repeat size={11} />
@@ -188,6 +193,55 @@ function formatRange(event: CalendarEvent): string {
   return sameDay
     ? `${day(start)} · ${time(start)}–${time(end)}`
     : `${day(start)} ${time(start)} → ${day(end)} ${time(end)}`
+}
+
+/// How far off it is, in the coarsest unit that still says something: days
+/// once it is a day away, hours below that, and nothing at all for something
+/// happening now.
+function relativeWhen(
+  event: CalendarEvent,
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
+  const now = Date.now() / 1000
+  if (event.end < now) {
+    const days = Math.round((now - event.end) / 86400)
+    if (days >= 1) return t('calendar.daysAgo', { defaultValue: '{count} days ago', count: days })
+    return t('calendar.past', { defaultValue: 'Already over' })
+  }
+  if (event.start <= now) return t('calendar.happeningNow', { defaultValue: 'Happening now' })
+
+  const seconds = event.start - now
+  const days = Math.round(seconds / 86400)
+  if (days >= 1) {
+    if (days === 1) return t('calendar.tomorrow', { defaultValue: 'Tomorrow' })
+    return t('calendar.inDays', { defaultValue: 'In {count} days', count: days })
+  }
+  const hours = Math.floor(seconds / 3600)
+  if (hours >= 1) return t('calendar.inHours', { defaultValue: 'In {count} h', count: hours })
+  const minutes = Math.max(1, Math.round(seconds / 60))
+  return t('calendar.inMinutes', { defaultValue: 'In {count} min', count: minutes })
+}
+
+/// How long it lasts. An all-day event is counted in days, since hours are not
+/// what it was written in.
+function formatDuration(
+  event: CalendarEvent,
+  t: ReturnType<typeof useTranslation>['t'],
+): string {
+  const seconds = Math.max(0, event.end - event.start)
+  if (event.all_day || seconds >= 86400) {
+    const days = Math.max(1, Math.round(seconds / 86400))
+    return t('calendar.lastsDays', { defaultValue: '{count} days', count: days })
+  }
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.round((seconds % 3600) / 60)
+  if (hours === 0) return t('calendar.lastsMinutes', { defaultValue: '{count} min', count: minutes })
+  if (minutes === 0) return t('calendar.lastsHours', { defaultValue: '{count} h', count: hours })
+  return t('calendar.lastsHoursMinutes', {
+    defaultValue: '{hours} h {minutes} min',
+    hours,
+    minutes,
+  })
 }
 
 /// Servers answer with their own vocabulary; these are the three answers that
