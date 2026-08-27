@@ -1488,8 +1488,63 @@ fn event_item(event: &Event) -> Message {
         reminder_minutes_before_start: event
             .reminder_minutes
             .map(|minutes| minutes.max(0) as usize),
+        recurrence: event
+            .recurrence
+            .as_ref()
+            .and_then(|rule| ews_recurrence(rule, event.start)),
         ..Message::default()
     }
+}
+
+/// The Exchange recurrence for a rule, anchored on the event's own start.
+///
+/// Only sent when creating a series. The pattern says when it falls and the
+/// range how long it runs; the element requires exactly one of each, in that
+/// order, which is why they are built together here rather than separately.
+fn ews_recurrence(rule: &crate::calendar::Recurrence, start: i64) -> Option<::ews::Recurrence> {
+    use crate::calendar::{Frequency, Recurrence as Rule};
+    let start_at = chrono::DateTime::from_timestamp(start, 0)?;
+    let start_date = start_at.format("%Y-%m-%d").to_string();
+    let interval = rule.interval.max(1);
+
+    let pattern = match rule.freq {
+        Frequency::Daily => ::ews::RecurrencePattern::DailyRecurrence { interval },
+        Frequency::Weekly => ::ews::RecurrencePattern::WeeklyRecurrence {
+            interval,
+            days_of_week: rule
+                .days_or_start(start)
+                .into_iter()
+                .map(|day| Rule::EWS_DAYS[day as usize])
+                .collect::<Vec<_>>()
+                .join(" "),
+        },
+        Frequency::Monthly => ::ews::RecurrencePattern::AbsoluteMonthlyRecurrence {
+            interval,
+            day_of_month: chrono::Datelike::day(&start_at) as u8,
+        },
+        Frequency::Yearly => ::ews::RecurrencePattern::AbsoluteYearlyRecurrence {
+            day_of_month: chrono::Datelike::day(&start_at) as u8,
+            month: start_at.format("%B").to_string(),
+        },
+    };
+
+    // A date the reader picked wins over a count, since it is the more
+    // deliberate of the two answers to "for how long".
+    let range = match (rule.until, rule.count) {
+        (Some(until), _) => ::ews::RecurrenceRange::EndDateRecurrence {
+            start_date,
+            end_date: chrono::DateTime::from_timestamp(until, 0)?
+                .format("%Y-%m-%d")
+                .to_string(),
+        },
+        (None, Some(count)) => ::ews::RecurrenceRange::NumberedRecurrence {
+            start_date,
+            number_of_occurrences: count.max(1),
+        },
+        (None, None) => ::ews::RecurrenceRange::NoEndRecurrence { start_date },
+    };
+
+    Some(::ews::Recurrence { pattern, range })
 }
 
 /// Builds the wire timestamp a write needs from epoch seconds.
@@ -1570,6 +1625,7 @@ fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
         all_day: item.is_all_day_event.unwrap_or(false),
         is_recurring: item.is_recurring.unwrap_or(false),
             series_id: item.uid.clone(),
+        recurrence: None,
         description: item
             .body
             .as_ref()
@@ -1827,6 +1883,66 @@ mod tests {
             id: id.to_string(),
             change_key: None,
         }
+    }
+
+    #[test]
+    fn a_weekly_series_serializes_the_way_exchange_expects() {
+        use crate::calendar::{Frequency, Recurrence};
+        // Thursday 27 August 2026, 12:00 UTC.
+        let start = chrono::DateTime::parse_from_rfc3339("2026-08-27T12:00:00Z")
+            .unwrap()
+            .timestamp();
+        let event = Event {
+            subject: "Reunió".to_string(),
+            start,
+            end: start + 3600,
+            recurrence: Some(Recurrence {
+                freq: Frequency::Weekly,
+                interval: 2,
+                weekdays: vec![1, 3],
+                until: Some(start + 60 * 24 * 3600),
+                count: None,
+                }),
+            ..Default::default()
+        };
+        let request = build_request(CreateItem {
+            message_disposition: None,
+            send_meeting_invitations: Some(::ews::create_item::SendMeetingInvitations::SendToNone),
+            saved_item_folder_id: None,
+            items: vec![RealItem::CalendarItem(event_item(&event))],
+        })
+        .expect("serialization should succeed");
+        let xml = String::from_utf8(request).expect("UTF-8");
+
+        assert!(xml.contains("WeeklyRecurrence"), "missing pattern: {xml}");
+        assert!(xml.contains("Tuesday Thursday"), "days must be named, space separated: {xml}");
+        assert!(xml.contains("EndDateRecurrence"), "missing range: {xml}");
+        assert!(xml.contains("2026-08-27"), "the range starts on the event's own day: {xml}");
+
+        // The pattern must precede the range: the server rejects the whole
+        // request if they arrive the other way round.
+        let pattern_at = xml.find("WeeklyRecurrence").unwrap();
+        let range_at = xml.find("EndDateRecurrence").unwrap();
+        assert!(pattern_at < range_at, "pattern must come before range: {xml}");
+    }
+
+    #[test]
+    fn an_event_without_a_rule_carries_no_recurrence() {
+        let event = Event {
+            subject: "Un cop".to_string(),
+            start: 1_788_249_600,
+            end: 1_788_253_200,
+            ..Default::default()
+        };
+        let request = build_request(CreateItem {
+            message_disposition: None,
+            send_meeting_invitations: Some(::ews::create_item::SendMeetingInvitations::SendToNone),
+            saved_item_folder_id: None,
+            items: vec![RealItem::CalendarItem(event_item(&event))],
+        })
+        .expect("serialization should succeed");
+        let xml = String::from_utf8(request).expect("UTF-8");
+        assert!(!xml.contains("Recurrence"), "a one-off must not claim a rule: {xml}");
     }
 
     #[test]

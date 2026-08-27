@@ -125,6 +125,10 @@ pub struct Event {
     /// the occurrence is complete on its own.
     #[serde(default)]
     pub is_recurring: bool,
+    /// How often it repeats, when it is being created as a series. Never read
+    /// back from a server: what comes back are the occurrences themselves.
+    #[serde(default)]
+    pub recurrence: Option<Recurrence>,
     /// How many minutes before the start a reminder is due, when one is set.
     /// `None` means no reminder — which is not the same as one set to zero.
     #[serde(default)]
@@ -155,6 +159,80 @@ pub struct Event {
     pub organizer: Option<Participant>,
     #[serde(default)]
     pub attendees: Vec<Participant>,
+}
+
+/// How often an event repeats, as asked for when creating one.
+///
+/// Write-only, and deliberately not stored: the server keeps the rule and
+/// hands back the occurrences it expands from it, which is the only form this
+/// client ever reads. Keeping a copy here would be a second truth to go stale.
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Recurrence {
+    pub freq: Frequency,
+    /// Every N days/weeks/months/years. One means every one.
+    #[serde(default = "one")]
+    pub interval: u16,
+    /// Which days a weekly rule falls on, as 0 = Monday … 6 = Sunday. Empty
+    /// means the day the event itself starts on.
+    #[serde(default)]
+    pub weekdays: Vec<u8>,
+    /// The last day the series may fall on, as epoch seconds.
+    #[serde(default)]
+    pub until: Option<i64>,
+    /// Or a fixed number of occurrences. `until` and `count` are alternatives;
+    /// when both are given, `until` wins, because a date is what the reader
+    /// picked from a calendar.
+    #[serde(default)]
+    pub count: Option<u16>,
+}
+
+fn one() -> u16 {
+    1
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Frequency {
+    #[default]
+    Daily,
+    Weekly,
+    Monthly,
+    Yearly,
+}
+
+impl Recurrence {
+    /// The English weekday names EWS expects, in the order this codebase uses.
+    pub const EWS_DAYS: [&'static str; 7] = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ];
+
+    /// The two-letter codes an RRULE uses, in the same order.
+    pub const RRULE_DAYS: [&'static str; 7] = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"];
+
+    /// The days a weekly rule falls on, defaulting to the day the event starts
+    /// when the caller named none.
+    pub fn days_or_start(&self, start: i64) -> Vec<u8> {
+        if !self.weekdays.is_empty() {
+            let mut days: Vec<u8> = self.weekdays.iter().copied().filter(|d| *d < 7).collect();
+            days.sort_unstable();
+            days.dedup();
+            if !days.is_empty() {
+                return days;
+            }
+        }
+        let weekday = chrono::DateTime::from_timestamp(start, 0)
+            .map(|instant| {
+                chrono::Datelike::weekday(&instant).num_days_from_monday() as u8
+            })
+            .unwrap_or(0);
+        vec![weekday]
+    }
 }
 
 /// An event's notes as plain text, whatever the server sent.
@@ -434,6 +512,7 @@ pub fn events_in_window(
                 series_id: row.get(14)?,
                 description: row.get::<_, Option<String>>(15)?.unwrap_or_default(),
                 reminder_minutes: row.get(16)?,
+                recurrence: None,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;

@@ -144,6 +144,7 @@ fn expand(
                 // Every occurrence expanded above came from this one
                 // component, so they all name it.
                 series_id: repeats.then(|| uid.clone()),
+                recurrence: None,
                 description: description.clone(),
                 // A published file's alarms belong to whoever publishes it,
                 // and this client cannot act on them from a read-only

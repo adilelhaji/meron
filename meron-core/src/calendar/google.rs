@@ -477,6 +477,12 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
         // Explicit either way: sending overrides when there is a reminder, and
         // an empty override list when there is none, so removing a reminder
         // actually removes it rather than falling back to the calendar's.
+        // Only on a create: changing an existing series' rule is a different
+        // question ("this one or all of them?") and is not asked here yet.
+        "recurrence": match event.recurrence.as_ref().and_then(|rule| rrule(rule, event.start)) {
+            Some(line) => serde_json::json!([line]),
+            None => serde_json::Value::Null,
+        },
         "reminders": match event.reminder_minutes {
             Some(minutes) => serde_json::json!({
                 "useDefault": false,
@@ -485,6 +491,47 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
             None => serde_json::json!({ "useDefault": false, "overrides": [] }),
         },
     }))
+}
+
+/// The RRULE a rule becomes, anchored on the event's own start.
+///
+/// One line of iCalendar, which is what Google stores; the server expands it
+/// and hands back occurrences, so this is the only direction a rule travels.
+fn rrule(rule: &super::Recurrence, start: i64) -> Option<String> {
+    use super::{Frequency, Recurrence as Rule};
+    let mut parts = vec![match rule.freq {
+        Frequency::Daily => "FREQ=DAILY".to_string(),
+        Frequency::Weekly => "FREQ=WEEKLY".to_string(),
+        Frequency::Monthly => "FREQ=MONTHLY".to_string(),
+        Frequency::Yearly => "FREQ=YEARLY".to_string(),
+    }];
+    let interval = rule.interval.max(1);
+    if interval > 1 {
+        parts.push(format!("INTERVAL={interval}"));
+    }
+    if rule.freq == Frequency::Weekly {
+        parts.push(format!(
+            "BYDAY={}",
+            rule.days_or_start(start)
+                .into_iter()
+                .map(|day| Rule::RRULE_DAYS[day as usize])
+                .collect::<Vec<_>>()
+                .join(",")
+        ));
+    }
+    // As with Exchange: a date the reader picked wins over a count.
+    match (rule.until, rule.count) {
+        (Some(until), _) => {
+            // UNTIL is inclusive and compared against the whole instant, so it
+            // is set to the end of that day — otherwise a series "until the
+            // 30th" stops on the 29th.
+            let end = chrono::DateTime::from_timestamp(until, 0)?;
+            parts.push(format!("UNTIL={}", end.format("%Y%m%dT235959Z")));
+        }
+        (None, Some(count)) => parts.push(format!("COUNT={}", count.max(1))),
+        (None, None) => {}
+    }
+    Some(format!("RRULE:{}", parts.join(";")))
 }
 
 /// One API event as this codebase's own. `None` for an entry with no usable
@@ -529,6 +576,7 @@ fn to_event(source: GoogleEvent, calendar_id: &str) -> Option<Event> {
         // the series it belongs to; a one-off carries none.
         is_recurring: source.recurring_event_id.is_some(),
         series_id: source.recurring_event_id.clone(),
+        recurrence: None,
         description: source
             .description
             .as_deref()
@@ -598,6 +646,52 @@ fn urlencode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rule_becomes_one_line_of_icalendar() {
+        use super::super::{Frequency, Recurrence};
+        // Thursday 27 August 2026.
+        let start = chrono::DateTime::parse_from_rfc3339("2026-08-27T12:00:00Z")
+            .unwrap()
+            .timestamp();
+
+        let fortnightly = Recurrence {
+            freq: Frequency::Weekly,
+            interval: 2,
+            weekdays: vec![1, 3],
+            until: Some(start + 60 * 24 * 3600),
+            count: None,
+        };
+        let line = rrule(&fortnightly, start).expect("rrule");
+        assert!(line.starts_with("RRULE:FREQ=WEEKLY"), "{line}");
+        assert!(line.contains("INTERVAL=2"), "{line}");
+        assert!(line.contains("BYDAY=TU,TH"), "{line}");
+        // Inclusive to the end of that day, or a series "until the 26th" would
+        // stop on the 25th.
+        assert!(line.contains("UNTIL=20261026T235959Z"), "{line}");
+
+        // Every day, ten times, with no interval spelled out: one is the
+        // default and saying so adds nothing.
+        let ten_days = Recurrence {
+            freq: Frequency::Daily,
+            interval: 1,
+            weekdays: vec![],
+            until: None,
+            count: Some(10),
+        };
+        let line = rrule(&ten_days, start).expect("rrule");
+        assert_eq!(line, "RRULE:FREQ=DAILY;COUNT=10");
+
+        // Weekly with no days named falls on the day the event starts.
+        let weekly = Recurrence {
+            freq: Frequency::Weekly,
+            interval: 1,
+            weekdays: vec![],
+            until: None,
+            count: None,
+        };
+        assert_eq!(rrule(&weekly, start).expect("rrule"), "RRULE:FREQ=WEEKLY;BYDAY=TH");
+    }
 
     #[test]
     fn a_write_clears_the_kind_of_time_it_is_not() {

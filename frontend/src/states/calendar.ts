@@ -40,6 +40,9 @@ export type CalendarEvent = {
   series_id?: string | null
   /// The event's own notes, as plain text.
   description?: string
+  /// How it repeats, when it is being created as a series. Write-only: what
+  /// comes back from a server are the occurrences, never the rule.
+  recurrence?: Recurrence | null
   /// Minutes before the start a reminder is due; null or absent means none.
   reminder_minutes?: number | null
   is_cancelled: boolean
@@ -67,6 +70,22 @@ export type Calendar = {
   read_only: boolean
   synced_at: number
   accountId: string
+}
+
+/// How often an event repeats.
+export type Frequency = 'daily' | 'weekly' | 'monthly' | 'yearly'
+
+export type Recurrence = {
+  freq: Frequency
+  /// Every N days/weeks/months/years.
+  interval: number
+  /// Which days a weekly rule falls on, 0 = Monday … 6 = Sunday. Empty means
+  /// the day the event itself starts on.
+  weekdays: number[]
+  /// The last day the series may fall on, as epoch seconds.
+  until?: number | null
+  /// Or a fixed number of occurrences.
+  count?: number | null
 }
 
 /// The event being edited, or null when the editor is closed. A new event has
