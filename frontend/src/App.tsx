@@ -12,7 +12,7 @@ import { useAppEffects } from './useAppEffects'
 import { SideNav } from './components/sidenav/SideNav'
 import { ThreadList } from './components/threads/ThreadList'
 import { KanbanView } from './components/kanban/KanbanView'
-import { AgendaView } from './components/calendar/AgendaView'
+import { CalendarView } from './components/calendar/CalendarView'
 import { MessagePane } from './components/chat/MessagePane'
 import { AboutDialog } from './components/dialog/AboutDialog'
 import { ChangelogDialog } from './components/dialog/ChangelogDialog'
@@ -75,7 +75,7 @@ export default function App() {
         </ErrorBoundary>
         {calendarOpen ? (
           <ErrorBoundary label="calendar">
-            <AgendaView />
+            <CalendarView />
           </ErrorBoundary>
         ) : (
         <ErrorBoundary label="thread list">

@@ -1,86 +1,53 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useValue } from '@legendapp/state/react'
-import { CalendarDays, MapPin, Plus, RefreshCw, Repeat } from 'lucide-react'
+import { MapPin, Repeat } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import {
   accountColor,
   calendar$,
   editEvent,
   groupByDay,
-  loadCalendars,
-  loadWindow,
-  newEvent,
   type CalendarEvent,
 } from '../../states/calendar'
-import { EventEditor } from './EventEditor'
-import { EventContextMenu, type EventContextMenuState } from './EventContextMenu'
-
-/// How far ahead the agenda reaches. Wide enough that scrolling rarely runs
-/// out, narrow enough that the first sync of a busy calendar stays quick.
-const WINDOW_DAYS = 90
 
 /// A list of what is coming, grouped by day.
 ///
 /// Deliberately not a grid: a grid answers "what does my month look like",
-/// which is the next view; this one answers "what is next", which is the
-/// question a mail client's user asks most.
-export function AgendaView() {
+/// which the month view now does; this one answers "what is next", which is
+/// the question a mail client's user asks most.
+export function AgendaList({
+  onEventMenu,
+}: {
+  onEventMenu: (x: number, y: number, event: CalendarEvent) => void
+}) {
   const { t } = useTranslation()
   const events = useValue(calendar$.events)
   const loading = useValue(calendar$.loading)
-
-  useEffect(() => {
-    const now = Math.floor(Date.now() / 1000)
-    void loadCalendars()
-    void loadWindow(now, now + WINDOW_DAYS * 24 * 3600)
-  }, [])
-
   const days = useMemo(() => groupByDay(events), [events])
-  const [menu, setMenu] = useState<EventContextMenuState | null>(null)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-app">
-      <EventEditor />
-      {menu && <EventContextMenu state={menu} onClose={() => setMenu(null)} />}
-      <header className="flex items-center gap-2 border-b border-border px-5 py-3">
-        <CalendarDays size={17} className="text-accent" />
-        <h1 className="text-sm font-semibold text-primary">
-          {t('calendar.title', { defaultValue: 'Calendar' })}
-        </h1>
-        {loading && <RefreshCw size={13} className="animate-spin text-secondary" />}
-        <button
-          type="button"
-          onClick={() => newEvent()}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-[0.6875rem] font-semibold text-white transition-opacity hover:opacity-90 cursor-pointer"
-        >
-          <Plus size={13} />
-          {t('calendar.newEvent', { defaultValue: 'New event' })}
-        </button>
-      </header>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        {days.length === 0 && !loading && (
-          <p className="mt-8 text-center text-xs text-secondary">
-            {t('calendar.empty', { defaultValue: 'Nothing scheduled.' })}
-          </p>
-        )}
-        {days.map(({ day, events }) => (
-          <section key={day} className="mb-6">
-            <h2 className="sticky top-0 z-10 -mx-5 bg-app/95 px-5 pb-2 pt-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-secondary backdrop-blur">
-              {formatDayHeading(day, t)}
-            </h2>
-            <ul className="flex flex-col gap-1.5">
-              {events.map((event) => (
-                <EventRow
-                  key={`${event.accountId}:${event.id}`}
-                  event={event}
-                  onContextMenu={(x, y) => setMenu({ x, y, event })}
-                />
-              ))}
-            </ul>
-          </section>
-        ))}
-      </div>
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+      {days.length === 0 && !loading && (
+        <p className="mt-8 text-center text-xs text-secondary">
+          {t('calendar.empty', { defaultValue: 'Nothing scheduled.' })}
+        </p>
+      )}
+      {days.map(({ day, events }) => (
+        <section key={day} className="mb-6">
+          <h2 className="sticky top-0 z-10 -mx-5 bg-app/95 px-5 pb-2 pt-1 text-[0.6875rem] font-semibold uppercase tracking-wide text-secondary backdrop-blur">
+            {formatDayHeading(day, t)}
+          </h2>
+          <ul className="flex flex-col gap-1.5">
+            {events.map((event) => (
+              <EventRow
+                key={`${event.accountId}:${event.id}`}
+                event={event}
+                onContextMenu={(x, y) => onEventMenu(x, y, event)}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
     </div>
   )
 }
@@ -141,7 +108,7 @@ function EventRow({
   )
 }
 
-function formatTime(epochSeconds: number): string {
+export function formatTime(epochSeconds: number): string {
   return new Date(epochSeconds * 1000).toLocaleTimeString(undefined, {
     hour: '2-digit',
     minute: '2-digit',

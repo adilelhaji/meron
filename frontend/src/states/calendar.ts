@@ -63,6 +63,10 @@ export type Calendar = {
 /// an empty id: the server assigns one on create.
 export type EventDraft = Omit<CalendarEvent, 'id'> & { id: string }
 
+/// How the calendar is drawn. The agenda answers "what is next"; the grids
+/// answer "what does my day / week / month look like".
+export type CalendarViewMode = 'agenda' | 'day' | 'week' | 'month'
+
 export const calendar$ = observable({
   /// Open editor, if any.
   editing: null as EventDraft | null,
@@ -74,7 +78,84 @@ export const calendar$ = observable({
   calendars: [] as Calendar[],
   loading: false,
   error: '',
+  view: 'agenda' as CalendarViewMode,
+  /// The day the current view is anchored on, as local-midnight epoch ms.
+  anchor: startOfDay(new Date()).getTime(),
 })
+
+/// How far ahead the agenda reaches. Wide enough that scrolling rarely runs
+/// out, narrow enough that the first sync of a busy calendar stays quick.
+export const AGENDA_DAYS = 90
+
+export function startOfDay(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+/// Monday-based, following the European convention of every locale this app
+/// ships real translations for.
+export function startOfWeek(date: Date): Date {
+  const midnight = startOfDay(date)
+  const weekday = (midnight.getDay() + 6) % 7
+  return new Date(midnight.getFullYear(), midnight.getMonth(), midnight.getDate() - weekday)
+}
+
+/// The [from, to) window a view needs, in epoch seconds. Boundaries are
+/// computed with calendar arithmetic, not by adding day-lengths: a window
+/// crossing a daylight-saving change still starts and ends at midnight.
+export function viewRange(view: CalendarViewMode, anchorMs: number): [number, number] {
+  const anchor = new Date(anchorMs)
+  const day = startOfDay(anchor)
+  const seconds = (date: Date) => Math.floor(date.getTime() / 1000)
+  if (view === 'day') {
+    const next = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+    return [seconds(day), seconds(next)]
+  }
+  if (view === 'week') {
+    const monday = startOfWeek(day)
+    const next = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7)
+    return [seconds(monday), seconds(next)]
+  }
+  if (view === 'month') {
+    // The six full weeks the month grid draws, padding days included: the
+    // grid shows them, so it loads them.
+    const gridStart = startOfWeek(new Date(anchor.getFullYear(), anchor.getMonth(), 1))
+    const end = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + 42)
+    return [seconds(gridStart), seconds(end)]
+  }
+  const now = Math.floor(Date.now() / 1000)
+  return [now, now + AGENDA_DAYS * 24 * 3600]
+}
+
+/// Loads whatever window the current view and anchor call for.
+export async function loadCurrentView(refresh = true) {
+  const [from, to] = viewRange(calendar$.view.peek(), calendar$.anchor.peek())
+  await loadWindow(from, to, refresh)
+}
+
+export function setCalendarView(view: CalendarViewMode) {
+  calendar$.view.set(view)
+  void loadCurrentView()
+}
+
+/// Moves the anchor one period back or forward, or to today with 0.
+export function navigateCalendar(step: -1 | 0 | 1) {
+  if (step === 0) {
+    calendar$.anchor.set(startOfDay(new Date()).getTime())
+  } else {
+    const view = calendar$.view.peek()
+    const anchor = new Date(calendar$.anchor.peek())
+    const moved =
+      view === 'month'
+        ? new Date(anchor.getFullYear(), anchor.getMonth() + step, 1)
+        : new Date(
+            anchor.getFullYear(),
+            anchor.getMonth(),
+            anchor.getDate() + step * (view === 'week' ? 7 : 1),
+          )
+    calendar$.anchor.set(moved.getTime())
+  }
+  void loadCurrentView()
+}
 
 /// Colours calendars by account so a merged agenda stays readable. Indexed by
 /// the account's position, which is stable for a given set of accounts.
@@ -215,13 +296,13 @@ export function groupByDay(events: CalendarEvent[]): { day: number; events: Cale
 
 
 /// Opens the editor on a new event, defaulting to the next round hour.
-export function newEvent(): EventDraft | null {
+export function newEvent(startAt?: number): EventDraft | null {
   const calendars = calendar$.calendars.peek().filter((calendar) => calendar.enabled)
   const target = calendars.find((calendar) => calendar.is_default) ?? calendars[0]
   // With no calendar there is nowhere to put it, and inventing one would fail
   // at save time with a worse message.
   if (!target) return null
-  const start = Math.ceil(Date.now() / 1000 / 3600) * 3600
+  const start = startAt ?? Math.ceil(Date.now() / 1000 / 3600) * 3600
   const draft: EventDraft = {
     id: '',
     calendar_id: target.id,
