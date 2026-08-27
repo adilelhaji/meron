@@ -22,10 +22,10 @@ export function EventDetails() {
   const { t } = useTranslation()
   const event = useValue(calendar$.viewing)
   const calendars = useValue(calendar$.calendars)
+  const events = useValue(calendar$.events)
   useEscapeKey(closeDetails, Boolean(event))
   if (!event) return null
 
-  const events = useValue(calendar$.events)
   const series = seriesInWindow(event, events)
   const calendar = calendars.find(
     (candidate) => candidate.accountId === event.accountId && candidate.id === event.calendar_id,
