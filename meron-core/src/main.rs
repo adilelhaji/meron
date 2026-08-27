@@ -730,6 +730,20 @@ async fn sync_calendar_window(
                 let id = calendar.id.clone();
                 let events =
                     calendar::route::events_in_window(engine, account, &id, from, to).await?;
+                // An occurrence with no series identifier cannot be edited as
+                // a series, and nothing on screen would explain why. Said once
+                // per sync rather than per event.
+                let unidentified = events
+                    .iter()
+                    .filter(|event| event.is_recurring && event.series_id.is_none())
+                    .count();
+                if unidentified > 0 {
+                    meron_core::mlog!(
+                        meron_core::log::Level::Warn,
+                        "calendar",
+                        "{id}: {unidentified} recurring occurrence(s) arrived without a series id"
+                    );
+                }
                 let db = engine.db.lock().unwrap();
                 calendar::replace_window(&db, account, &id, (from, to), &events)?;
             }

@@ -137,10 +137,16 @@ export function EventEditor() {
               onChange={(recurrence) => set({ recurrence })}
             />
           ) : (
-            event.is_recurring && (
+            // Said only when the series genuinely cannot be reached: without an
+            // identifier from the server there is no way to address it, and
+            // offering the choice would be offering something that cannot be
+            // carried out. With one, the question is asked on save instead.
+            event.is_recurring &&
+            !event.series_id && (
               <p className="rounded-xl bg-raised px-3 py-2 text-[0.6875rem] text-secondary">
-                {t('calendar.editsThisOccurrence', {
-                  defaultValue: 'This event repeats. Changes here apply to this day only.',
+                {t('calendar.seriesNotReachable', {
+                  defaultValue:
+                    'This event repeats, but its series has not been identified yet. Changes here apply to this day only; a refresh usually resolves it.',
                 })}
               </p>
             )
