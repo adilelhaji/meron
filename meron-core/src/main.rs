@@ -1632,7 +1632,8 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 store::upsert_account(&db, &id, &meta, &creds)?;
             }
             secrets::store(&id, &secrets::Secrets::from_creds(&creds))?;
-            let has_calendars = creds.is_ews();
+            let has_calendars =
+                calendar::route::Route::of(&creds) != calendar::route::Route::None;
             engine.accounts.lock().await.insert(id.clone(), creds);
             // Setting up a mail account brings its calendars with it: that is
             // what adding an Exchange (or, later, Google) account means in
