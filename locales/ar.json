@@ -51,6 +51,7 @@
   "accounts.fields.username": "اسم المستخدم",
   "accounts.oauth.addWithTokens": "أضف مع الرموز",
   "accounts.oauth.advancedOptions": "خيارات متقدمة",
+  "accounts.oauth.copyLink": "Copy the sign-in link (if the browser didn't open, or is signed into another account)",
   "accounts.oauth.finishSignIn": "إنهاء تسجيل الدخول",
   "accounts.oauth.finishingSignIn": "جارٍ إنهاء تسجيل الدخول...",
   "accounts.oauth.hideAdvancedOptions": "إخفاء الخيارات المتقدمة",

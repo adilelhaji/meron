@@ -51,6 +51,7 @@
   "accounts.fields.username": "사용자 이름",
   "accounts.oauth.addWithTokens": "토큰으로 추가",
   "accounts.oauth.advancedOptions": "고급 옵션",
+  "accounts.oauth.copyLink": "Copy the sign-in link (if the browser didn't open, or is signed into another account)",
   "accounts.oauth.finishSignIn": "로그인 완료",
   "accounts.oauth.finishingSignIn": "로그인을 완료하는 중...",
   "accounts.oauth.hideAdvancedOptions": "고급 옵션 숨기기",

@@ -51,6 +51,7 @@
   "accounts.fields.username": "Kullanıcı Adı",
   "accounts.oauth.addWithTokens": "Jetonlarla ekle",
   "accounts.oauth.advancedOptions": "Gelişmiş seçenekler",
+  "accounts.oauth.copyLink": "Copy the sign-in link (if the browser didn't open, or is signed into another account)",
   "accounts.oauth.finishSignIn": "Oturum açmayı bitir",
   "accounts.oauth.finishingSignIn": "Oturum açma işlemi tamamlanıyor...",
   "accounts.oauth.hideAdvancedOptions": "Gelişmiş seçenekleri gizle",

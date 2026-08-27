@@ -51,6 +51,7 @@
   "accounts.fields.username": "Tên đăng nhập",
   "accounts.oauth.addWithTokens": "Thêm bằng mã thông báo",
   "accounts.oauth.advancedOptions": "Tùy chọn nâng cao",
+  "accounts.oauth.copyLink": "Copy the sign-in link (if the browser didn't open, or is signed into another account)",
   "accounts.oauth.finishSignIn": "Hoàn tất đăng nhập",
   "accounts.oauth.finishingSignIn": "Đang hoàn tất đăng nhập...",
   "accounts.oauth.hideAdvancedOptions": "Ẩn tùy chọn nâng cao",

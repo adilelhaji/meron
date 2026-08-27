@@ -51,6 +51,7 @@
   "accounts.fields.username": "ユーザー名",
   "accounts.oauth.addWithTokens": "トークンで追加",
   "accounts.oauth.advancedOptions": "詳細オプション",
+  "accounts.oauth.copyLink": "Copy the sign-in link (if the browser didn't open, or is signed into another account)",
   "accounts.oauth.finishSignIn": "サインインを完了",
   "accounts.oauth.finishingSignIn": "サインインを完了中...",
   "accounts.oauth.hideAdvancedOptions": "詳細オプションを隠す",

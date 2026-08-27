@@ -73,6 +73,12 @@ export function useAccountDialog() {
   const [appPasswordHint, setAppPasswordHint] = useState<{ provider: string; url: string } | null>(null)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [waitingForGoogle, setWaitingForGoogle] = useState(false)
+  // The sign-in URL, kept so it can be offered for copying: the browser this
+  // opens in is whichever one the desktop calls default, and a browser signed
+  // into several Google accounts stalls the flow on the warning page. Being
+  // able to paste the link into a private window is the way out — the loopback
+  // listener belongs to this app, so any browser can finish the flow.
+  const [oauthUrl, setOauthUrl] = useState('')
   const [certPrompt, setCertPrompt] = useState<CertificatePrompt | null>(null)
   // Pins accepted during the save in flight. A bridge can refuse on IMAP and
   // then again on submission, and the second prompt must not drop the first.
@@ -239,7 +245,9 @@ export function useAccountDialog() {
       setError('')
       ui$.setupMode.set(provider)
       setWaitingForGoogle(true)
+      setOauthUrl('')
       const res = await invoke<{ url: string; needs_external_browser?: boolean }>(`oauth.${provider}Begin`)
+      if (res.url && res.needs_external_browser) setOauthUrl(res.url)
       if (res.url && !res.needs_external_browser) {
         window.location.href = res.url
       }
@@ -512,6 +520,7 @@ export function useAccountDialog() {
     advancedOpen,
     setAdvancedOpen,
     waitingForGoogle,
+    oauthUrl,
     runDiscovery,
     beginOAuth,
     save,

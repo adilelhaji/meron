@@ -51,6 +51,7 @@
   "accounts.fields.username": "使用者名稱",
   "accounts.oauth.addWithTokens": "添加令牌",
   "accounts.oauth.advancedOptions": "進階選項",
+  "accounts.oauth.copyLink": "Copy the sign-in link (if the browser didn't open, or is signed into another account)",
   "accounts.oauth.finishSignIn": "完成登入",
   "accounts.oauth.finishingSignIn": "正在完成登入...",
   "accounts.oauth.hideAdvancedOptions": "隱藏進階選項",

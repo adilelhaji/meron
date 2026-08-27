@@ -51,6 +51,7 @@
   "accounts.fields.username": "Nombre de usuario",
   "accounts.oauth.addWithTokens": "Agregar con fichas",
   "accounts.oauth.advancedOptions": "Opciones avanzadas",
+  "accounts.oauth.copyLink": "Copiar el enlace de inicio de sesión (si el navegador no se abrió, o tiene otra cuenta iniciada)",
   "accounts.oauth.finishSignIn": "Finalizar el inicio de sesión",
   "accounts.oauth.finishingSignIn": "Finalizando el inicio de sesión...",
   "accounts.oauth.hideAdvancedOptions": "Ocultar opciones avanzadas",

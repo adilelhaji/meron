@@ -51,6 +51,7 @@
   "accounts.fields.username": "Nom d'utilisateur",
   "accounts.oauth.addWithTokens": "Ajouter avec des jetons",
   "accounts.oauth.advancedOptions": "Options avancées",
+  "accounts.oauth.copyLink": "Copier le lien de connexion (si le navigateur ne s'est pas ouvert, ou est connecté à un autre compte)",
   "accounts.oauth.finishSignIn": "Terminer la connexion",
   "accounts.oauth.finishingSignIn": "Fin de la connexion...",
   "accounts.oauth.hideAdvancedOptions": "Masquer les options avancées",
