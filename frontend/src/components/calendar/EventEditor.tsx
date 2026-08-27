@@ -85,7 +85,7 @@ export function EventEditor() {
             />
           </Labelled>
 
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3">
             <Labelled label={t('calendar.starts', { defaultValue: 'Starts' })}>
               <DateAndTime
                 value={event.start}
@@ -256,15 +256,23 @@ function DateAndTime({
   }
 
   return (
-    <div className="flex gap-1.5">
-      <input type="date" value={dateValue} onChange={(e) => setDate(e.target.value)} className={inputClass} />
-      {/* An all-day event has no hour to set, so none is offered. */}
+    <div className="flex items-stretch gap-2">
+      <input
+        type="date"
+        value={dateValue}
+        onChange={(e) => setDate(e.target.value)}
+        className={`${inputClass} min-w-0 flex-1`}
+      />
+      {/* An all-day event has no hour to set, so none is offered. Hours and
+          minutes share one frame: they are two controls but a single reading,
+          and framing them apart made the time look wider than the date it
+          belongs to. */}
       {!allDay && (
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center rounded-xl border border-border bg-raised px-1 focus-within:border-transparent focus-within:bg-chats focus-within:ring-1 focus-within:ring-accent">
           <select
             value={date.getHours()}
             onChange={(e) => setClock(Number(e.target.value), date.getMinutes())}
-            className={`${inputClass} w-16`}
+            className={clockClass}
             aria-label="hh"
           >
             {HOURS.map((hour) => (
@@ -273,11 +281,11 @@ function DateAndTime({
               </option>
             ))}
           </select>
-          <span className="text-xs text-secondary">:</span>
+          <span className="text-xs font-medium text-secondary">:</span>
           <select
             value={date.getMinutes()}
             onChange={(e) => setClock(date.getHours(), Number(e.target.value))}
-            className={`${inputClass} w-16`}
+            className={clockClass}
             aria-label="mm"
           >
             {MINUTES.map((minute) => (
@@ -291,6 +299,10 @@ function DateAndTime({
     </div>
   )
 }
+
+/// The hour and minute selects, bare: the frame around them is the control.
+const clockClass =
+  'appearance-none bg-transparent px-1 py-2 text-xs tabular-nums text-primary outline-none cursor-pointer'
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour)
 /// Every minute, so a meeting at 14:37 can be both kept and typed.
