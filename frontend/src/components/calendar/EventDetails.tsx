@@ -52,12 +52,12 @@ export function EventDetails() {
         if (mouse.target === mouse.currentTarget) closeDetails()
       }}
     >
-      <div className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-app shadow-xl">
+      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-lg flex-col rounded-2xl border border-border bg-app shadow-xl">
         {/* A band in the calendar's colour, so which calendar this belongs to
             is answered before the text is read. */}
         <div className="h-1.5 rounded-t-2xl" style={{ backgroundColor: color }} />
 
-        <div className="flex items-start gap-3 px-5 pb-3 pt-4">
+        <div className="flex shrink-0 items-start gap-3 px-5 pb-3 pt-4">
           <h2
             className={`min-w-0 flex-1 text-lg font-semibold leading-snug text-primary ${
               event.is_cancelled ? 'line-through opacity-60' : ''
@@ -75,7 +75,7 @@ export function EventDetails() {
           </button>
         </div>
 
-        <div className="flex flex-col gap-3 px-5 pb-4">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-4">
           <Row icon={<Clock size={14} />}>
             <span className="text-primary">{formatRange(event)}</span>
             {/* How far off and how long: the two questions asked of a date
@@ -183,7 +183,7 @@ export function EventDetails() {
           )}
         </div>
 
-        <div className="flex items-center justify-end gap-2 border-t border-border/60 px-5 py-3">
+        <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/60 px-5 py-3">
           {readOnly ? (
             <p className="mr-auto text-[0.6875rem] text-secondary">
               {t('calendar.readOnlyEvent', {

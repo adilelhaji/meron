@@ -39,10 +39,10 @@ export function EventEditor() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeEditor}>
       <div
-        className="w-full max-w-md rounded-2xl border border-border bg-app p-5 shadow-xl"
+        className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col rounded-2xl border border-border bg-app shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mb-4 flex items-center justify-between">
+        <div className="flex shrink-0 items-center justify-between px-5 pb-3 pt-5">
           <h2 className="text-sm font-semibold text-primary">
             {isNew
               ? t('calendar.newEvent', { defaultValue: 'New event' })
@@ -58,7 +58,7 @@ export function EventEditor() {
           </button>
         </div>
 
-        <div className="flex flex-col gap-3">
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 pb-1">
           <Labelled label={t('calendar.subject', { defaultValue: 'Title' })}>
             <input value={event.subject} onChange={(e) => set({ subject: e.target.value })} autoFocus className={inputClass} />
           </Labelled>
@@ -173,10 +173,13 @@ export function EventEditor() {
               {t('calendar.endsBeforeStart', { defaultValue: 'It ends before it starts.' })}
             </p>
           )}
-          {error && <p className="text-[0.6875rem] text-rose-500">{error}</p>}
         </div>
 
-        <div className="mt-5 flex items-center justify-between gap-2">
+        {error && (
+          <p className="shrink-0 px-5 pt-2 text-[0.6875rem] text-rose-500">{error}</p>
+        )}
+
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-border/60 px-5 py-4">
           {!isNew ? (
             <button
               type="button"
