@@ -52,6 +52,10 @@ func main() {
 		},
 		Linux: &linux.Options{
 			Icon: appIconPNG,
+			// The window class the desktop matches against oreneta.desktop's
+			// StartupWMClass, pinned so the taskbar finds the right icon no
+			// matter what the binary happens to be called.
+			ProgramName: "oreneta",
 		},
 		Mac: &mac.Options{
 			// Hide the native title bar and extend content to the top edge,
