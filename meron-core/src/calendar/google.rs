@@ -436,6 +436,35 @@ pub fn delete_calendar(token: &str, calendar_id: &str, owned: bool) -> Result<()
 
 // ---- Mapping ----------------------------------------------------------------
 
+/// The reader's own time zone, by its IANA name.
+///
+/// A repeating event needs one: the rule is expanded *in* a zone, and without
+/// it a weekly meeting at nine would wander by an hour when the clocks change.
+/// Google refuses to create a series without it, which is the right refusal.
+fn local_timezone() -> String {
+    if let Ok(name) = std::env::var("TZ") {
+        let name = name.trim_start_matches(':').trim();
+        if !name.is_empty() {
+            return name.to_string();
+        }
+    }
+    // The conventional way to recover the name on Unix: the zone file the
+    // system points at is named after its zone.
+    if let Ok(target) = std::fs::read_link("/etc/localtime") {
+        let path = target.to_string_lossy();
+        if let Some(index) = path.find("zoneinfo/") {
+            let name = &path[index + "zoneinfo/".len()..];
+            if !name.is_empty() {
+                return name.to_string();
+            }
+        }
+    }
+    // Not knowing is survivable: UTC is a real zone, and the instants are
+    // right either way — only the expansion of a rule across a clock change
+    // would differ.
+    "UTC".to_string()
+}
+
 /// The request body for a create or update.
 fn event_body(event: &Event) -> Result<serde_json::Value> {
     // Both keys are always sent, the unused one as null.
@@ -445,6 +474,7 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
     // left `date` in place beside it, and a time that is both a date and an
     // instant is no time at all — which is exactly what Google answers.
     // Naming the unused one as null is what clears it.
+    let zone = local_timezone();
     let (start, end) = if event.all_day {
         (
             serde_json::json!({
@@ -461,10 +491,14 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
             serde_json::json!({
                 "dateTime": rfc3339(event.start).context("start")?,
                 "date": serde_json::Value::Null,
+                // The instant is already fixed by the offset in `dateTime`;
+                // the zone is what a recurrence is expanded in.
+                "timeZone": zone,
             }),
             serde_json::json!({
                 "dateTime": rfc3339(event.end).context("end")?,
                 "date": serde_json::Value::Null,
+                "timeZone": zone,
             }),
         )
     };
@@ -703,6 +737,10 @@ mod tests {
         };
         let body = event_body(&timed).expect("body");
         assert!(body["start"]["dateTime"].is_string());
+        assert!(
+            body["start"]["timeZone"].is_string(),
+            "a rule is expanded in a zone, so a timed event names one"
+        );
         assert!(
             body["start"]["date"].is_null(),
             "an update is a PATCH: the date must be cleared, not merely omitted"

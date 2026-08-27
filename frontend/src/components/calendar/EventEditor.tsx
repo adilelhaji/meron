@@ -288,14 +288,14 @@ function DateAndTime({
         type="date"
         value={dateValue}
         onChange={(e) => setDate(e.target.value)}
-        className={`${inputClass} min-w-0 flex-1`}
+        className={`${inputClass} min-w-0 flex-1 max-w-[11.5rem]`}
       />
       {/* An all-day event has no hour to set, so none is offered. Hours and
           minutes share one frame: they are two controls but a single reading,
           and framing them apart made the time look wider than the date it
           belongs to. */}
       {!allDay && (
-        <div className="flex shrink-0 items-center rounded-xl border border-border bg-raised px-1 focus-within:border-transparent focus-within:bg-chats focus-within:ring-1 focus-within:ring-accent">
+        <div className="flex shrink-0 items-center rounded-xl border border-border bg-raised px-2 focus-within:border-transparent focus-within:bg-chats focus-within:ring-1 focus-within:ring-accent">
           <select
             value={date.getHours()}
             onChange={(e) => setClock(Number(e.target.value), date.getMinutes())}
@@ -315,7 +315,7 @@ function DateAndTime({
             className={clockClass}
             aria-label="mm"
           >
-            {MINUTES.map((minute) => (
+            {minuteChoices(date.getMinutes()).map((minute) => (
               <option key={minute} value={minute}>
                 {pad(minute)}
               </option>
@@ -329,7 +329,7 @@ function DateAndTime({
 
 /// The hour and minute selects, bare: the frame around them is the control.
 const clockClass =
-  'appearance-none bg-transparent px-1 py-2 text-xs tabular-nums text-primary outline-none cursor-pointer'
+  'appearance-none bg-transparent px-2 py-2 text-sm font-medium tabular-nums text-primary outline-none cursor-pointer'
 
 /// How an event repeats: the frequency, the days for a weekly rule, and when
 /// it stops. Absent unless the reader asks for it, since most events happen
@@ -492,7 +492,16 @@ function fromDateInput(text: string, fallback: number): number {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour)
-/// Every minute, so a meeting at 14:37 can be both kept and typed.
-const MINUTES = Array.from({ length: 60 }, (_, minute) => minute)
+/// Five-minute steps, which is short enough for anything anyone schedules and
+/// keeps the list to a dozen entries rather than sixty.
+const MINUTE_STEPS = Array.from({ length: 12 }, (_, index) => index * 5)
+
+/// The steps, plus the event's own minute when it falls between them — an
+/// invitation at 14:37 must survive being looked at.
+function minuteChoices(current: number): number[] {
+  return MINUTE_STEPS.includes(current)
+    ? MINUTE_STEPS
+    : [...MINUTE_STEPS, current].sort((a, b) => a - b)
+}
 
 
