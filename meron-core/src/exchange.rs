@@ -1550,10 +1550,7 @@ fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
             .body
             .as_ref()
             .and_then(|body| body.content.as_deref())
-            .map(|content| match item.body.as_ref().map(|body| body.body_type) {
-                Some(::ews::BodyType::HTML) => crate::parse::html_to_text(content),
-                _ => content.to_string(),
-            })
+            .map(crate::calendar::plain_notes)
             .unwrap_or_default(),
         is_cancelled: item.is_cancelled.unwrap_or(false),
         free_busy: item

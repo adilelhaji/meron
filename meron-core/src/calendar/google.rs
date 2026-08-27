@@ -481,7 +481,11 @@ fn to_event(source: GoogleEvent, calendar_id: &str) -> Option<Event> {
         // the series it belongs to; a one-off carries none.
         is_recurring: source.recurring_event_id.is_some(),
         series_id: source.recurring_event_id.clone(),
-        description: source.description.unwrap_or_default(),
+        description: source
+            .description
+            .as_deref()
+            .map(super::plain_notes)
+            .unwrap_or_default(),
         is_cancelled: source.status == "cancelled",
         free_busy: match source.transparency.as_deref() {
             Some("transparent") => "Free".to_string(),

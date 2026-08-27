@@ -94,7 +94,7 @@ fn expand(
     let uid = source.get_uid().unwrap_or_default().to_string();
     let subject = source.get_summary().unwrap_or_default().to_string();
     let location = source.get_location().map(str::to_string);
-    let description = source.get_description().unwrap_or_default().to_string();
+    let description = super::plain_notes(source.get_description().unwrap_or_default());
     let organizer = source.multi_properties().get("ORGANIZER").and_then(|list| {
         list.first().map(|property| Participant {
             name: property
