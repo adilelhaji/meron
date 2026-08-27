@@ -1,6 +1,7 @@
 import { useValue } from '@legendapp/state/react'
 import {
   AlignLeft,
+  Bell,
   CalendarDays,
   Clock,
   MapPin,
@@ -133,6 +134,19 @@ export function EventDetails() {
               </span>
               <span className="text-secondary">
                 {t('calendar.organizer', { defaultValue: 'Organiser' })}
+              </span>
+            </Row>
+          )}
+
+          {typeof event.reminder_minutes === 'number' && (
+            <Row icon={<Bell size={14} />}>
+              <span className="text-primary">
+                {event.reminder_minutes === 0
+                  ? t('calendar.reminderAtStart', { defaultValue: 'At the start' })
+                  : t('calendar.reminderBefore', {
+                      defaultValue: '{count} min before',
+                      count: event.reminder_minutes,
+                    })}
               </span>
             </Row>
           )}

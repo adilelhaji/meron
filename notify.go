@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -150,6 +151,8 @@ func (a *App) handleSidecarEvent(name string, detail any) {
 		return
 	case "mail.newMessages":
 		a.notifyNewMail(detail)
+	case "calendar.reminder":
+		a.notifyReminder(detail)
 	}
 }
 
@@ -293,6 +296,44 @@ func (a *App) notifyNewMail(detail any) {
 	// Off the sidecar read loop: the platform notify call can block briefly and
 	// must not stall event processing.
 	go a.deliverNotification(n)
+}
+
+// notifyReminder raises the OS notification for a calendar reminder the core
+// says has come due. The core decides when — it holds the events and the record
+// of what has already been raised — so this only has to say it well.
+func (a *App) notifyReminder(detail any) {
+	m, ok := detail.(map[string]any)
+	if !ok {
+		return
+	}
+	subject, _ := m["subject"].(string)
+	location, _ := m["location"].(string)
+	allDay, _ := m["all_day"].(bool)
+	start, _ := m["start"].(float64)
+	account, _ := m["account"].(string)
+
+	if subject == "" {
+		subject = a.currentNativeLabels().noSubject
+	}
+
+	// The body answers "when", which is the whole point of a reminder; the
+	// place follows, since that is what decides whether to set off now.
+	var body string
+	if !allDay && start > 0 {
+		body = time.Unix(int64(start), 0).Format("15:04")
+	}
+	if location != "" {
+		if body != "" {
+			body += " · "
+		}
+		body += location
+	}
+
+	go a.deliverNotification(notification{
+		title:   subject,
+		body:    body,
+		account: account,
+	})
 }
 
 func notificationThreadID(account, folder, threadKey string) string {

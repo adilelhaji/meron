@@ -269,7 +269,25 @@ impl EwsClient {
                     ..Message::default()
                 },
             ),
+            field(
+                "item:ReminderIsSet",
+                Message {
+                    reminder_is_set: Some(event.reminder_minutes.is_some()),
+                    ..Message::default()
+                },
+            ),
         ];
+        if let Some(minutes) = event.reminder_minutes {
+            // Only sent when there is one: the minutes mean nothing on an item
+            // whose reminder is off.
+            updates.push(field(
+                "item:ReminderMinutesBeforeStart",
+                Message {
+                    reminder_minutes_before_start: Some(minutes.max(0) as usize),
+                    ..Message::default()
+                },
+            ));
+        }
         if let Some(location) = &event.location {
             updates.push(field(
                 "calendar:Location",
@@ -1433,6 +1451,8 @@ fn event_properties() -> Vec<PathToElement> {
         "calendar:IsRecurring",
         "calendar:UID",
         "item:Body",
+        "item:ReminderIsSet",
+        "item:ReminderMinutesBeforeStart",
         "calendar:IsCancelled",
         "calendar:LegacyFreeBusyStatus",
         "calendar:MyResponseType",
@@ -1464,6 +1484,10 @@ fn event_item(event: &Event) -> Message {
             is_truncated: None,
             content: Some(event.description.clone()),
         }),
+        reminder_is_set: Some(event.reminder_minutes.is_some()),
+        reminder_minutes_before_start: event
+            .reminder_minutes
+            .map(|minutes| minutes.max(0) as usize),
         ..Message::default()
     }
 }
@@ -1552,6 +1576,11 @@ fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
             .and_then(|body| body.content.as_deref())
             .map(crate::calendar::plain_notes)
             .unwrap_or_default(),
+        // The minutes only mean something when a reminder is actually set:
+        // Exchange keeps a value there either way.
+        reminder_minutes: (item.reminder_is_set == Some(true))
+            .then(|| item.reminder_minutes_before_start.map(|minutes| minutes as i64))
+            .flatten(),
         is_cancelled: item.is_cancelled.unwrap_or(false),
         free_busy: item
             .legacy_free_busy_status

@@ -145,6 +145,11 @@ fn expand(
                 // component, so they all name it.
                 series_id: repeats.then(|| uid.clone()),
                 description: description.clone(),
+                // A published file's alarms belong to whoever publishes it,
+                // and this client cannot act on them from a read-only
+                // subscription; reporting one it will never raise would be a
+                // promise it cannot keep.
+                reminder_minutes: None,
                 is_cancelled: source
                     .properties()
                     .get("STATUS")

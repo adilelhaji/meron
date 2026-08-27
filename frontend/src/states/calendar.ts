@@ -40,6 +40,8 @@ export type CalendarEvent = {
   series_id?: string | null
   /// The event's own notes, as plain text.
   description?: string
+  /// Minutes before the start a reminder is due; null or absent means none.
+  reminder_minutes?: number | null
   is_cancelled: boolean
   free_busy: string
   my_response: string

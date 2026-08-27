@@ -125,6 +125,10 @@ pub struct Event {
     /// the occurrence is complete on its own.
     #[serde(default)]
     pub is_recurring: bool,
+    /// How many minutes before the start a reminder is due, when one is set.
+    /// `None` means no reminder — which is not the same as one set to zero.
+    #[serde(default)]
+    pub reminder_minutes: Option<i64>,
     /// The event's own notes, as plain text. Servers keep this as HTML more
     /// often than not; it is converted on the way in, since a calendar shows
     /// notes rather than renders documents.
@@ -352,9 +356,9 @@ pub fn replace_window(
                account, calendar_id, event_id, change_key, subject, location,
                start_utc, end_utc, all_day, is_recurring, is_cancelled,
                free_busy, my_response, organizer, attendees, series_id,
-               description)
+               description, reminder_minutes)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
-                    ?17)",
+                    ?17, ?18)",
             params![
                 account,
                 calendar_id,
@@ -377,6 +381,7 @@ pub fn replace_window(
                 serde_json::to_string(&event.attendees)?,
                 event.series_id,
                 event.description,
+                event.reminder_minutes,
             ],
         )?;
     }
@@ -396,7 +401,7 @@ pub fn events_in_window(
         "SELECT e.calendar_id, e.event_id, e.change_key, e.subject, e.location,
                 e.start_utc, e.end_utc, e.all_day, e.is_recurring, e.is_cancelled,
                 e.free_busy, e.my_response, e.organizer, e.attendees, e.series_id,
-                e.description
+                e.description, e.reminder_minutes
          FROM calendar_events e
          JOIN calendars c
            ON c.account = e.account AND c.provider_id = e.calendar_id
@@ -428,10 +433,72 @@ pub fn events_in_window(
                     .unwrap_or_default(),
                 series_id: row.get(14)?,
                 description: row.get::<_, Option<String>>(15)?.unwrap_or_default(),
+                reminder_minutes: row.get(16)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(events)
+}
+
+/// Reminders that have come due and have not been raised yet.
+///
+/// Only for events still ahead: a reminder for something already started has
+/// missed its moment, and raising it late would be worse than silence. The
+/// caller marks each as raised, so one reminder is given once even though the
+/// window it lives in is resynced repeatedly.
+pub fn due_reminders(conn: &Connection, account: &str, now: i64) -> Result<Vec<Event>> {
+    let mut stmt = conn.prepare(
+        "SELECT e.calendar_id, e.event_id, e.subject, e.start_utc, e.end_utc,
+                e.all_day, e.location, e.reminder_minutes
+         FROM calendar_events e
+         JOIN calendars c
+           ON c.account = e.account AND c.provider_id = e.calendar_id
+         WHERE e.account = ?1 AND c.enabled = 1
+           AND e.reminder_minutes IS NOT NULL
+           AND e.is_cancelled = 0
+           AND e.start_utc > ?2
+           AND e.start_utc - (e.reminder_minutes * 60) <= ?2
+           AND NOT EXISTS (
+                 SELECT 1 FROM calendar_reminders_fired f
+                 WHERE f.account = e.account AND f.event_id = e.event_id)
+         ORDER BY e.start_utc",
+    )?;
+    let events = stmt
+        .query_map(params![account, now], |row| {
+            Ok(Event {
+                calendar_id: row.get(0)?,
+                id: row.get(1)?,
+                subject: row.get(2)?,
+                start: row.get(3)?,
+                end: row.get(4)?,
+                all_day: row.get::<_, i64>(5)? != 0,
+                location: row.get(6)?,
+                reminder_minutes: row.get(7)?,
+                ..Default::default()
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(events)
+}
+
+/// Records that a reminder has been raised, so it is not raised again.
+pub fn mark_reminder_fired(conn: &Connection, account: &str, event_id: &str, now: i64) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO calendar_reminders_fired(account, event_id, fired_at)
+         VALUES(?1, ?2, ?3)",
+        params![account, event_id, now],
+    )?;
+    Ok(())
+}
+
+/// Drops records of reminders long past, so the table does not grow forever.
+/// A fortnight is well beyond any window a reminder could still be pending in.
+pub fn forget_old_reminders(conn: &Connection, now: i64) -> Result<()> {
+    conn.execute(
+        "DELETE FROM calendar_reminders_fired WHERE fired_at < ?1",
+        params![now - 14 * 24 * 3600],
+    )?;
+    Ok(())
 }
 
 /// The colour a calendar is drawn with, which is a local choice.
@@ -555,6 +622,80 @@ mod tests {
     const HTML_NOTES: &str = "<table bgcolor=\"#EFEFEF\" border=\"0\" width=\"100%\"><tbody><tr>\
 <td align=\"left\" class=\"ph52\" style=\"font-size:16px;color:#494950\">Solicitud:</td></tr>\
 <tr><td style=\"padding:0 40px 20px;\">Revisió del vehicle</td></tr></tbody></table>";
+
+    #[test]
+    fn a_reminder_comes_due_once_and_only_while_the_event_is_still_ahead() {
+        let conn = store();
+        upsert_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+        let now = 1_000_000i64;
+        let with_reminder = |id: &str, start: i64, minutes: Option<i64>| Event {
+            reminder_minutes: minutes,
+            ..event(id, start, start + 3600)
+        };
+        replace_window(
+            &conn,
+            "acct",
+            "cal",
+            (0, now + 100_000),
+            &[
+                // Due: starts in ten minutes, reminder set for fifteen.
+                with_reminder("soon", now + 600, Some(15)),
+                // Not yet: an hour off, reminder set for ten minutes.
+                with_reminder("later", now + 3600, Some(10)),
+                // Missed its moment: already started.
+                with_reminder("started", now - 60, Some(15)),
+                // No reminder asked for.
+                with_reminder("silent", now + 600, None),
+            ],
+        )
+        .unwrap();
+
+        let due = due_reminders(&conn, "acct", now).unwrap();
+        assert_eq!(due.len(), 1, "only the one whose moment has come");
+        assert_eq!(due[0].id, "soon");
+
+        // Raised once: the same query must not offer it again.
+        mark_reminder_fired(&conn, "acct", "soon", now).unwrap();
+        assert!(due_reminders(&conn, "acct", now).unwrap().is_empty());
+
+        // And a resync, which replaces the window's rows wholesale, must not
+        // bring it back — that is why the record lives in its own table.
+        replace_window(
+            &conn,
+            "acct",
+            "cal",
+            (0, now + 100_000),
+            &[with_reminder("soon", now + 600, Some(15))],
+        )
+        .unwrap();
+        assert!(
+            due_reminders(&conn, "acct", now).unwrap().is_empty(),
+            "a reminder already given is not given again after a sync"
+        );
+    }
+
+    #[test]
+    fn a_hidden_calendars_reminders_stay_quiet() {
+        let conn = store();
+        upsert_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+        let now = 1_000_000i64;
+        replace_window(
+            &conn,
+            "acct",
+            "cal",
+            (0, now + 100_000),
+            &[Event {
+                reminder_minutes: Some(15),
+                ..event("soon", now + 600, now + 4200)
+            }],
+        )
+        .unwrap();
+        assert_eq!(due_reminders(&conn, "acct", now).unwrap().len(), 1);
+
+        // Hiding a calendar means not hearing from it either.
+        set_calendar_enabled(&conn, "acct", "cal", false).unwrap();
+        assert!(due_reminders(&conn, "acct", now).unwrap().is_empty());
+    }
 
     #[test]
     fn notes_arrive_as_text_even_when_the_server_sends_markup() {

@@ -569,6 +569,68 @@ fn spawn_rss_sync(engine: Arc<Engine>, out: Writer, account: String) {
 /// Deduped per account *and window*: a client scrolling through months would
 /// otherwise stack a sync per view, while two different windows are genuinely
 /// different work.
+/// How often reminders are checked. A minute is finer than any reminder is
+/// set to, and coarse enough to cost nothing.
+const REMINDER_TICK: Duration = Duration::from_secs(60);
+
+/// Raises calendar reminders as they come due, for as long as the core runs.
+///
+/// The work is a query, not a timer per event: reminders are found by asking
+/// the store what is due, so an event created, moved or deleted while the core
+/// is running is accounted for on the next tick without anything to keep in
+/// sync. Each is recorded as raised, so it is given once however many times
+/// its window is resynced.
+fn spawn_reminder_watch(engine: Arc<Engine>, out: Writer) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(REMINDER_TICK);
+        loop {
+            ticker.tick().await;
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|epoch| epoch.as_secs() as i64)
+                .unwrap_or_default();
+
+            let accounts: Vec<String> =
+                engine.accounts.lock().await.keys().cloned().collect();
+            for account in accounts {
+                if engine.is_paused(&account) || engine.is_muted(&account) {
+                    continue;
+                }
+                let due = {
+                    let db = engine.db.lock().unwrap();
+                    calendar::due_reminders(&db, &account, now).unwrap_or_default()
+                };
+                for event in due {
+                    {
+                        let db = engine.db.lock().unwrap();
+                        // Recorded before it is announced: a reminder given
+                        // twice is worse than one lost to a crash in between.
+                        if calendar::mark_reminder_fired(&db, &account, &event.id, now).is_err() {
+                            continue;
+                        }
+                    }
+                    emit(
+                        &out,
+                        "calendar.reminder",
+                        json!({
+                            "account": account,
+                            "event": event.id,
+                            "subject": event.subject,
+                            "location": event.location,
+                            "start": event.start,
+                            "all_day": event.all_day,
+                            "minutes": event.reminder_minutes,
+                        }),
+                    )
+                    .await;
+                }
+            }
+            let db = engine.db.lock().unwrap();
+            let _ = calendar::forget_old_reminders(&db, now);
+        }
+    });
+}
+
 fn spawn_calendar_sync(
     engine: Arc<Engine>,
     out: Writer,
@@ -1066,6 +1128,10 @@ async fn main() {
         spawn_body_prefetch(engine.clone(), account.clone(), "INBOX".to_string());
         start_idle_watch(engine.clone(), out.clone(), account, "INBOX".to_string());
     }
+
+    // Reminders are watched for as long as the core runs, not per account:
+    // the query already knows which accounts have anything due.
+    spawn_reminder_watch(engine.clone(), out.clone());
 
     emit(&out, "ready", ready_event()).await;
 

@@ -576,6 +576,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 13 {
         migrate_v13(&tx)?;
     }
+    if version < 14 {
+        migrate_v14(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -730,6 +733,26 @@ fn migrate_v12(conn: &Connection) -> Result<()> {
 fn migrate_v13(conn: &Connection) -> Result<()> {
     conn.execute_batch("ALTER TABLE calendar_events ADD COLUMN description TEXT;")?;
     conn.execute_batch("PRAGMA user_version = 13;")?;
+    Ok(())
+}
+
+/// Reminders: when one is due, and which have already been raised.
+///
+/// Which have fired lives in its own table rather than beside the event,
+/// because a window's rows are a snapshot that a sync replaces wholesale —
+/// keeping the record there would forget every reminder already given and
+/// raise them all again on the next sync.
+fn migrate_v14(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "ALTER TABLE calendar_events ADD COLUMN reminder_minutes INTEGER;
+         CREATE TABLE IF NOT EXISTS calendar_reminders_fired (
+           account  TEXT NOT NULL,
+           event_id TEXT NOT NULL,
+           fired_at INTEGER NOT NULL,
+           PRIMARY KEY (account, event_id)
+         );",
+    )?;
+    conn.execute_batch("PRAGMA user_version = 14;")?;
     Ok(())
 }
 

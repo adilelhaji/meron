@@ -59,6 +59,23 @@ export function EventEditor() {
             <input value={event.location ?? ''} onChange={(e) => set({ location: e.target.value })} className={inputClass} />
           </Labelled>
 
+          <Labelled label={t('calendar.reminder', { defaultValue: 'Reminder' })}>
+            <select
+              value={event.reminder_minutes ?? ''}
+              onChange={(e) =>
+                set({ reminder_minutes: e.target.value === '' ? null : Number(e.target.value) })
+              }
+              className={inputClass}
+            >
+              <option value="">{t('calendar.reminderNone', { defaultValue: 'None' })}</option>
+              {REMINDER_CHOICES.map((minutes) => (
+                <option key={minutes} value={minutes}>
+                  {reminderLabel(minutes, t)}
+                </option>
+              ))}
+            </select>
+          </Labelled>
+
           <Labelled label={t('calendar.description', { defaultValue: 'Notes' })}>
             <textarea
               value={event.description ?? ''}
@@ -173,6 +190,26 @@ export function EventEditor() {
 
 const inputClass =
   'w-full rounded-xl border border-border bg-raised px-3 py-2 text-xs text-primary outline-none transition-all focus:border-transparent focus:bg-chats focus:ring-1 focus:ring-accent'
+
+/// The usual ladder of reminder times, in minutes before the start.
+const REMINDER_CHOICES = [0, 5, 10, 15, 30, 60, 120, 24 * 60, 2 * 24 * 60, 7 * 24 * 60]
+
+function reminderLabel(minutes: number, t: ReturnType<typeof useTranslation>['t']): string {
+  if (minutes === 0) return t('calendar.reminderAtStart', { defaultValue: 'At the start' })
+  if (minutes % (7 * 24 * 60) === 0)
+    return t('calendar.reminderWeeks', {
+      defaultValue: '{count} weeks before',
+      count: minutes / (7 * 24 * 60),
+    })
+  if (minutes % (24 * 60) === 0)
+    return t('calendar.reminderDays', {
+      defaultValue: '{count} days before',
+      count: minutes / (24 * 60),
+    })
+  if (minutes % 60 === 0)
+    return t('calendar.reminderHours', { defaultValue: '{count} h before', count: minutes / 60 })
+  return t('calendar.reminderMinutes', { defaultValue: '{count} min before', count: minutes })
+}
 
 function Labelled({ label, children }: { label: string; children: React.ReactNode }) {
   return (

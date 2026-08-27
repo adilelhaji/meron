@@ -91,6 +91,25 @@ struct GoogleEvent {
     organizer: Option<GooglePerson>,
     #[serde(default)]
     attendees: Vec<GoogleAttendee>,
+    #[serde(default)]
+    reminders: Option<GoogleReminders>,
+}
+
+#[derive(Deserialize)]
+struct GoogleReminders {
+    /// Whether the calendar's own default applies. When it does, the minutes
+    /// live on the calendar rather than the event, so this client shows no
+    /// reminder of its own rather than inventing a number.
+    #[serde(rename = "useDefault", default)]
+    use_default: bool,
+    #[serde(default)]
+    overrides: Vec<GoogleReminderOverride>,
+}
+
+#[derive(Deserialize)]
+struct GoogleReminderOverride {
+    #[serde(default)]
+    minutes: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -436,6 +455,16 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
         "description": event.description,
         "start": start,
         "end": end,
+        // Explicit either way: sending overrides when there is a reminder, and
+        // an empty override list when there is none, so removing a reminder
+        // actually removes it rather than falling back to the calendar's.
+        "reminders": match event.reminder_minutes {
+            Some(minutes) => serde_json::json!({
+                "useDefault": false,
+                "overrides": [{ "method": "popup", "minutes": minutes }],
+            }),
+            None => serde_json::json!({ "useDefault": false, "overrides": [] }),
+        },
     }))
 }
 
@@ -486,6 +515,15 @@ fn to_event(source: GoogleEvent, calendar_id: &str) -> Option<Event> {
             .as_deref()
             .map(super::plain_notes)
             .unwrap_or_default(),
+        reminder_minutes: source.reminders.as_ref().and_then(|reminders| {
+            if reminders.use_default && reminders.overrides.is_empty() {
+                return None;
+            }
+            reminders
+                .overrides
+                .iter()
+                .find_map(|entry| entry.minutes)
+        }),
         is_cancelled: source.status == "cancelled",
         free_busy: match source.transparency.as_deref() {
             Some("transparent") => "Free".to_string(),
