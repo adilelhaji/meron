@@ -38,10 +38,11 @@ export function AgendaList({
             {formatDayHeading(day, t)}
           </h2>
           <ul className="flex flex-col gap-1.5">
-            {events.map((event) => (
+            {events.map(({ event, continues }) => (
               <EventRow
-                key={`${event.accountId}:${event.id}`}
+                key={`${event.accountId}:${event.id}:${continues ? 'more' : 'first'}`}
                 event={event}
+                continues={continues}
                 onContextMenu={(x, y) => onEventMenu(x, y, event)}
               />
             ))}
@@ -54,9 +55,12 @@ export function AgendaList({
 
 function EventRow({
   event,
+  continues,
   onContextMenu,
 }: {
   event: CalendarEvent
+  /// A later day of an event that started earlier.
+  continues: boolean
   onContextMenu: (x: number, y: number) => void
 }) {
   const { t } = useTranslation()
@@ -75,7 +79,11 @@ function EventRow({
     >
       <span className="mt-1 h-8 w-1 shrink-0 rounded-full" style={{ backgroundColor: color }} />
       <div className="w-20 shrink-0 pt-0.5 text-[0.6875rem] font-medium tabular-nums text-secondary">
-        {event.all_day ? (
+        {continues ? (
+          // A day in the middle of something longer: it holds no start and no
+          // end, so what it holds is the whole day.
+          t('calendar.allDay', { defaultValue: 'All day' })
+        ) : event.all_day ? (
           spanInDays(event) > 1 ? (
             // A holiday that runs a week is not "All day", it is a week.
             t('calendar.lastsDays', { defaultValue: '{count} days', count: spanInDays(event) })
@@ -101,6 +109,11 @@ function EventRow({
           }`}
         >
           {event.subject || t('calendar.noSubject', { defaultValue: '(no subject)' })}
+          {continues && (
+            <span className="ml-1.5 font-normal text-secondary">
+              {t('calendar.continues', { defaultValue: '· continues' })}
+            </span>
+          )}
         </p>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[0.6875rem] text-secondary">
           {event.location && (

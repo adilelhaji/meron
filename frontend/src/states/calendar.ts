@@ -346,20 +346,54 @@ function isFeedAccount(id: string): boolean {
 }
 
 /// Groups a window's events by local day, for an agenda that reads as a diary.
-export function groupByDay(events: CalendarEvent[]): { day: number; events: CalendarEvent[] }[] {
-  const days = new Map<number, CalendarEvent[]>()
-  for (const event of events) {
-    // Local midnight of the day it starts: an agenda is read in the reader's
-    // own timezone, not the server's.
-    const start = new Date(event.start * 1000)
-    const day = new Date(start.getFullYear(), start.getMonth(), start.getDate()).getTime()
-    const bucket = days.get(day)
-    if (bucket) bucket.push(event)
-    else days.set(day, [event])
+/// One day's entry in the agenda: the event, and whether this is a later day
+/// of one that started earlier.
+export type DayEntry = { event: CalendarEvent; continues: boolean }
+
+/// Groups events by the days they occupy, in the reader's own timezone.
+///
+/// An event spanning several days appears on each of them, which is what every
+/// calendar does and what the question an agenda answers demands: a holiday
+/// that began on Monday still occupies Wednesday, even though it does not
+/// start that day. The later days are marked as continuing, so a reader can
+/// tell "this starts now" from "this is still going".
+export function groupByDay(events: CalendarEvent[]): { day: number; events: DayEntry[] }[] {
+  const days = new Map<number, DayEntry[]>()
+  const midnightOf = (instant: number) => {
+    const date = new Date(instant * 1000)
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime()
   }
+  const add = (day: number, entry: DayEntry) => {
+    const bucket = days.get(day)
+    if (bucket) bucket.push(entry)
+    else days.set(day, [entry])
+  }
+
+  for (const event of events) {
+    const firstDay = midnightOf(event.start)
+    add(firstDay, { event, continues: false })
+
+    // Days after the first, up to but not including the one the event ends on
+    // when it ends exactly at midnight: an all-day event's end is exclusive,
+    // and a meeting finishing at midnight does not occupy the next morning.
+    let day = new Date(firstDay)
+    for (;;) {
+      day = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1)
+      const dayStart = day.getTime() / 1000
+      if (event.end <= dayStart) break
+      add(day.getTime(), { event, continues: true })
+    }
+  }
+
   return [...days.entries()]
     .sort(([a], [b]) => a - b)
-    .map(([day, events]) => ({ day, events }))
+    .map(([day, entries]) => ({
+      day,
+      // Within a day, what is already under way comes before what starts.
+      events: entries.sort(
+        (a, b) => Number(b.continues) - Number(a.continues) || a.event.start - b.event.start,
+      ),
+    }))
 }
 
 

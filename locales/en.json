@@ -131,6 +131,7 @@
   "calendar.close": "Close",
   "calendar.color": "Colour",
   "calendar.colorHint": "Shown in this copy of Oreneta only.",
+  "calendar.continues": "· continues",
   "calendar.dangerZone": "Remove",
   "calendar.daysAgo": "{count, plural, one {# day ago} other {# days ago}}",
   "calendar.declined": "Declined",

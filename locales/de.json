@@ -131,6 +131,7 @@
   "calendar.close": "Schließen",
   "calendar.color": "Farbe",
   "calendar.colorHint": "Nur in dieser Oreneta-Installation.",
+  "calendar.continues": "· läuft weiter",
   "calendar.dangerZone": "Entfernen",
   "calendar.daysAgo": "{count, plural, one {Vor # Tag} other {Vor # Tagen}}",
   "calendar.declined": "Abgelehnt",

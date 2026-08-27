@@ -131,6 +131,7 @@
   "calendar.close": "Fechar",
   "calendar.color": "Cor",
   "calendar.colorHint": "Apenas nesta cópia do Oreneta.",
+  "calendar.continues": "· continua",
   "calendar.dangerZone": "Excluir",
   "calendar.daysAgo": "{count, plural, one {Há # dia} other {Há # dias}}",
   "calendar.declined": "Recusado",
