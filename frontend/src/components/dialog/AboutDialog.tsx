@@ -16,7 +16,7 @@ const DONATE_LINKS = [
   { label: 'PayPal', url: 'https://paypal.me/nonbili' },
 ]
 
-const SOURCE_URL = 'https://github.com/nonbili/meron'
+const SOURCE_URL = 'https://github.com/adilelhaji/oreneta'
 
 export function AboutDialog() {
   const { t } = useTranslation()
@@ -55,6 +55,13 @@ export function AboutDialog() {
           <h3 className="mt-4 text-xl font-bold tracking-tight">{productName}</h3>
           <p className="mt-1 text-xs font-semibold text-secondary">{t('about.version', { version })}</p>
           <p className="mt-4 max-w-[18rem] text-sm leading-6 text-secondary">{comments}</p>
+          {/* The lineage, stated where the app says what it is: Oreneta is a
+              fork, and Meron's authors wrote most of what runs here. */}
+          <p className="mt-2 max-w-[18rem] text-xs leading-5 text-secondary">
+            {t('about.forkOf', {
+              defaultValue: 'Based on Meron by Nonbili Inc., under the AGPL-3.0 license.',
+            })}
+          </p>
 
           <div className="mt-5 flex items-center gap-2">
             <Button variant="secondary" size="sm" rightIcon={ExternalLink} onClick={() => openExternal(SOURCE_URL)}>

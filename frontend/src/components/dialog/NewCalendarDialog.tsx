@@ -104,7 +104,7 @@ export function NewCalendarDialog({ onClose }: { onClose: () => void }) {
             : kind === 'local'
               ? t('calendar.kindLocalHint', {
                   defaultValue:
-                    'Kept only in this copy of Meron. Nothing else has a copy, so it is lost if this profile is.',
+                    'Kept only in this copy of Oreneta. Nothing else has a copy, so it is lost if this profile is.',
                 })
               : t('calendar.kindSubscribedHint', {
                   defaultValue:

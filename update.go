@@ -23,17 +23,17 @@ import (
 // The updater reads a manifest published as a release asset. GitHub serves
 // `releases/latest/download/<asset>` as a redirect to the newest non-prerelease
 // release, so the URL never changes and there is no API rate limit to hit.
-const updateManifestURL = "https://github.com/nonbili/meron/releases/latest/download/latest.json"
+const updateManifestURL = "https://github.com/adilelhaji/oreneta/releases/latest/download/latest.json"
 
 // releasesPageURL is where the UI sends users whose channel can't self-update
 // (a root-owned install, an unreadable DMG).
-const releasesPageURL = "https://github.com/nonbili/meron/releases/latest"
+const releasesPageURL = "https://github.com/adilelhaji/oreneta/releases/latest"
 
 // releaseTagURLPrefix builds the link to one desktop release. The repo also
 // publishes `android/v*` tags, so once a known desktop version is in hand the
 // exact tag beats the `releases/latest` pointer, which follows whichever
 // release was published most recently regardless of platform.
-const releaseTagURLPrefix = "https://github.com/nonbili/meron/releases/tag/v"
+const releaseTagURLPrefix = "https://github.com/adilelhaji/oreneta/releases/tag/v"
 
 // releasesURLFor points at the specific release when the check succeeded, and
 // falls back to the latest-release page when it didn't.

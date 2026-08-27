@@ -381,7 +381,7 @@ export function resolveThemeDef(): ThemeDef {
   const custom = settings$.customThemes.peek().find((theme) => theme.id === id)
   if (custom) return custom
   const builtin = builtinTheme(id)
-  // A stale id (deleted custom theme, renamed builtin) falls back to Meron Light.
+  // A stale id (deleted custom theme, renamed builtin) falls back to Oreneta Light.
   if (builtin) return builtin
   return builtinTheme(DEFAULT_LIGHT_ID)!
 }

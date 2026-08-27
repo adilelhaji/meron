@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>jp.nonbili.meron</id>
+  <id>io.github.adilelhaji.oreneta</id>
 
-  <name>Meron</name>
+  <name>Oreneta</name>
   <summary>Fast/secure mail client with kanban and chat views</summary>
 
   <developer id="jp.nonbili">
@@ -32,7 +32,7 @@
     <keyword>imap</keyword>
   </keywords>
 
-  <launchable type="desktop-id">jp.nonbili.meron.desktop</launchable>
+  <launchable type="desktop-id">io.github.adilelhaji.oreneta.desktop</launchable>
   <screenshots>
     <screenshot>
       <image>https://raw.githubusercontent.com/nonbili/meron/25c4752e0597018d98e55b8b5d5f87c153bc646c/screenshots/kanban-board.png</image>

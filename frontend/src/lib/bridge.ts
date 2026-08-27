@@ -4,7 +4,7 @@
 export async function invoke<T>(command: string, payload: unknown = {}): Promise<T> {
   const wailsApp = (window as any).go?.main?.App
   if (!wailsApp?.Invoke) {
-    throw new Error(`Meron backend unavailable (no Wails bindings) for command "${command}"`)
+    throw new Error(`Oreneta backend unavailable (no Wails bindings) for command "${command}"`)
   }
   return wailsApp.Invoke(command, payload)
 }

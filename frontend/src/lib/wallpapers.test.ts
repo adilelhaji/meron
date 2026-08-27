@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { sanitizeChatWallpaper, wallpaperCss } from './wallpapers'
 
 describe('sanitizeChatWallpaper', () => {
-  it('accepts known presets and Meron-owned custom URLs', () => {
+  it('accepts known presets and Oreneta-owned custom URLs', () => {
     expect(sanitizeChatWallpaper({ kind: 'preset', presetId: 'dots' })).toEqual({
       kind: 'preset',
       presetId: 'dots',

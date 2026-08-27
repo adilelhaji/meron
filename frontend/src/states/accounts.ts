@@ -138,7 +138,7 @@ export async function deleteAccount(accountId: string) {
   if (
     !(await confirmAction({
       title: 'Remove account?',
-      message: 'This account will be removed from Meron.',
+      message: 'This account will be removed from Oreneta.',
       confirmLabel: 'Remove',
       tone: 'danger',
     }))

@@ -64,7 +64,7 @@ export function CalendarPanel({ calendar }: { calendar: Calendar }) {
           icon={<CalendarDays size={15} style={{ color }} />}
           title={t('calendar.color', { defaultValue: 'Colour' })}
           hint={t('calendar.colorHint', {
-            defaultValue: 'Shown in this copy of Meron only.',
+            defaultValue: 'Shown in this copy of Oreneta only.',
           })}
           control={
             <div className="flex items-center gap-1.5">

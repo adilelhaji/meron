@@ -90,7 +90,7 @@ export type CustomTheme = ThemeDef & { source: CustomThemeInput }
 
 /**
  * Expand the 6 editor inputs into a full token map. Formulas are tuned so the
- * Meron Light/Dark inputs reproduce (closely) the hand-picked index.css values.
+ * Oreneta Light/Dark inputs reproduce (closely) the hand-picked index.css values.
  */
 export function deriveThemeTokens(input: CustomThemeInput): ThemeTokens {
   const { appearance, bgApp, surface, sideNav, accent, text } = input
@@ -128,7 +128,7 @@ export function deriveThemeTokens(input: CustomThemeInput): ThemeTokens {
   }
 }
 
-// "Meron Light" / "Meron Dark" lean melon green to match the app icon, over
+// "Oreneta Light" / "Oreneta Dark" lean melon green to match the app icon, over
 // neutrals with a faint green cast.
 const MERON_LIGHT: ThemeTokens = {
   bgApp: '#f0f2f1',
@@ -478,8 +478,8 @@ const EMBER: ThemeTokens = {
 export const BUILTIN_THEMES: ThemeDef[] = [
   { id: 'indigo', name: 'Indigo', appearance: 'light', tokens: INDIGO_LIGHT },
   { id: 'indigo-dark', name: 'Indigo Dark', appearance: 'dark', tokens: INDIGO_DARK },
-  { id: 'light', name: 'Meron Light', appearance: 'light', tokens: MERON_LIGHT },
-  { id: 'dark', name: 'Meron Dark', appearance: 'dark', tokens: MERON_DARK },
+  { id: 'light', name: 'Oreneta Light', appearance: 'light', tokens: MERON_LIGHT },
+  { id: 'dark', name: 'Oreneta Dark', appearance: 'dark', tokens: MERON_DARK },
   { id: 'mist', name: 'Mist', appearance: 'light', tokens: MIST },
   { id: 'paper', name: 'Paper', appearance: 'light', tokens: PAPER },
   { id: 'dawn', name: 'Dawn', appearance: 'light', tokens: DAWN },

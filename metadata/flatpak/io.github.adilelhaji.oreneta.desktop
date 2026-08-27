@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name=Meron
+Name=Oreneta
 Comment=Modern mail and feed client
 Exec=/app/bin/meron %u
 Type=Application
 Categories=Network;Email;Feed;
-Icon=jp.nonbili.meron
+Icon=io.github.adilelhaji.oreneta
 MimeType=x-scheme-handler/mailto;

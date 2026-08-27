@@ -18,7 +18,7 @@ export function textToHtml(text: string): string {
 export const createInlineId = () => `meron-image-${Date.now()}-${Math.random().toString(36).substring(2, 9)}@meron`
 
 // The composer renders rich formatting (blockquotes, code, links) purely through
-// Meron's stylesheet. Receiving clients don't have that CSS, so we bake the
+// Oreneta's stylesheet. Receiving clients don't have that CSS, so we bake the
 // equivalent styles into inline `style` attributes before sending/saving. Uses
 // concrete colors since CSS custom properties don't resolve in email clients.
 const RICH_INLINE_STYLES: Record<string, string> = {

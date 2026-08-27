@@ -309,7 +309,7 @@ func portalNotificationOptions(n notification) map[string]dbus.Variant {
 		"priority": dbus.MakeVariant("normal"),
 		"icon": dbus.MakeVariant(portalSerializedIcon{
 			Type:  "themed",
-			Value: dbus.MakeVariant([]string{"jp.nonbili.meron"}),
+			Value: dbus.MakeVariant([]string{"io.github.adilelhaji.oreneta"}),
 		}),
 	}
 

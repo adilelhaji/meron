@@ -39,7 +39,7 @@ func main() {
 	globalApp = app
 
 	err := wails.Run(&options.App{
-		Title:                    "Meron",
+		Title:                    "Oreneta",
 		Width:                    1200,
 		Height:                   800,
 		WindowStartState:         options.Maximised,

@@ -3,7 +3,7 @@ import { invoke } from './bridge'
 /** Where the updater currently is. Mirrors the Go state machine in update.go. */
 export type UpdateState = 'idle' | 'checking' | 'available' | 'downloading' | 'ready' | 'installing' | 'error'
 
-/** How this copy of Meron was installed (see update_channel.go). */
+/** How this copy of Oreneta was installed (see update_channel.go). */
 export type UpdateChannel =
   | 'dmg'
   | 'mas'

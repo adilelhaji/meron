@@ -156,16 +156,16 @@ func appCacheDir() string {
 
 func appDirName() string {
 	if isWailsDevLaunch() {
-		return "meron-dev"
+		return "oreneta-dev"
 	}
-	return "meron"
+	return "oreneta"
 }
 
 func appUniqueID() string {
 	if isWailsDevLaunch() {
-		return "jp.nonbili.meron-dev"
+		return "io.github.adilelhaji.oreneta-dev"
 	}
-	return "jp.nonbili.meron"
+	return "io.github.adilelhaji.oreneta"
 }
 
 func isWailsDevLaunch() bool {
@@ -187,24 +187,24 @@ func configHome() string {
 }
 
 // maxLogBytes caps the on-disk log. Rotation happens once, at open: if the file
-// is over the cap it's renamed to meron.log.1 (replacing any prior .1) and a fresh
+// is over the cap it's renamed to oreneta.log.1 (replacing any prior .1) and a fresh
 // file is started. A desktop app restarts often enough that open-time rotation is
 // sufficient to keep the log from growing without bound.
 const maxLogBytes = 5 << 20
 
 func openAppLog() (*log.Logger, *os.File) {
-	path := filepath.Join(appConfigDir(), "meron.log")
+	path := filepath.Join(appConfigDir(), "oreneta.log")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return log.New(os.Stderr, "meron: ", log.LstdFlags|log.Lmicroseconds), nil
+		return log.New(os.Stderr, "oreneta: ", log.LstdFlags|log.Lmicroseconds), nil
 	}
 	if info, err := os.Stat(path); err == nil && info.Size() > maxLogBytes {
 		_ = os.Rename(path, path+".1")
 	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
-		return log.New(os.Stderr, "meron: ", log.LstdFlags|log.Lmicroseconds), nil
+		return log.New(os.Stderr, "oreneta: ", log.LstdFlags|log.Lmicroseconds), nil
 	}
-	return log.New(logSinks{os.Stderr, file}, "meron: ", log.LstdFlags|log.Lmicroseconds), file
+	return log.New(logSinks{os.Stderr, file}, "oreneta: ", log.LstdFlags|log.Lmicroseconds), file
 }
 
 func (a *App) logWriter() io.Writer {

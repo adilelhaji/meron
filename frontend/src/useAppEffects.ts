@@ -58,10 +58,10 @@ export function useAppEffects() {
       void i18n.changeLanguage(targetLanguage)
     }
     void invoke('i18n.setNativeLabels', {
-      trayShow: t('tray.showMeron'),
+      trayShow: t('tray.showOreneta'),
       trayHide: t('tray.hideToTray'),
-      trayHideTooltip: t('tray.hideMeronTooltip'),
-      trayQuit: t('tray.quitMeron'),
+      trayHideTooltip: t('tray.hideOrenetaTooltip'),
+      trayQuit: t('tray.quitOreneta'),
       newMessage: t('notify.newMessage'),
       newMessageCount: translationTemplate('notify.newMessageCount'),
       noSubject: t('notify.noSubject'),
@@ -122,7 +122,7 @@ export function useAppEffects() {
   }, [showUnreadBadge, accounts])
 
   useEffect(() => {
-    // Folders created outside Meron (webmail, another client) only reach the store
+    // Folders created outside Oreneta (webmail, another client) only reach the store
     // through a real LIST sync, and every other refresh here is cache-only. Without
     // this, a server-side folder stays invisible until the selected account changes
     // or the app restarts. Cheap: one LIST on a pooled session, deduped in core.

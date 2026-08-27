@@ -37,9 +37,9 @@ export type Account = {
   load_remote_images?: boolean
   /** Whether message views prefer original HTML when available (default true). */
   conversation_html?: boolean
-  /** Whether Meron uploads a Sent copy after SMTP send. null/absent uses provider default. */
+  /** Whether Oreneta uploads a Sent copy after SMTP send. null/absent uses provider default. */
   save_sent_copy?: boolean | null
-  /** Per-account conversation background; absent uses Meron's default pattern. */
+  /** Per-account conversation background; absent uses Oreneta's default pattern. */
   chat_wallpaper?: ChatWallpaper | null
   /** Whether this account's inbox folds into the unified inbox (default true). */
   included_in_unified?: boolean
