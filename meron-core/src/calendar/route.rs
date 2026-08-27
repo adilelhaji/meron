@@ -195,6 +195,43 @@ pub async fn delete_event(
     }
 }
 
+/// The rule behind the series an occurrence belongs to, or `None` when there
+/// is none to show.
+///
+/// Fetched when a reader opens a repeating event, rather than stored: the
+/// store keeps occurrences, and a second copy of the rule would be a second
+/// truth to go stale.
+pub async fn series_rule(
+    engine: &Arc<Engine>,
+    account: &str,
+    calendar_id: &str,
+    event_id: &str,
+    change_key: Option<&str>,
+    series_id: Option<&str>,
+) -> Result<Option<super::Recurrence>> {
+    match route_with_token(engine, account).await? {
+        (Route::Exchange, _) => {
+            let id = event_id.to_string();
+            let change_key = change_key.map(str::to_string);
+            engine
+                .with_read_session(account, |session| {
+                    let id = id.clone();
+                    let change_key = change_key.clone();
+                    Box::pin(async move { session.series_rule(&id, change_key.as_deref()).await })
+                })
+                .await
+        }
+        (Route::Google, token) => {
+            let Some(series) = series_id.map(str::to_string) else {
+                return Ok(None);
+            };
+            let calendar_id = calendar_id.to_string();
+            blocking(move || super::google::series_rule(&token, &calendar_id, &series)).await
+        }
+        (Route::None, _) => Ok(None),
+    }
+}
+
 pub async fn create_calendar(engine: &Arc<Engine>, account: &str, name: &str) -> Result<String> {
     match route_with_token(engine, account).await? {
         (Route::Exchange, _) => {

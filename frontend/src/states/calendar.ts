@@ -433,6 +433,29 @@ export function closeDetails() {
   calendar$.viewing.set(null)
 }
 
+/// Reads the rule behind an event's series, for the editor to show.
+///
+/// Asked for on opening rather than carried with the event: the core keeps
+/// occurrences, never rules, so this is one request instead of a stored second
+/// copy that could go stale.
+export async function loadSeriesRule(event: CalendarEvent): Promise<Recurrence | null> {
+  if (!event.is_recurring) return null
+  try {
+    const res = await invoke<{ recurrence: Recurrence | null }>('calendar.seriesRule', {
+      account_id: event.accountId,
+      calendar_id: event.calendar_id,
+      event_id: event.id,
+      change_key: event.change_key ?? '',
+      series_id: event.series_id ?? '',
+    })
+    return res.recurrence ?? null
+  } catch {
+    // Not knowing the rule is survivable: the editor shows no repetition
+    // rather than a wrong one, and everything else still saves.
+    return null
+  }
+}
+
 export function editEvent(event: CalendarEvent) {
   // Editing supersedes reading: the details close behind the editor rather
   // than stacking two dialogs on top of each other.

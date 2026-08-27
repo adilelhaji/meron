@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { Trash2, X } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
@@ -6,6 +6,7 @@ import {
   calendar$,
   closeEditor,
   deleteEvent,
+  loadSeriesRule,
   saveEvent,
   type EditScope,
   type EventDraft,
@@ -29,6 +30,28 @@ export function EventEditor() {
   const calendars = useValue(calendar$.calendars)
   const [local, setLocal] = useState<EventDraft | null>(null)
   const [pendingScope, setPendingScope] = useState<'save' | 'delete' | null>(null)
+  // The rule is not carried with an occurrence, so it is fetched once when a
+  // repeating event is opened.
+  const [ruleLoaded, setRuleLoaded] = useState('')
+
+  // The rule behind a series, fetched once per opening. Runs before the early
+  // return, since a hook behind a condition changes the count between renders.
+  useEffect(() => {
+    if (!draft?.id || !draft.is_recurring || !draft.series_id) return
+    if (ruleLoaded === draft.id) return
+    setRuleLoaded(draft.id)
+    let live = true
+    void loadSeriesRule(draft).then((recurrence) => {
+      // Merged into whatever is on screen rather than replacing it: the reader
+      // may have typed while the answer was in flight.
+      if (live && recurrence) {
+        setLocal((current) => ({ ...(current ?? draft), recurrence }))
+      }
+    })
+    return () => {
+      live = false
+    }
+  }, [draft?.id, draft?.is_recurring, draft?.series_id, ruleLoaded])
 
   // Adopt the draft once per opening, so typing is not overwritten by the
   // observable it came from.
@@ -127,10 +150,10 @@ export function EventEditor() {
             {t('calendar.allDay', { defaultValue: 'All day' })}
           </label>
 
-          {/* Only when creating: changing an existing series' rule asks "this
-              one or all of them?", which is a question this editor does not
-              put yet — so it is not offered rather than answered wrongly. */}
-          {isNew ? (
+          {/* The rule shows for a new event and for one whose series can be
+              reached; a change to it takes effect when the save applies to the
+              whole series, which is what the question on saving decides. */}
+          {isNew || repeats ? (
             <RepeatFields
               rule={event.recurrence ?? null}
               start={event.start}
@@ -140,9 +163,8 @@ export function EventEditor() {
             // Said only when the series genuinely cannot be reached: without an
             // identifier from the server there is no way to address it, and
             // offering the choice would be offering something that cannot be
-            // carried out. With one, the question is asked on save instead.
-            event.is_recurring &&
-            !event.series_id && (
+            // carried out.
+            event.is_recurring && (
               <p className="rounded-xl bg-raised px-3 py-2 text-[0.6875rem] text-secondary">
                 {t('calendar.seriesNotReachable', {
                   defaultValue:

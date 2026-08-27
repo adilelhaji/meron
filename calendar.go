@@ -140,6 +140,32 @@ func (a *App) calendarDelete(payload map[string]any) (any, error) {
 	})
 }
 
+// calendarSeriesRule reads the rule behind the series an occurrence belongs
+// to. Asked for when a repeating event is opened: the core keeps occurrences,
+// never rules, so this is one request rather than a stored second copy.
+func (a *App) calendarSeriesRule(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID  string `json:"account_id"`
+		CalendarID string `json:"calendar_id"`
+		EventID    string `json:"event_id"`
+		ChangeKey  string `json:"change_key"`
+		SeriesID   string `json:"series_id"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.seriesRule", map[string]any{
+		"account":    req.AccountID,
+		"calendar":   req.CalendarID,
+		"event":      req.EventID,
+		"change_key": req.ChangeKey,
+		"series":     req.SeriesID,
+	})
+}
+
 // calendarCreateCalendar adds a calendar to the account.
 func (a *App) calendarCreateCalendar(payload map[string]any) (any, error) {
 	var req struct {

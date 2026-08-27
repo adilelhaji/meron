@@ -534,6 +534,104 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
     }))
 }
 
+/// The rule behind a series, read from its master.
+///
+/// An expanded instance does not carry the rule — only the id of the master it
+/// came from — so showing a reader what their series does takes one request.
+pub fn series_rule(token: &str, calendar_id: &str, series_id: &str) -> Result<Option<super::Recurrence>> {
+    #[derive(Deserialize)]
+    struct Master {
+        #[serde(default)]
+        recurrence: Vec<String>,
+    }
+    let url = format!(
+        "{API}/calendars/{}/events/{}",
+        urlencode(calendar_id),
+        urlencode(series_id),
+    );
+    let master: Master =
+        serde_json::from_str(&call(token, "GET", &url, None)?).context("parse series")?;
+    Ok(master
+        .recurrence
+        .iter()
+        .find(|line| line.trim_start().to_uppercase().starts_with("RRULE"))
+        .and_then(|line| parse_rrule(line)))
+}
+
+/// One RRULE line as this codebase's own rule.
+///
+/// Reading a rule is not expanding one: the occurrences still come from the
+/// server. This only has to say back what the reader set, so a rule using
+/// parts this client cannot show — BYSETPOS and the rest — is reported as none
+/// rather than as a rule it would misrepresent.
+fn parse_rrule(line: &str) -> Option<super::Recurrence> {
+    use super::{Frequency, Recurrence};
+    let body = line.trim().trim_start_matches("RRULE:").trim_start_matches("RRULE");
+    let mut freq = None;
+    let mut interval = 1u16;
+    let mut weekdays = Vec::new();
+    let mut until = None;
+    let mut count = None;
+
+    for part in body.split(';') {
+        let (name, value) = match part.split_once('=') {
+            Some(pair) => pair,
+            None => continue,
+        };
+        match name.trim().to_uppercase().as_str() {
+            "FREQ" => {
+                freq = match value.trim().to_uppercase().as_str() {
+                    "DAILY" => Some(Frequency::Daily),
+                    "WEEKLY" => Some(Frequency::Weekly),
+                    "MONTHLY" => Some(Frequency::Monthly),
+                    "YEARLY" => Some(Frequency::Yearly),
+                    _ => None,
+                }
+            }
+            "INTERVAL" => interval = value.trim().parse().unwrap_or(1),
+            "BYDAY" => {
+                weekdays = value
+                    .split(',')
+                    .filter_map(|day| {
+                        // A day may carry an ordinal ("2TU"); this client shows
+                        // plain weekdays only, and the ordinal is dropped
+                        // rather than pretended away.
+                        let code = day.trim().trim_start_matches(|c: char| {
+                            c.is_ascii_digit() || c == '-' || c == '+'
+                        });
+                        Recurrence::RRULE_DAYS
+                            .iter()
+                            .position(|known| known.eq_ignore_ascii_case(code))
+                            .map(|index| index as u8)
+                    })
+                    .collect()
+            }
+            "UNTIL" => until = parse_until(value.trim()),
+            "COUNT" => count = value.trim().parse().ok(),
+            _ => {}
+        }
+    }
+
+    Some(Recurrence {
+        freq: freq?,
+        interval: interval.max(1),
+        weekdays,
+        until,
+        count,
+    })
+}
+
+/// An RRULE `UNTIL`, in either of the two shapes it takes.
+fn parse_until(text: &str) -> Option<i64> {
+    if let Ok(instant) = chrono::NaiveDateTime::parse_from_str(text, "%Y%m%dT%H%M%SZ") {
+        return Some(instant.and_utc().timestamp());
+    }
+    chrono::NaiveDate::parse_from_str(text, "%Y%m%d")
+        .ok()?
+        .and_hms_opt(23, 59, 0)
+        .map(|naive| naive.and_utc().timestamp())
+}
+
 /// The RRULE a rule becomes, anchored on the event's own start.
 ///
 /// One line of iCalendar, which is what Google stores; the server expands it
@@ -687,6 +785,31 @@ fn urlencode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rule_read_back_says_what_was_written() {
+        use super::super::Frequency;
+        let rule = parse_rrule("RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;UNTIL=20261026T235959Z")
+            .expect("a rule this client can show");
+        assert_eq!(rule.freq, Frequency::Weekly);
+        assert_eq!(rule.interval, 2);
+        assert_eq!(rule.weekdays, vec![1, 3]);
+        assert!(rule.until.is_some());
+        assert!(rule.count.is_none());
+
+        let counted = parse_rrule("FREQ=DAILY;COUNT=10").expect("rule");
+        assert_eq!(counted.freq, Frequency::Daily);
+        assert_eq!(counted.count, Some(10));
+        assert_eq!(counted.interval, 1, "an absent interval is one");
+
+        // An ordinal day is not something this client can draw, so the ordinal
+        // is dropped rather than misread as a plain weekday count.
+        let ordinal = parse_rrule("FREQ=MONTHLY;BYDAY=2TU").expect("rule");
+        assert_eq!(ordinal.weekdays, vec![1]);
+
+        // No frequency is no rule.
+        assert!(parse_rrule("RRULE:COUNT=3").is_none());
+    }
 
     #[test]
     fn a_rule_becomes_one_line_of_icalendar() {

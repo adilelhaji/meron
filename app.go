@@ -282,6 +282,8 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.calendarCreateCalendar(payload)
 	case "calendar.renameCalendar":
 		return a.calendarRenameCalendar(payload)
+	case "calendar.seriesRule":
+		return a.calendarSeriesRule(payload)
 	case "calendar.deleteCalendar":
 		return a.calendarDeleteCalendar(payload)
 	case "calendar.setColor":

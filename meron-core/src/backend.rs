@@ -256,6 +256,18 @@ impl Session {
         }
     }
 
+    /// The rule behind the series an occurrence belongs to.
+    pub async fn series_rule(
+        &mut self,
+        event_id: &str,
+        change_key: Option<&str>,
+    ) -> Result<Option<crate::calendar::Recurrence>> {
+        match self {
+            Session::Imap(_) => Ok(None),
+            Session::Ews(session) => session.series_rule(event_id, change_key).await,
+        }
+    }
+
     pub async fn update_event(
         &mut self,
         event: &crate::calendar::Event,

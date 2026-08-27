@@ -1857,6 +1857,26 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "id": id }))
         }
 
+        // The rule behind a series, asked for when a reader opens a repeating
+        // event: the store keeps occurrences, never rules.
+        "calendar.seriesRule" => {
+            let account = req_str(p, "account")?;
+            let calendar_id = p.get("calendar").and_then(Value::as_str).unwrap_or_default();
+            let event_id = req_str(p, "event")?;
+            let change_key = p.get("change_key").and_then(Value::as_str).filter(|k| !k.is_empty());
+            let series_id = p.get("series").and_then(Value::as_str).filter(|s| !s.is_empty());
+            let rule = calendar::route::series_rule(
+                &engine,
+                &account,
+                calendar_id,
+                &event_id,
+                change_key,
+                series_id,
+            )
+            .await?;
+            Ok(json!({ "recurrence": rule }))
+        }
+
         "calendar.createCalendar" => {
             let account = req_str(p, "account")?;
             let name = req_str(p, "name")?;

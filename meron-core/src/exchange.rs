@@ -323,6 +323,29 @@ impl EwsClient {
     }
 
     /// Deletes an event.
+    /// The recurrence of the series an occurrence belongs to.
+    pub fn series_rule(&self, item: &EwsId) -> anyhow::Result<Option<crate::calendar::Recurrence>> {
+        let response = self.call(GetItem {
+            item_shape: ItemShape {
+                base_shape: BaseShape::IdOnly,
+                include_mime_content: None,
+                additional_properties: Some(vec![PathToElement::FieldURI {
+                    field_URI: "calendar:Recurrence".to_string(),
+                }]),
+            },
+            // The master, reached through the occurrence in hand.
+            item_ids: vec![scoped_item_id(item, true)],
+        })?;
+        for message in into_successes(response).context("GetItem recurrence")? {
+            for entry in message.items.inner {
+                if let Some(rule) = entry.inner_message().recurrence.as_ref() {
+                    return Ok(from_ews_recurrence(rule));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub fn delete_event(&self, item: &EwsId, whole_series: bool) -> anyhow::Result<()> {
         let response = self.call(DeleteItem {
             delete_type: DeleteType::MoveToDeletedItems,
@@ -1296,6 +1319,21 @@ impl EwsSession {
         Ok(())
     }
 
+    /// The rule behind a series, read from the master an occurrence belongs to.
+    ///
+    /// Fetched on demand rather than stored: the store keeps occurrences, and
+    /// a second copy of the rule would be a second truth to go stale. One
+    /// request, when a reader actually opens a repeating event.
+    pub async fn series_rule(
+        &mut self,
+        event_id: &str,
+        change_key: Option<&str>,
+    ) -> anyhow::Result<Option<crate::calendar::Recurrence>> {
+        let item = (event_id.to_string(), change_key.map(str::to_string));
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || client.series_rule(&item)).await?
+    }
+
     /// The Exchange reference for a calendar, listing them if needed.
     async fn calendar_ref(&mut self, calendar_id: &str) -> anyhow::Result<EwsId> {
         self.calendar_ref_opt(calendar_id)
@@ -1556,6 +1594,69 @@ fn ews_recurrence(rule: &crate::calendar::Recurrence, start: i64) -> Option<::ew
     };
 
     Some(::ews::Recurrence { pattern, range })
+}
+
+/// One of Exchange's recurrences as this codebase's own.
+///
+/// Only the patterns this client can put back on screen are read; anything
+/// else — the relative monthly rules, for instance — is reported as no rule
+/// rather than as a rule it would misrepresent, since showing "every month on
+/// the 3rd" for "every third Tuesday" would be worse than showing nothing.
+fn from_ews_recurrence(rule: &::ews::Recurrence) -> Option<crate::calendar::Recurrence> {
+    use crate::calendar::{Frequency, Recurrence};
+    let (freq, interval, weekdays) = match &rule.pattern {
+        ::ews::RecurrencePattern::DailyRecurrence { interval } => {
+            (Frequency::Daily, *interval, Vec::new())
+        }
+        ::ews::RecurrencePattern::WeeklyRecurrence {
+            interval,
+            days_of_week,
+        } => (
+            Frequency::Weekly,
+            *interval,
+            days_of_week
+                .split_whitespace()
+                .filter_map(|name| {
+                    Recurrence::EWS_DAYS
+                        .iter()
+                        .position(|day| day.eq_ignore_ascii_case(name))
+                        .map(|index| index as u8)
+                })
+                .collect(),
+        ),
+        ::ews::RecurrencePattern::AbsoluteMonthlyRecurrence { interval, .. } => {
+            (Frequency::Monthly, *interval, Vec::new())
+        }
+        ::ews::RecurrencePattern::AbsoluteYearlyRecurrence { .. } => {
+            (Frequency::Yearly, 1, Vec::new())
+        }
+    };
+
+    let (until, count) = match &rule.range {
+        ::ews::RecurrenceRange::NoEndRecurrence { .. } => (None, None),
+        ::ews::RecurrenceRange::EndDateRecurrence { end_date, .. } => (parse_day(end_date), None),
+        ::ews::RecurrenceRange::NumberedRecurrence {
+            number_of_occurrences,
+            ..
+        } => (None, Some(*number_of_occurrences)),
+    };
+
+    Some(Recurrence {
+        freq,
+        interval: interval.max(1),
+        weekdays,
+        until,
+        count,
+    })
+}
+
+/// A `YYYY-MM-DD` day as the instant its last second falls on, which is what
+/// "until this date, inclusive" means to the rest of this codebase.
+fn parse_day(text: &str) -> Option<i64> {
+    chrono::NaiveDate::parse_from_str(text.get(..10).unwrap_or(text), "%Y-%m-%d")
+        .ok()?
+        .and_hms_opt(23, 59, 0)
+        .map(|naive| naive.and_utc().timestamp())
 }
 
 /// Builds the wire timestamp a write needs from epoch seconds.
