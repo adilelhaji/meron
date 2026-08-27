@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useValue } from '@legendapp/state/react'
 import { CalendarDays, MapPin, Plus, RefreshCw, Repeat } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
@@ -13,6 +13,7 @@ import {
   type CalendarEvent,
 } from '../../states/calendar'
 import { EventEditor } from './EventEditor'
+import { EventContextMenu, type EventContextMenuState } from './EventContextMenu'
 
 /// How far ahead the agenda reaches. Wide enough that scrolling rarely runs
 /// out, narrow enough that the first sync of a busy calendar stays quick.
@@ -35,10 +36,12 @@ export function AgendaView() {
   }, [])
 
   const days = useMemo(() => groupByDay(events), [events])
+  const [menu, setMenu] = useState<EventContextMenuState | null>(null)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-app">
       <EventEditor />
+      {menu && <EventContextMenu state={menu} onClose={() => setMenu(null)} />}
       <header className="flex items-center gap-2 border-b border-border px-5 py-3">
         <CalendarDays size={17} className="text-accent" />
         <h1 className="text-sm font-semibold text-primary">
@@ -68,7 +71,11 @@ export function AgendaView() {
             </h2>
             <ul className="flex flex-col gap-1.5">
               {events.map((event) => (
-                <EventRow key={`${event.accountId}:${event.id}`} event={event} />
+                <EventRow
+                  key={`${event.accountId}:${event.id}`}
+                  event={event}
+                  onContextMenu={(x, y) => setMenu({ x, y, event })}
+                />
               ))}
             </ul>
           </section>
@@ -78,12 +85,22 @@ export function AgendaView() {
   )
 }
 
-function EventRow({ event }: { event: CalendarEvent }) {
+function EventRow({
+  event,
+  onContextMenu,
+}: {
+  event: CalendarEvent
+  onContextMenu: (x: number, y: number) => void
+}) {
   const { t } = useTranslation()
   const color = accountColor(event.accountId)
   return (
     <li
       onClick={() => editEvent(event)}
+      onContextMenu={(mouse) => {
+        mouse.preventDefault()
+        onContextMenu(mouse.clientX, mouse.clientY)
+      }}
       className={`flex cursor-pointer items-start gap-3 rounded-xl border border-border bg-raised px-3 py-2.5 transition-colors hover:bg-hover ${
         event.is_cancelled ? 'opacity-55' : ''
       }`}
