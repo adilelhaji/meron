@@ -140,6 +140,9 @@ fn expand(
                 end: start + duration,
                 all_day,
                 is_recurring: repeats,
+                // Every occurrence expanded above came from this one
+                // component, so they all name it.
+                series_id: repeats.then(|| uid.clone()),
                 is_cancelled: source
                     .properties()
                     .get("STATUS")

@@ -35,6 +35,9 @@ export type CalendarEvent = {
   end: number
   all_day: boolean
   is_recurring: boolean
+  /// The series this occurrence came from, when the server names one. Every
+  /// occurrence of one series shares it.
+  series_id?: string | null
   is_cancelled: boolean
   free_busy: string
   my_response: string
@@ -170,6 +173,32 @@ const ACCOUNT_COLORS = ['#2056DD', '#E8830C', '#2E9E5B', '#8B5CF6', '#E24C3B', '
 export function accountColor(accountId: string): string {
   const index = accounts$.peek().findIndex((account) => account.id === accountId)
   return ACCOUNT_COLORS[(index < 0 ? 0 : index) % ACCOUNT_COLORS.length]
+}
+
+/// What else is known about the series an occurrence belongs to, from the
+/// occurrences already loaded.
+///
+/// Deliberately says "in the window loaded", not "in total": servers expand
+/// series into occurrences over the range asked for, and this client never
+/// interprets recurrence rules, so how many the series has altogether is not
+/// something it can honestly claim to know.
+export function seriesInWindow(
+  event: CalendarEvent,
+  events: CalendarEvent[],
+): { next: CalendarEvent | null; upcoming: number } | null {
+  if (!event.series_id) return null
+  const now = Date.now() / 1000
+  const siblings = events
+    .filter(
+      (candidate) =>
+        candidate.accountId === event.accountId &&
+        candidate.series_id === event.series_id &&
+        candidate.id !== event.id &&
+        !candidate.is_cancelled,
+    )
+    .sort((a, b) => a.start - b.start)
+  const later = siblings.filter((candidate) => candidate.start > Math.max(now, event.start))
+  return { next: later[0] ?? null, upcoming: later.length }
 }
 
 /// The colour an event is drawn in: its calendar's, falling back to its

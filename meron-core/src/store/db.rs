@@ -570,6 +570,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 11 {
         migrate_v11(&tx)?;
     }
+    if version < 12 {
+        migrate_v12(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -701,6 +704,18 @@ fn migrate_v11(conn: &Connection) -> Result<()> {
          ALTER TABLE calendars ADD COLUMN synced_at INTEGER NOT NULL DEFAULT 0;",
     )?;
     conn.execute_batch("PRAGMA user_version = 11;")?;
+    Ok(())
+}
+
+/// The series an occurrence belongs to.
+///
+/// Servers expand recurring series into separate occurrences, each with its
+/// own id; the series identifier is what lets them be grouped back together —
+/// to answer "when is the next one" — without this client ever interpreting a
+/// recurrence rule. Existing rows have none until their next sync.
+fn migrate_v12(conn: &Connection) -> Result<()> {
+    conn.execute_batch("ALTER TABLE calendar_events ADD COLUMN series_id TEXT;")?;
+    conn.execute_batch("PRAGMA user_version = 12;")?;
     Ok(())
 }
 

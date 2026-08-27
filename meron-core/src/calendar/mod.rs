@@ -125,6 +125,14 @@ pub struct Event {
     /// the occurrence is complete on its own.
     #[serde(default)]
     pub is_recurring: bool,
+    /// The series this occurrence came from, when the server names one.
+    ///
+    /// Every occurrence of one series shares it — the iCalendar UID on
+    /// Exchange and in published files, the master's id on Google — which is
+    /// what lets occurrences be grouped back into a series without this client
+    /// interpreting a recurrence rule. `None` when the server does not say.
+    #[serde(default)]
+    pub series_id: Option<String>,
     #[serde(default)]
     pub is_cancelled: bool,
     /// How the time shows on the organizer's calendar: "free", "tentative",
@@ -300,8 +308,8 @@ pub fn replace_window(
             "INSERT OR REPLACE INTO calendar_events(
                account, calendar_id, event_id, change_key, subject, location,
                start_utc, end_utc, all_day, is_recurring, is_cancelled,
-               free_busy, my_response, organizer, attendees)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+               free_busy, my_response, organizer, attendees, series_id)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 account,
                 calendar_id,
@@ -322,6 +330,7 @@ pub fn replace_window(
                     .map(serde_json::to_string)
                     .transpose()?,
                 serde_json::to_string(&event.attendees)?,
+                event.series_id,
             ],
         )?;
     }
@@ -340,7 +349,7 @@ pub fn events_in_window(
     let mut stmt = conn.prepare(
         "SELECT e.calendar_id, e.event_id, e.change_key, e.subject, e.location,
                 e.start_utc, e.end_utc, e.all_day, e.is_recurring, e.is_cancelled,
-                e.free_busy, e.my_response, e.organizer, e.attendees
+                e.free_busy, e.my_response, e.organizer, e.attendees, e.series_id
          FROM calendar_events e
          JOIN calendars c
            ON c.account = e.account AND c.provider_id = e.calendar_id
@@ -370,6 +379,7 @@ pub fn events_in_window(
                     .get::<_, Option<String>>(13)?
                     .and_then(|json| serde_json::from_str(&json).ok())
                     .unwrap_or_default(),
+                series_id: row.get(14)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -490,6 +500,40 @@ mod tests {
         assert_eq!(stored.len(), 1);
         assert_eq!(stored[0].name, "Calendario del trabajo", "the name refreshes");
         assert!(!stored[0].enabled, "the user's choice does not");
+    }
+
+    #[test]
+    fn occurrences_of_one_series_can_be_found_by_the_series_they_came_from() {
+        let conn = store();
+        upsert_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+        let day = 24 * 3600;
+        let occurrence = |id: &str, start: i64, series: Option<&str>| Event {
+            series_id: series.map(str::to_string),
+            ..event(id, start, start + 3600)
+        };
+        replace_window(
+            &conn,
+            "acct",
+            "cal",
+            (0, 30 * day),
+            &[
+                occurrence("a", day, Some("standup@example.org")),
+                occurrence("b", 8 * day, Some("standup@example.org")),
+                occurrence("c", 3 * day, None),
+            ],
+        )
+        .unwrap();
+
+        let stored = events_in_window(&conn, "acct", (0, 30 * day)).unwrap();
+        let series: Vec<_> = stored
+            .iter()
+            .filter(|e| e.series_id.as_deref() == Some("standup@example.org"))
+            .collect();
+        assert_eq!(series.len(), 2, "both occurrences name the series they came from");
+        assert!(
+            stored.iter().any(|e| e.id == "c" && e.series_id.is_none()),
+            "a one-off names no series"
+        );
     }
 
     #[test]

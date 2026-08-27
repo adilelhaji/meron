@@ -1420,6 +1420,7 @@ fn event_properties() -> Vec<PathToElement> {
         "calendar:IsAllDayEvent",
         "calendar:Location",
         "calendar:IsRecurring",
+        "calendar:UID",
         "calendar:IsCancelled",
         "calendar:LegacyFreeBusyStatus",
         "calendar:MyResponseType",
@@ -1527,6 +1528,7 @@ fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
         end: end.0.unix_timestamp(),
         all_day: item.is_all_day_event.unwrap_or(false),
         is_recurring: item.is_recurring.unwrap_or(false),
+            series_id: item.uid.clone(),
         is_cancelled: item.is_cancelled.unwrap_or(false),
         free_busy: item
             .legacy_free_busy_status

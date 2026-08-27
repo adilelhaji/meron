@@ -477,6 +477,7 @@ fn to_event(source: GoogleEvent, calendar_id: &str) -> Option<Event> {
         // With `singleEvents=true` an instance of a series carries the id of
         // the series it belongs to; a one-off carries none.
         is_recurring: source.recurring_event_id.is_some(),
+        series_id: source.recurring_event_id.clone(),
         is_cancelled: source.status == "cancelled",
         free_busy: match source.transparency.as_deref() {
             Some("transparent") => "Free".to_string(),

@@ -5,6 +5,7 @@ import { useEscapeKey } from '../../lib/useEscapeKey'
 import {
   calendar$,
   eventColor,
+  seriesInWindow,
   closeDetails,
   deleteEvent,
   editEvent,
@@ -24,6 +25,8 @@ export function EventDetails() {
   useEscapeKey(closeDetails, Boolean(event))
   if (!event) return null
 
+  const events = useValue(calendar$.events)
+  const series = seriesInWindow(event, events)
   const calendar = calendars.find(
     (candidate) => candidate.accountId === event.accountId && candidate.id === event.calendar_id,
   )
@@ -72,6 +75,26 @@ export function EventDetails() {
               <span className="mt-0.5 flex items-center gap-1 text-secondary">
                 <Repeat size={11} />
                 {t('calendar.recurring', { defaultValue: 'Repeats' })}
+              </span>
+            )}
+            {/* What the loaded window actually holds about this series. Said
+                as "shown", never as a total: how many a series has altogether
+                is a recurrence rule away, and this client does not read those. */}
+            {series?.next && (
+              <span className="mt-0.5 text-secondary">
+                {t('calendar.nextOccurrence', {
+                  defaultValue: 'Next: {when}',
+                  when: formatOccurrence(series.next),
+                })}
+                {series.upcoming > 1 && (
+                  <>
+                    {' · '}
+                    {t('calendar.moreInWindow', {
+                      defaultValue: '{count} more shown',
+                      count: series.upcoming,
+                    })}
+                  </>
+                )}
               </span>
             )}
           </Row>
@@ -193,6 +216,18 @@ function formatRange(event: CalendarEvent): string {
   return sameDay
     ? `${day(start)} · ${time(start)}–${time(end)}`
     : `${day(start)} ${time(start)} → ${day(end)} ${time(end)}`
+}
+
+/// One occurrence's date, short enough to sit on a line with other facts.
+function formatOccurrence(event: CalendarEvent): string {
+  const date = new Date(event.start * 1000)
+  const day = date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  })
+  if (event.all_day) return day
+  return `${day}, ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
 }
 
 /// How far off it is, in the coarsest unit that still says something: days
