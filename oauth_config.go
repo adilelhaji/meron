@@ -1,6 +1,10 @@
 package main
 
-import "meron/internal/obf"
+import (
+	"os"
+
+	"meron/internal/obf"
+)
 
 const (
 	// Loopback host for the OAuth redirect. Per RFC 8252 (OAuth for Native Apps)
@@ -16,6 +20,13 @@ const (
 	outlookScopes = "https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access openid email profile"
 
 	outlookTokenURL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+
+	// Delegated scopes for Google. Mail over IMAP/SMTP, the profile the account
+	// name and address are read from, and the calendar — mail and calendar are
+	// set up together, so they are consented to together. A token issued
+	// without the calendar scope cannot call the Calendar API, so an account
+	// added before this scope existed has to be reconnected once.
+	googleScopes = "https://mail.google.com/ https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/calendar"
 )
 
 // Obfuscated Google OAuth credentials baked into release builds.
@@ -38,11 +49,23 @@ var (
 	outlookClientIDObf = "egQUWl8cWVZYQg1JFxyuWntTX1dbHFtMEEFZG0VUrgx7XBcN"
 )
 
+// The environment wins over the compiled credentials, so a build can be run
+// against a different Google Cloud project — one with other APIs enabled, or
+// a developer's own — without editing tracked source and risking a commit of
+// somebody's credentials. The core already reads these same two variables
+// when it refreshes a token (see `engine.rs`), so setting them covers the
+// whole flow; a release Flatpak sets neither and uses the compiled values.
 func googleClientID() string {
+	if fromEnv := os.Getenv("MERON_GOOGLE_CLIENT_ID"); fromEnv != "" {
+		return fromEnv
+	}
 	return obf.Decode(googleClientIDObf)
 }
 
 func googleClientSecret() string {
+	if fromEnv := os.Getenv("MERON_GOOGLE_CLIENT_SECRET"); fromEnv != "" {
+		return fromEnv
+	}
 	return obf.Decode(googleClientSecretObf)
 }
 

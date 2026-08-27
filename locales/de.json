@@ -139,7 +139,7 @@
   "calendar.empty": "Nichts geplant.",
   "calendar.ends": "Ende",
   "calendar.endsBeforeStart": "Endet vor dem Beginn.",
-  "calendar.googleNotYet": "Google-Kalender lassen sich noch nicht verbinden; die Unterstützung für den Google Kalender ist unterwegs.",
+  "calendar.googleNeedsSignIn": "Dieses Konto meldet sich mit einem Passwort an, das nur E-Mail abdeckt. Fügen Sie es erneut mit der Google-Anmeldung hinzu, um seine Kalender zu erhalten.",
   "calendar.groupLocal": "Auf diesem Computer",
   "calendar.groupSubscribed": "Abonnements",
   "calendar.importFromAccount": "Die Kalender des Kontos importieren",

@@ -405,12 +405,15 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
   if (!supports && !isGoogle && calendars.length === 0) return null
 
   if (!supports && isGoogle) {
+    // Signed in with an app password: that authenticates mail and nothing
+    // else, so there is no way to reach the calendar without signing in with
+    // Google itself.
     return (
       <SettingsGroup title={t('calendar.title', { defaultValue: 'Calendar' })}>
         <p className="px-4 py-3.5 text-[0.6875rem] text-secondary">
-          {t('calendar.googleNotYet', {
+          {t('calendar.googleNeedsSignIn', {
             defaultValue:
-              'Google calendars cannot be connected yet; Google Calendar support is on its way.',
+              'This account signs in with a password, which covers mail only. Add it again with Google sign-in to bring its calendars.',
           })}
         </p>
       </SettingsGroup>

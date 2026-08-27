@@ -9,6 +9,8 @@
 //! The provider backends (Exchange today, Google next) map their own answers
 //! onto these types; everything above this line is provider-neutral.
 
+pub mod google;
+pub mod route;
 pub mod subscription;
 
 use anyhow::Result;

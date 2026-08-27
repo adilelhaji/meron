@@ -624,11 +624,7 @@ async fn sync_calendar_window(
     from: i64,
     to: i64,
 ) -> anyhow::Result<()> {
-    let calendars = engine
-        .with_read_session(account, |session| {
-            Box::pin(async move { session.list_calendars().await })
-        })
-        .await?;
+    let calendars = calendar::route::list_calendars(engine, account).await?;
     {
         let db = engine.db.lock().unwrap();
         // Only the account's own calendars are refreshed from the server;
@@ -670,12 +666,8 @@ async fn sync_calendar_window(
             }
             calendar::CalendarKind::Account => {
                 let id = calendar.id.clone();
-                let events = engine
-                    .with_read_session(account, |session| {
-                        let id = id.clone();
-                        Box::pin(async move { session.events_in_window(&id, from, to).await })
-                    })
-                    .await?;
+                let events =
+                    calendar::route::events_in_window(engine, account, &id, from, to).await?;
                 let db = engine.db.lock().unwrap();
                 calendar::replace_window(&db, account, &id, (from, to), &events)?;
             }
@@ -1790,19 +1782,10 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if name.trim().is_empty() {
                 anyhow::bail!("a calendar needs a name");
             }
-            let id = engine
-                .with_write_session(&account, |session| {
-                    let name = name.clone();
-                    Box::pin(async move { session.create_calendar(&name).await })
-                })
-                .await?;
+            let id = calendar::route::create_calendar(&engine, &account, &name).await?;
             // Re-list so the new calendar is known with whatever the server
             // decided to call it and where it put it.
-            let calendars = engine
-                .with_read_session(&account, |session| {
-                    Box::pin(async move { session.list_calendars().await })
-                })
-                .await?;
+            let calendars = calendar::route::list_calendars(&engine, &account).await?;
             calendar::replace_account_calendars(&engine.db.lock().unwrap(), &account, &calendars)?;
             Ok(json!({ "id": id }))
         }
@@ -1814,13 +1797,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if name.trim().is_empty() {
                 anyhow::bail!("a calendar needs a name");
             }
-            engine
-                .with_write_session(&account, |session| {
-                    let id = id.clone();
-                    let name = name.clone();
-                    Box::pin(async move { session.rename_calendar(&id, &name).await })
-                })
-                .await?;
+            calendar::route::rename_calendar(&engine, &account, &id, &name).await?;
             calendar::rename_calendar(&engine.db.lock().unwrap(), &account, &id, &name)?;
             Ok(json!({ "ok": true }))
         }
@@ -1828,12 +1805,18 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
         "calendar.deleteCalendar" => {
             let account = req_str(p, "account")?;
             let id = req_str(p, "calendar")?;
-            engine
-                .with_write_session(&account, |session| {
-                    let id = id.clone();
-                    Box::pin(async move { session.delete_calendar(&id).await })
-                })
-                .await?;
+            // Whether this account owns the calendar decides what removing it
+            // can mean: a calendar of one's own is deleted, one merely shared
+            // with this account is unsubscribed from, since deleting someone
+            // else's calendar is not this account's to do.
+            let owned = {
+                let db = engine.db.lock().unwrap();
+                calendar::get_calendars(&db, &account)?
+                    .into_iter()
+                    .find(|calendar| calendar.id == id)
+                    .is_some_and(|calendar| !calendar.read_only)
+            };
+            calendar::route::delete_calendar(&engine, &account, &id, owned).await?;
             // Its events go with it: they lived on the calendar the server
             // just removed.
             calendar::forget_calendar(&engine.db.lock().unwrap(), &account, &id)?;
@@ -1857,12 +1840,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if event.end < event.start {
                 anyhow::bail!("an event cannot end before it starts");
             }
-            let created = engine
-                .with_write_session(&account, |session| {
-                    let event = event.clone();
-                    Box::pin(async move { session.create_event(&event).await })
-                })
-                .await?;
+            let created = calendar::route::create_event(&engine, &account, &event).await?;
             spawn_calendar_sync(
                 engine.clone(),
                 out.clone(),
@@ -1882,12 +1860,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if event.end < event.start {
                 anyhow::bail!("an event cannot end before it starts");
             }
-            engine
-                .with_write_session(&account, |session| {
-                    let event = event.clone();
-                    Box::pin(async move { session.update_event(&event).await })
-                })
-                .await?;
+            calendar::route::update_event(&engine, &account, &event).await?;
             spawn_calendar_sync(
                 engine.clone(),
                 out.clone(),
@@ -1902,13 +1875,22 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             let account = req_str(p, "account")?;
             let id = req_str(p, "event")?;
             let change_key = p.get("change_key").and_then(Value::as_str);
-            engine
-                .with_write_session(&account, |session| {
-                    let id = id.clone();
-                    let change_key = change_key.map(str::to_string);
-                    Box::pin(async move { session.delete_event(&id, change_key.as_deref()).await })
-                })
-                .await?;
+            // Exchange addresses an event by its own id alone; Google needs
+            // the calendar holding it, so it is taken from the cached row the
+            // agenda is showing.
+            let calendar_id = p
+                .get("calendar")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .unwrap_or_default();
+            calendar::route::delete_event(
+                &engine,
+                &account,
+                &calendar_id,
+                &id,
+                change_key,
+            )
+            .await?;
             // Drop the cached row now: the agenda should not keep showing an
             // event the server has already accepted the deletion of.
             calendar::forget_event(&engine.db.lock().unwrap(), &account, &id)?;

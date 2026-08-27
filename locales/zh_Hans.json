@@ -139,7 +139,7 @@
   "calendar.empty": "Nothing scheduled.",
   "calendar.ends": "Ends",
   "calendar.endsBeforeStart": "It ends before it starts.",
-  "calendar.googleNotYet": "Google calendars cannot be connected yet; Google Calendar support is on its way.",
+  "calendar.googleNeedsSignIn": "This account signs in with a password, which covers mail only. Add it again with Google sign-in to bring its calendars.",
   "calendar.groupLocal": "On this computer",
   "calendar.groupSubscribed": "Subscriptions",
   "calendar.importFromAccount": "Import the account's calendars",

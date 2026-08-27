@@ -3,11 +3,14 @@ import { invoke } from '../lib/bridge'
 import { accounts$ } from './accounts'
 import type { Account } from '../types'
 
-/// Whether an account keeps calendars on its server. Exchange does; plain
-/// IMAP has no calendar concept at all. Google joins this list when its
-/// backend lands.
+/// Whether an account keeps calendars on its server. Exchange does, and so
+/// does a Google account signed in with Google. Plain IMAP has no calendar
+/// concept at all — including a Google account added with an app password,
+/// which authenticates mail only and grants no API access.
 export function accountSupportsCalendar(account: Account): boolean {
-  return account.provider === 'exchange' || !!account.ews_url
+  return (
+    account.provider === 'exchange' || !!account.ews_url || account.auth_type === 'gmail_oauth'
+  )
 }
 
 /// One person on an event. `addr` is empty when the server identified them
@@ -359,6 +362,9 @@ export async function deleteEvent(event: CalendarEvent) {
     await invoke('calendar.delete', {
       account_id: event.accountId,
       event_id: event.id,
+      // Exchange finds an event by its own id; Google needs the calendar
+      // holding it.
+      calendar_id: event.calendar_id,
       change_key: event.change_key ?? '',
     })
     closeEditor()

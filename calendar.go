@@ -115,9 +115,10 @@ func (a *App) calendarUpdate(payload map[string]any) (any, error) {
 
 func (a *App) calendarDelete(payload map[string]any) (any, error) {
 	var req struct {
-		AccountID string `json:"account_id"`
-		EventID   string `json:"event_id"`
-		ChangeKey string `json:"change_key"`
+		AccountID  string `json:"account_id"`
+		EventID    string `json:"event_id"`
+		CalendarID string `json:"calendar_id"`
+		ChangeKey  string `json:"change_key"`
 	}
 	if err := decode(payload, &req); err != nil {
 		return nil, err
@@ -128,6 +129,7 @@ func (a *App) calendarDelete(payload map[string]any) (any, error) {
 	return a.sidecar.Call("calendar.delete", map[string]any{
 		"account":    req.AccountID,
 		"event":      req.EventID,
+		"calendar":   req.CalendarID,
 		"change_key": req.ChangeKey,
 	})
 }

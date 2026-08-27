@@ -265,7 +265,7 @@ func (a *App) beginOAuth(provider string) (any, error) {
 		authBase = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 	default: // gmail
 		values.Set("client_id", googleClientID())
-		values.Set("scope", "https://mail.google.com/ https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile")
+		values.Set("scope", googleScopes)
 		values.Set("access_type", "offline")
 		values.Set("prompt", "consent")
 		authBase = "https://accounts.google.com/o/oauth2/v2/auth"

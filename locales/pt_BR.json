@@ -139,7 +139,7 @@
   "calendar.empty": "Nada agendado.",
   "calendar.ends": "Termina",
   "calendar.endsBeforeStart": "Termina antes de começar.",
-  "calendar.googleNotYet": "Os calendários do Google ainda não podem ser conectados; o suporte ao Google Agenda está a caminho.",
+  "calendar.googleNeedsSignIn": "Esta conta entra com senha, que cobre apenas o e-mail. Adicione-a novamente com login do Google para trazer seus calendários.",
   "calendar.groupLocal": "Neste computador",
   "calendar.groupSubscribed": "Assinaturas",
   "calendar.importFromAccount": "Importar os calendários da conta",

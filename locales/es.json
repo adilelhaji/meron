@@ -139,7 +139,7 @@
   "calendar.empty": "No hay nada programado.",
   "calendar.ends": "Termina",
   "calendar.endsBeforeStart": "Termina antes de empezar.",
-  "calendar.googleNotYet": "Los calendarios de Google todavía no se pueden conectar; la compatibilidad con Google Calendar está en camino.",
+  "calendar.googleNeedsSignIn": "Esta cuenta entra con contraseña, que solo cubre el correo. Vuelve a añadirla iniciando sesión con Google para traer sus calendarios.",
   "calendar.groupLocal": "En este ordenador",
   "calendar.groupSubscribed": "Suscripciones",
   "calendar.importFromAccount": "Importar los calendarios de la cuenta",
