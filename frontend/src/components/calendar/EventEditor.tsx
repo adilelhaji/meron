@@ -87,24 +87,21 @@ export function EventEditor() {
 
           <div className="flex gap-3">
             <Labelled label={t('calendar.starts', { defaultValue: 'Starts' })}>
-              <input
-                type="datetime-local"
-                value={toLocalInput(event.start)}
-                onChange={(e) => {
-                  const start = fromLocalInput(e.target.value)
+              <DateAndTime
+                value={event.start}
+                allDay={event.all_day}
+                onChange={(start) =>
                   // Keep the duration when the start moves, which is what
                   // moving a meeting to another time means.
                   set({ start, end: start + (event.end - event.start) })
-                }}
-                className={inputClass}
+                }
               />
             </Labelled>
             <Labelled label={t('calendar.ends', { defaultValue: 'Ends' })}>
-              <input
-                type="datetime-local"
-                value={toLocalInput(event.end)}
-                onChange={(e) => set({ end: fromLocalInput(e.target.value) })}
-                className={inputClass}
+              <DateAndTime
+                value={event.end}
+                allDay={event.all_day}
+                onChange={(end) => set({ end })}
               />
             </Labelled>
           </div>
@@ -223,12 +220,67 @@ function Labelled({ label, children }: { label: string; children: React.ReactNod
 /// Epoch seconds to what a datetime-local input expects, in local time — the
 /// timezone the person editing is in, which is the only one they can reason
 /// about.
-function toLocalInput(epochSeconds: number): string {
-  const date = new Date(epochSeconds * 1000)
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+/// A date and a time, as two controls rather than one `datetime-local`.
+///
+/// The engine this app runs on renders `datetime-local` with a date picker and
+/// no way to reach the time, which left every event stuck at whatever hour it
+/// already had. A plain date input and a list of times work the same
+/// everywhere, and are what the calendars people are used to offer anyway.
+function DateAndTime({
+  value,
+  allDay,
+  onChange,
+}: {
+  value: number
+  allDay: boolean
+  onChange: (epochSeconds: number) => void
+}) {
+  const date = new Date(value * 1000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const dateValue = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  const timeValue = `${pad(date.getHours())}:${pad(date.getMinutes())}`
+
+  const setDate = (text: string) => {
+    const [year, month, day] = text.split('-').map(Number)
+    if (!year || !month || !day) return
+    const next = new Date(value * 1000)
+    next.setFullYear(year, month - 1, day)
+    onChange(Math.floor(next.getTime() / 1000))
+  }
+
+  const setTime = (text: string) => {
+    const [hours, minutes] = text.split(':').map(Number)
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return
+    const next = new Date(value * 1000)
+    next.setHours(hours, minutes, 0, 0)
+    onChange(Math.floor(next.getTime() / 1000))
+  }
+
+  return (
+    <div className="flex gap-1.5">
+      <input type="date" value={dateValue} onChange={(e) => setDate(e.target.value)} className={inputClass} />
+      {/* An all-day event has no hour to set, so none is offered. */}
+      {!allDay && (
+        <select value={timeValue} onChange={(e) => setTime(e.target.value)} className={`${inputClass} w-28`}>
+          {/* The event's own time, when it does not fall on a quarter hour:
+              an invitation at 14:37 must survive being looked at. */}
+          {!QUARTER_HOURS.includes(timeValue) && <option value={timeValue}>{timeValue}</option>}
+          {QUARTER_HOURS.map((time) => (
+            <option key={time} value={time}>
+              {time}
+            </option>
+          ))}
+        </select>
+      )}
+    </div>
+  )
 }
 
-function fromLocalInput(value: string): number {
-  return Math.floor(new Date(value).getTime() / 1000)
-}
+/// Every quarter hour of the day, which is how calendars have always offered
+/// times to pick from.
+const QUARTER_HOURS = Array.from({ length: 24 * 4 }, (_, index) => {
+  const hours = Math.floor(index / 4)
+  const minutes = (index % 4) * 15
+  return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+})
+
