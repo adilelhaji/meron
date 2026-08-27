@@ -59,6 +59,15 @@ export function EventEditor() {
             <input value={event.location ?? ''} onChange={(e) => set({ location: e.target.value })} className={inputClass} />
           </Labelled>
 
+          <Labelled label={t('calendar.description', { defaultValue: 'Notes' })}>
+            <textarea
+              value={event.description ?? ''}
+              onChange={(e) => set({ description: e.target.value })}
+              rows={4}
+              className={`${inputClass} resize-y`}
+            />
+          </Labelled>
+
           <div className="flex gap-3">
             <Labelled label={t('calendar.starts', { defaultValue: 'Starts' })}>
               <input

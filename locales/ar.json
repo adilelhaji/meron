@@ -140,6 +140,7 @@
   "calendar.deleteCalendar": "Remove calendar",
   "calendar.deleteConfirm": "Remove it",
   "calendar.deleteWarning": "Remove \"{name}\" and every event on it? They go to Deleted Items on the server.",
+  "calendar.description": "Notes",
   "calendar.editEvent": "Edit event",
   "calendar.empty": "Nothing scheduled.",
   "calendar.ends": "Ends",

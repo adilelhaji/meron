@@ -94,6 +94,7 @@ fn expand(
     let uid = source.get_uid().unwrap_or_default().to_string();
     let subject = source.get_summary().unwrap_or_default().to_string();
     let location = source.get_location().map(str::to_string);
+    let description = source.get_description().unwrap_or_default().to_string();
     let organizer = source.multi_properties().get("ORGANIZER").and_then(|list| {
         list.first().map(|property| Participant {
             name: property
@@ -143,6 +144,7 @@ fn expand(
                 // Every occurrence expanded above came from this one
                 // component, so they all name it.
                 series_id: repeats.then(|| uid.clone()),
+                description: description.clone(),
                 is_cancelled: source
                     .properties()
                     .get("STATUS")

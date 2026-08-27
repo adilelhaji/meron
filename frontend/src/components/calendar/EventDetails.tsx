@@ -1,5 +1,16 @@
 import { useValue } from '@legendapp/state/react'
-import { CalendarDays, Clock, MapPin, Repeat, SquarePen, Trash2, User, Users, X } from 'lucide-react'
+import {
+  AlignLeft,
+  CalendarDays,
+  Clock,
+  MapPin,
+  Repeat,
+  SquarePen,
+  Trash2,
+  User,
+  Users,
+  X,
+} from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
 import {
@@ -123,6 +134,16 @@ export function EventDetails() {
               <span className="text-secondary">
                 {t('calendar.organizer', { defaultValue: 'Organiser' })}
               </span>
+            </Row>
+          )}
+
+          {event.description && (
+            <Row icon={<AlignLeft size={14} />}>
+              {/* Kept as the plain text it arrived as, with the author's own
+                  line breaks: notes are read, not rendered. */}
+              <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-primary">
+                {event.description}
+              </p>
             </Row>
           )}
 

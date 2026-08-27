@@ -140,6 +140,7 @@
   "calendar.deleteCalendar": "Kalender entfernen",
   "calendar.deleteConfirm": "Entfernen",
   "calendar.deleteWarning": "„{name}“ und alle darin enthaltenen Termine entfernen? Sie landen in den gelöschten Elementen auf dem Server.",
+  "calendar.description": "Notizen",
   "calendar.editEvent": "Termin bearbeiten",
   "calendar.empty": "Nichts geplant.",
   "calendar.ends": "Ende",

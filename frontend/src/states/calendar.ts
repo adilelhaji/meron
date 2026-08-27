@@ -38,6 +38,8 @@ export type CalendarEvent = {
   /// The series this occurrence came from, when the server names one. Every
   /// occurrence of one series shares it.
   series_id?: string | null
+  /// The event's own notes, as plain text.
+  description?: string
   is_cancelled: boolean
   free_busy: string
   my_response: string

@@ -140,6 +140,7 @@
   "calendar.deleteCalendar": "Excluir calendário",
   "calendar.deleteConfirm": "Excluir",
   "calendar.deleteWarning": "Excluir \"{name}\" e todos os seus eventos? Eles vão para Itens Excluídos no servidor.",
+  "calendar.description": "Notas",
   "calendar.editEvent": "Editar evento",
   "calendar.empty": "Nada agendado.",
   "calendar.ends": "Termina",

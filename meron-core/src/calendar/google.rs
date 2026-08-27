@@ -79,6 +79,8 @@ struct GoogleEvent {
     summary: Option<String>,
     #[serde(default)]
     location: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     start: Option<EventDateTime>,
     end: Option<EventDateTime>,
     #[serde(rename = "recurringEventId", default)]
@@ -431,6 +433,7 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
     Ok(serde_json::json!({
         "summary": event.subject,
         "location": event.location.clone().unwrap_or_default(),
+        "description": event.description,
         "start": start,
         "end": end,
     }))
@@ -478,6 +481,7 @@ fn to_event(source: GoogleEvent, calendar_id: &str) -> Option<Event> {
         // the series it belongs to; a one-off carries none.
         is_recurring: source.recurring_event_id.is_some(),
         series_id: source.recurring_event_id.clone(),
+        description: source.description.unwrap_or_default(),
         is_cancelled: source.status == "cancelled",
         free_busy: match source.transparency.as_deref() {
             Some("transparent") => "Free".to_string(),
@@ -567,6 +571,23 @@ mod tests {
         assert_eq!(event.attendees.len(), 2);
         assert_eq!(event.organizer.as_ref().unwrap().name, "La Cap");
         assert_eq!(event.free_busy, "Busy");
+    }
+
+    #[test]
+    fn an_events_notes_come_along() {
+        let source: GoogleEvent = serde_json::from_str(
+            r#"{"id":"x","status":"confirmed","summary":"Revisió",
+                "description":"Portar el portàtil.\nSala reservada fins les 12.",
+                "start":{"dateTime":"2026-09-01T10:00:00Z"},
+                "end":{"dateTime":"2026-09-01T11:00:00Z"}}"#,
+        )
+        .expect("parse");
+        let event = to_event(source, "cal").expect("map");
+        assert!(event.description.contains("portàtil"));
+        assert!(
+            event.description.contains('\n'),
+            "the author's own line breaks survive"
+        );
     }
 
     #[test]

@@ -140,6 +140,7 @@
   "calendar.deleteCalendar": "Supprimer l'agenda",
   "calendar.deleteConfirm": "Supprimer",
   "calendar.deleteWarning": "Supprimer « {name} » et tous ses événements ? Ils iront dans les Éléments supprimés du serveur.",
+  "calendar.description": "Notes",
   "calendar.editEvent": "Modifier l'événement",
   "calendar.empty": "Rien de prévu.",
   "calendar.ends": "Fin",

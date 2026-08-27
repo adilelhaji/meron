@@ -573,6 +573,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 12 {
         migrate_v12(&tx)?;
     }
+    if version < 13 {
+        migrate_v13(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -716,6 +719,17 @@ fn migrate_v11(conn: &Connection) -> Result<()> {
 fn migrate_v12(conn: &Connection) -> Result<()> {
     conn.execute_batch("ALTER TABLE calendar_events ADD COLUMN series_id TEXT;")?;
     conn.execute_batch("PRAGMA user_version = 12;")?;
+    Ok(())
+}
+
+/// An event's own notes.
+///
+/// Kept as plain text: servers hold it as HTML more often than not, and a
+/// calendar shows notes rather than renders documents. Existing rows have none
+/// until their next sync.
+fn migrate_v13(conn: &Connection) -> Result<()> {
+    conn.execute_batch("ALTER TABLE calendar_events ADD COLUMN description TEXT;")?;
+    conn.execute_batch("PRAGMA user_version = 13;")?;
     Ok(())
 }
 

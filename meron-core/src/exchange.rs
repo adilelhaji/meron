@@ -258,6 +258,17 @@ impl EwsClient {
                     ..Message::default()
                 },
             ),
+            field(
+                "item:Body",
+                Message {
+                    body: Some(::ews::Body {
+                        body_type: ::ews::BodyType::Text,
+                        is_truncated: None,
+                        content: Some(event.description.clone()),
+                    }),
+                    ..Message::default()
+                },
+            ),
         ];
         if let Some(location) = &event.location {
             updates.push(field(
@@ -1421,6 +1432,7 @@ fn event_properties() -> Vec<PathToElement> {
         "calendar:Location",
         "calendar:IsRecurring",
         "calendar:UID",
+        "item:Body",
         "calendar:IsCancelled",
         "calendar:LegacyFreeBusyStatus",
         "calendar:MyResponseType",
@@ -1447,6 +1459,11 @@ fn event_item(event: &Event) -> Message {
         end: Some(ews_time(event.end)),
         is_all_day_event: Some(event.all_day),
         location: event.location.clone(),
+        body: (!event.description.is_empty()).then(|| ::ews::Body {
+            body_type: ::ews::BodyType::Text,
+            is_truncated: None,
+            content: Some(event.description.clone()),
+        }),
         ..Message::default()
     }
 }
@@ -1529,6 +1546,15 @@ fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
         all_day: item.is_all_day_event.unwrap_or(false),
         is_recurring: item.is_recurring.unwrap_or(false),
             series_id: item.uid.clone(),
+        description: item
+            .body
+            .as_ref()
+            .and_then(|body| body.content.as_deref())
+            .map(|content| match item.body.as_ref().map(|body| body.body_type) {
+                Some(::ews::BodyType::HTML) => crate::parse::html_to_text(content),
+                _ => content.to_string(),
+            })
+            .unwrap_or_default(),
         is_cancelled: item.is_cancelled.unwrap_or(false),
         free_busy: item
             .legacy_free_busy_status

@@ -125,6 +125,11 @@ pub struct Event {
     /// the occurrence is complete on its own.
     #[serde(default)]
     pub is_recurring: bool,
+    /// The event's own notes, as plain text. Servers keep this as HTML more
+    /// often than not; it is converted on the way in, since a calendar shows
+    /// notes rather than renders documents.
+    #[serde(default)]
+    pub description: String,
     /// The series this occurrence came from, when the server names one.
     ///
     /// Every occurrence of one series shares it — the iCalendar UID on
@@ -308,8 +313,10 @@ pub fn replace_window(
             "INSERT OR REPLACE INTO calendar_events(
                account, calendar_id, event_id, change_key, subject, location,
                start_utc, end_utc, all_day, is_recurring, is_cancelled,
-               free_busy, my_response, organizer, attendees, series_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+               free_busy, my_response, organizer, attendees, series_id,
+               description)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
+                    ?17)",
             params![
                 account,
                 calendar_id,
@@ -331,6 +338,7 @@ pub fn replace_window(
                     .transpose()?,
                 serde_json::to_string(&event.attendees)?,
                 event.series_id,
+                event.description,
             ],
         )?;
     }
@@ -349,7 +357,8 @@ pub fn events_in_window(
     let mut stmt = conn.prepare(
         "SELECT e.calendar_id, e.event_id, e.change_key, e.subject, e.location,
                 e.start_utc, e.end_utc, e.all_day, e.is_recurring, e.is_cancelled,
-                e.free_busy, e.my_response, e.organizer, e.attendees, e.series_id
+                e.free_busy, e.my_response, e.organizer, e.attendees, e.series_id,
+                e.description
          FROM calendar_events e
          JOIN calendars c
            ON c.account = e.account AND c.provider_id = e.calendar_id
@@ -380,6 +389,7 @@ pub fn events_in_window(
                     .and_then(|json| serde_json::from_str(&json).ok())
                     .unwrap_or_default(),
                 series_id: row.get(14)?,
+                description: row.get::<_, Option<String>>(15)?.unwrap_or_default(),
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
