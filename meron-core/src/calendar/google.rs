@@ -438,15 +438,34 @@ pub fn delete_calendar(token: &str, calendar_id: &str, owned: bool) -> Result<()
 
 /// The request body for a create or update.
 fn event_body(event: &Event) -> Result<serde_json::Value> {
+    // Both keys are always sent, the unused one as null.
+    //
+    // An update is a PATCH, so anything left out keeps the value the server
+    // already holds: sending only `dateTime` on an event stored as all-day
+    // left `date` in place beside it, and a time that is both a date and an
+    // instant is no time at all — which is exactly what Google answers.
+    // Naming the unused one as null is what clears it.
     let (start, end) = if event.all_day {
         (
-            serde_json::json!({ "date": date_only(event.start).context("start date")? }),
-            serde_json::json!({ "date": date_only(event.end).context("end date")? }),
+            serde_json::json!({
+                "date": date_only(event.start).context("start date")?,
+                "dateTime": serde_json::Value::Null,
+            }),
+            serde_json::json!({
+                "date": date_only(event.end).context("end date")?,
+                "dateTime": serde_json::Value::Null,
+            }),
         )
     } else {
         (
-            serde_json::json!({ "dateTime": rfc3339(event.start).context("start")? }),
-            serde_json::json!({ "dateTime": rfc3339(event.end).context("end")? }),
+            serde_json::json!({
+                "dateTime": rfc3339(event.start).context("start")?,
+                "date": serde_json::Value::Null,
+            }),
+            serde_json::json!({
+                "dateTime": rfc3339(event.end).context("end")?,
+                "date": serde_json::Value::Null,
+            }),
         )
     };
     Ok(serde_json::json!({
@@ -579,6 +598,31 @@ fn urlencode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_write_clears_the_kind_of_time_it_is_not() {
+        let timed = Event {
+            start: 1_788_249_600,
+            end: 1_788_253_200,
+            all_day: false,
+            ..Default::default()
+        };
+        let body = event_body(&timed).expect("body");
+        assert!(body["start"]["dateTime"].is_string());
+        assert!(
+            body["start"]["date"].is_null(),
+            "an update is a PATCH: the date must be cleared, not merely omitted"
+        );
+
+        let all_day = Event {
+            all_day: true,
+            ..timed
+        };
+        let body = event_body(&all_day).expect("body");
+        assert!(body["start"]["date"].is_string());
+        assert!(body["start"]["dateTime"].is_null());
+        assert!(body["end"]["dateTime"].is_null());
+    }
 
     #[test]
     fn a_timed_event_keeps_its_instant_and_its_people() {
