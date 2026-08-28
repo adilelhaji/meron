@@ -38,6 +38,9 @@ func main() {
 	app := NewApp()
 	globalApp = app
 
+	// Before Wails starts GTK, which reads the backend choice at init.
+	preferX11Window()
+
 	err := wails.Run(&options.App{
 		Title:                    "Oreneta",
 		Width:                    1200,

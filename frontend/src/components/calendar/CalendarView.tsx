@@ -50,14 +50,14 @@ export function CalendarView() {
       <EventEditor />
       <EventDetails />
       {menu && <EventContextMenu state={menu} onClose={() => setMenu(null)} />}
-      <header className="flex items-center gap-2 border-b border-border px-5 py-3">
+      <header className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b border-border px-5 py-3">
         <CalendarDays size={17} className="shrink-0 text-accent" />
         <h1 className="min-w-0 truncate text-sm font-semibold text-primary">
           {periodLabel(view, anchor, t)}
         </h1>
         {loading && <RefreshCw size={13} className="shrink-0 animate-spin text-secondary" />}
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-2">
           {view !== 'agenda' && (
             <div className="flex items-center gap-0.5">
               <NavButton label="‹" onClick={() => navigateCalendar(-1)}>
@@ -99,7 +99,9 @@ export function CalendarView() {
             className="inline-flex items-center gap-1.5 rounded-xl bg-accent px-3 py-1.5 text-[0.6875rem] font-semibold text-white transition-opacity hover:opacity-90 cursor-pointer"
           >
             <Plus size={13} />
-            {t('calendar.newEvent', { defaultValue: 'New event' })}
+            <span className="hidden sm:inline">
+              {t('calendar.newEvent', { defaultValue: 'New event' })}
+            </span>
           </button>
         </div>
       </header>
