@@ -384,6 +384,25 @@ export function calendarKey(calendar: { accountId: string; id: string }): string
   return `calendar:${calendar.accountId}:${calendar.id}`
 }
 
+/// When a calendar's contents last came from its server, in the coarsest unit
+/// that still says something.
+///
+/// A calendar that has never synced says so rather than showing a date from
+/// 1970: a time nobody set reads as an answer, and this one would be a lie.
+function lastSyncedLabel(syncedAt: number, t: ReturnType<typeof useTranslation>['t']): string {
+  if (!syncedAt) return t('calendar.neverSynced', { defaultValue: 'Not updated yet' })
+  const seconds = Math.max(0, Date.now() / 1000 - syncedAt)
+  if (seconds < 90) return t('calendar.syncedJustNow', { defaultValue: 'Updated just now' })
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60)
+    return t('calendar.syncedMinutes', { defaultValue: 'Updated {count} min ago', count: minutes })
+  const hours = Math.round(seconds / 3600)
+  if (hours < 24)
+    return t('calendar.syncedHours', { defaultValue: 'Updated {count} h ago', count: hours })
+  const days = Math.round(seconds / 86400)
+  return t('calendar.syncedDays', { defaultValue: 'Updated {count} days ago', count: days })
+}
+
 /// The account's calendars, managed inside the account's own settings, the
 /// way Thunderbird's network-calendar flow works: the rows are the list of
 /// calendars the server offers, each with a checkbox-like switch deciding
@@ -462,9 +481,20 @@ function AccountCalendarsGroup({ account }: { account: Account }) {
               type="button"
               onClick={() => setPropertiesFor(calendar.id)}
               title={t('calendar.properties', { defaultValue: 'Calendar properties' })}
-              className="min-w-0 flex-1 truncate text-left text-xs font-medium text-primary transition-colors hover:text-accent cursor-pointer"
+              className="min-w-0 flex-1 text-left transition-colors hover:text-accent cursor-pointer"
             >
-              {calendar.name}
+              <span className="block truncate text-xs font-medium text-primary">
+                {calendar.name}
+              </span>
+              {/* When its contents last came from the server. A hidden
+                  calendar is not fetched at all, so it says that instead of
+                  showing a time that stopped advancing for reasons of its
+                  own. */}
+              <span className="block truncate text-[0.625rem] text-secondary">
+                {!calendar.enabled
+                  ? t('calendar.notSyncedHidden', { defaultValue: 'Hidden — not fetched' })
+                  : lastSyncedLabel(calendar.synced_at, t)}
+              </span>
             </button>
             {calendar.read_only && <Lock size={11} className="shrink-0 text-secondary/70" />}
             <Switch
