@@ -114,6 +114,10 @@ def main():
                     help="also exercise creating, editing and deleting an "
                          "event. Writes to your real calendar, then removes "
                          "what it wrote; nobody is notified.")
+    ap.add_argument("--invite", metavar="ADDRESS",
+                    help="test meeting invitations by inviting ADDRESS to a "
+                         "throwaway meeting, then cancelling it. SENDS REAL "
+                         "EMAIL to that address - use one of your own.")
     ap.add_argument("--probe-calendar", action="store_true",
                     help="instead of the smoke test, report what the server "
                          "will tell us about calendar events")
@@ -290,6 +294,63 @@ def main():
                     failures += 1
             else:
                 failures += 1
+
+        if args.invite:
+            print(f"\n7. meeting invitation (sends real email to {args.invite})")
+            calendars = (cal or {}).get("calendars", [])
+            target = next((c for c in calendars if c.get("is_default")), None) or (
+                calendars[0] if calendars else None
+            )
+            if not target:
+                print("  FAIL  no calendar to write to")
+                failures += 1
+            else:
+                # Two days out and clearly labelled, so a stray notification is
+                # obviously a test. Cancelled at the end, which sends a second
+                # message to the same single address and nobody else.
+                start = ((now // 3600) + 48) * 3600
+                draft = {
+                    "id": "", "calendar_id": target["id"],
+                    "subject": "Oreneta invitation test - please ignore",
+                    "location": "-", "start": start, "end": start + 1800,
+                    "all_day": False, "is_recurring": False, "is_cancelled": False,
+                    "free_busy": "", "my_response": "", "description": "",
+                    "attendees": [{"name": "", "addr": args.invite, "response": ""}],
+                }
+                made = check("calendar.create (notifying)", core.call(
+                    "calendar.create",
+                    {"account": account, "event": draft, "notify": True}))
+                if made is None:
+                    failures += 1
+                else:
+                    event = made["event"]
+                    print(f"        created id={event['id'][:24]}...")
+                    print(f"        an invitation should now be in {args.invite}")
+                    # Read it back: the attendee must have survived the round
+                    # trip, or the invitation went out to nobody.
+                    window = core.call("calendar.events", {
+                        "account": account, "from": start - 3600,
+                        "to": start + 7200, "refresh": True})
+                    events = (window or {}).get("result", {}).get("events", [])
+                    found = next((e for e in events if e.get("id") == event["id"]), None)
+                    if found is None:
+                        print("  WARN  could not read the meeting back")
+                    else:
+                        people = [a.get("addr") or a.get("name")
+                                  for a in found.get("attendees", [])]
+                        print(f"        attendees on the server: {people}")
+                        if not found.get("attendees"):
+                            print("  FAIL  the meeting came back with nobody on it")
+                            failures += 1
+                    if check("calendar.delete (cancelling)", core.call(
+                            "calendar.delete",
+                            {"account": account, "event": event["id"],
+                             "calendar": target["id"],
+                             "change_key": event.get("change_key") or "",
+                             "notify": True})) is None:
+                        failures += 1
+                    else:
+                        print(f"        a cancellation should now be in {args.invite}")
 
         print(f"\n== {'PASSED' if failures == 0 else str(failures) + ' STEP(S) FAILED'}\n")
         return 1 if failures else 0
