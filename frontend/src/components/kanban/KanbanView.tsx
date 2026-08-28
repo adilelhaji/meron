@@ -206,7 +206,7 @@ export function KanbanView({ boardId }: { boardId: string }) {
   }
 
   return (
-    <section className="flex flex-1 min-w-0 flex-col border-r border-border bg-chats max-[768px]:w-full">
+    <section className="flex flex-1 min-w-0 flex-col border-r border-border bg-chats max-[600px]:w-full">
       <div className="@container relative z-30 flex min-h-16 shrink-0 items-center gap-3 border-b border-border/50 bg-white/70 backdrop-blur-md px-4 py-3 dark:bg-[#0f172a]/70">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
           {board?.avatarUrl ? (

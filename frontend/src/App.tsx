@@ -92,7 +92,7 @@ export default function App() {
           </ErrorBoundary>
         ) : showKanbanMessagePane ? (
           <div
-            className="relative flex shrink-0 overflow-hidden border-l border-border bg-chat max-[768px]:w-full"
+            className="relative flex shrink-0 overflow-hidden border-l border-border bg-chat max-[600px]:w-full"
             style={{ width: `${kanbanPaneWidth}%`, minWidth: 320 }}
           >
             <div

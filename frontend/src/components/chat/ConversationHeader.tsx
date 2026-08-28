@@ -114,7 +114,7 @@ export function ConversationHeader({
 
         {inKanban && (
           <button
-            className="-mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-hover text-secondary cursor-pointer max-[768px]:hidden"
+            className="-mr-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-full hover:bg-hover text-secondary cursor-pointer max-[600px]:hidden"
             onClick={closeKanbanPane}
             title={t('chat.closeConversationEsc')}
           >

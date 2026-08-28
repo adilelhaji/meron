@@ -294,7 +294,7 @@ export function MessagePane() {
   return (
     <div
       className={`relative flex flex-1 flex-col overflow-hidden ${
-        mobilePane === 'conversation' ? 'max-[768px]:flex' : 'max-[768px]:hidden'
+        mobilePane === 'conversation' ? 'max-[600px]:flex' : 'max-[600px]:hidden'
       }`}
     >
       <ConversationTabs />

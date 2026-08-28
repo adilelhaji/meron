@@ -229,7 +229,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
     <section
       data-thread-list
       className={`relative flex w-full shrink-0 flex-col border-r border-border bg-chats min-[769px]:w-[var(--thread-list-width)] ${
-        mobilePane === 'threads' ? 'max-[768px]:flex' : 'max-[768px]:hidden'
+        mobilePane === 'threads' ? 'max-[600px]:flex' : 'max-[600px]:hidden'
       }`}
       onKeyDownCapture={(event) => {
         if (event.key === 'Delete') restoreFocusAfterDeleteRef.current = true
