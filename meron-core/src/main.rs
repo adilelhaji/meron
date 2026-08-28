@@ -680,6 +680,15 @@ fn spawn_calendar_sync(
 ///
 /// A calendar the user hid is not fetched at all: the point of hiding one is
 /// not to pay for it.
+/// Now, as epoch seconds. A clock that cannot be read is treated as the epoch,
+/// which shows as "never synced" rather than as a plausible wrong time.
+fn now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|epoch| epoch.as_secs() as i64)
+        .unwrap_or_default()
+}
+
 async fn sync_calendar_window(
     engine: &Arc<Engine>,
     account: &str,
@@ -725,6 +734,7 @@ async fn sync_calendar_window(
                 }
                 let db = engine.db.lock().unwrap();
                 calendar::replace_window(&db, account, &id, (from, to), &events)?;
+                calendar::mark_calendar_synced(&db, account, &id, now_seconds())?;
             }
             calendar::CalendarKind::Account => {
                 let id = calendar.id.clone();
@@ -746,6 +756,7 @@ async fn sync_calendar_window(
                 }
                 let db = engine.db.lock().unwrap();
                 calendar::replace_window(&db, account, &id, (from, to), &events)?;
+                calendar::mark_calendar_synced(&db, account, &id, now_seconds())?;
             }
         }
     }

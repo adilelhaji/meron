@@ -548,6 +548,24 @@ pub fn events_in_window(
     Ok(events)
 }
 
+/// Records that a calendar's contents were read from its server just now.
+///
+/// The column existed and was never written, so every calendar claimed to have
+/// last synced at the epoch. A time nobody sets is worse than no time at all:
+/// it reads as an answer.
+pub fn mark_calendar_synced(
+    conn: &Connection,
+    account: &str,
+    calendar_id: &str,
+    now: i64,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE calendars SET synced_at = ?3 WHERE account = ?1 AND provider_id = ?2",
+        params![account, calendar_id, now],
+    )?;
+    Ok(())
+}
+
 /// Drops every cached occurrence of a series.
 ///
 /// A series deleted on the server leaves nothing behind, so neither should the
@@ -891,6 +909,25 @@ mod tests {
             Some("#E24C3B"),
             "once chosen here, a resync does not take it back"
         );
+    }
+
+    #[test]
+    fn a_calendar_records_when_it_was_last_read_from_its_server() {
+        let conn = store();
+        upsert_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+        assert_eq!(
+            get_calendars(&conn, "acct").unwrap()[0].synced_at,
+            0,
+            "never synced is the epoch, and reads as never"
+        );
+
+        mark_calendar_synced(&conn, "acct", "cal", 1_700_000_000).unwrap();
+        assert_eq!(get_calendars(&conn, "acct").unwrap()[0].synced_at, 1_700_000_000);
+
+        // And a later listing does not reset it: the name may change, the fact
+        // that it was read does not un-happen.
+        upsert_calendars(&conn, "acct", &[a_calendar()]).unwrap();
+        assert_eq!(get_calendars(&conn, "acct").unwrap()[0].synced_at, 1_700_000_000);
     }
 
     #[test]

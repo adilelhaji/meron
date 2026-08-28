@@ -110,6 +110,10 @@ export const calendar$ = observable({
   /// The event being read, or null. Separate from `editing`: opening an event
   /// asks "what is this", and only then "change this".
   viewing: null as CalendarEvent | null,
+  /// Why the last refresh from a server failed, if it did. Separate from
+  /// `error`, which belongs to something the reader just did: this one is
+  /// about the agenda on screen being older than it looks.
+  syncError: '',
   view: 'agenda' as CalendarViewMode,
   /// The day the current view is anchored on, as local-midnight epoch ms.
   anchor: startOfDay(new Date()).getTime(),
@@ -495,6 +499,17 @@ export async function respondToInvitation(event: CalendarEvent, response: Meetin
     calendar$.error.set(String(err))
     throw err
   }
+}
+
+/// Refreshes the window on screen from every account's server.
+///
+/// The one the retry button calls: a failed sync leaves the agenda showing
+/// what it last knew, and this is how a reader asks for another attempt
+/// without hunting through settings.
+export async function retrySync() {
+  calendar$.syncError.set('')
+  const { from, to } = calendar$.peek()
+  if (to > from) await loadWindow(from, to, true)
 }
 
 /// Reads the rule behind an event's series, for the editor to show.

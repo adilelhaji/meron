@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useValue } from '@legendapp/state/react'
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Plus,
+  RefreshCw,
+  TriangleAlert,
+} from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import {
   calendar$,
@@ -12,6 +19,7 @@ import {
   startOfWeek,
   type CalendarEvent,
   type CalendarViewMode,
+  retrySync,
 } from '../../states/calendar'
 import { AgendaList } from './AgendaView'
 import { MonthView } from './MonthView'
@@ -29,6 +37,7 @@ export function CalendarView() {
   const view = useValue(calendar$.view)
   const anchor = useValue(calendar$.anchor)
   const loading = useValue(calendar$.loading)
+  const syncError = useValue(calendar$.syncError)
   const [menu, setMenu] = useState<EventContextMenuState | null>(null)
 
   useEffect(() => {
@@ -105,6 +114,27 @@ export function CalendarView() {
           </button>
         </div>
       </header>
+
+      {/* A refresh that failed. Said where the agenda is, because what is
+          wrong is the agenda: it still shows what it last knew, which looks
+          exactly like being current. */}
+      {syncError && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-5 py-2">
+          <TriangleAlert size={13} className="shrink-0 text-amber-600" />
+          <p className="min-w-0 flex-1 truncate text-[0.6875rem] text-primary">
+            {t('calendar.staleWarning', {
+              defaultValue: 'Could not reach the server; what you see may be out of date.',
+            })}
+          </p>
+          <button
+            type="button"
+            onClick={() => void retrySync()}
+            className="shrink-0 rounded-lg px-2 py-1 text-[0.6875rem] font-semibold text-accent transition-colors hover:bg-accent/10 cursor-pointer"
+          >
+            {t('calendar.retry', { defaultValue: 'Try again' })}
+          </button>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <CalendarList />
