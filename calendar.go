@@ -140,6 +140,36 @@ func (a *App) calendarDelete(payload map[string]any) (any, error) {
 	})
 }
 
+// calendarRespond answers a meeting invitation. The only calendar write that
+// deliberately reaches other people: the organizer is told, because an answer
+// nobody receives is not an answer.
+func (a *App) calendarRespond(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID  string `json:"account_id"`
+		CalendarID string `json:"calendar_id"`
+		EventID    string `json:"event_id"`
+		ChangeKey  string `json:"change_key"`
+		Response   string `json:"response"`
+		Start      int64  `json:"start"`
+		End        int64  `json:"end"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.respond", map[string]any{
+		"account":    req.AccountID,
+		"calendar":   req.CalendarID,
+		"event":      req.EventID,
+		"change_key": req.ChangeKey,
+		"response":   req.Response,
+		"start":      req.Start,
+		"end":        req.End,
+	})
+}
+
 // calendarSeriesRule reads the rule behind the series an occurrence belongs
 // to. Asked for when a repeating event is opened: the core keeps occurrences,
 // never rules, so this is one request rather than a stored second copy.

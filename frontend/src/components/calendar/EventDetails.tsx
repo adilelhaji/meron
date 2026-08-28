@@ -19,6 +19,7 @@ import {
   allDayLocalDays,
   calendar$,
   eventColor,
+  respondToInvitation,
   seriesInWindow,
   closeDetails,
   deleteEvent,
@@ -39,10 +40,15 @@ export function EventDetails() {
   const calendars = useValue(calendar$.calendars)
   const events = useValue(calendar$.events)
   const [asking, setAsking] = useState(false)
+  const [answering, setAnswering] = useState(false)
   useEscapeKey(closeDetails, Boolean(event))
   if (!event) return null
 
   const series = seriesInWindow(event, events)
+  // An invitation to answer: someone else convened it and this account is on
+  // the list. An event of one's own has nobody to answer to.
+  const invitation = event.attendees.length > 0 && Boolean(event.my_response)
+  const answered = !/^(none|noresponse|needsaction|unknown)/i.test(event.my_response)
   const calendar = calendars.find(
     (candidate) => candidate.accountId === event.accountId && candidate.id === event.calendar_id,
   )
@@ -198,6 +204,46 @@ export function EventDetails() {
           />
         )}
 
+        {/* An invitation this account is on, organised by someone else. The
+            organiser is told, so it is never answered on the reader's behalf:
+            the three buttons are the whole mechanism. */}
+        {invitation && (
+          <div className="shrink-0 border-t border-border/60 px-5 py-3">
+            <p className="mb-2 text-[0.6875rem] text-secondary">
+              {answered
+                ? t('calendar.yourAnswer', {
+                    defaultValue: 'Your answer: {answer}',
+                    answer: responseLabel(event.my_response, t),
+                  })
+                : t('calendar.invitationPending', { defaultValue: 'You have been invited.' })}
+            </p>
+            <div className="flex gap-2">
+              {(['accept', 'tentative', 'decline'] as const).map((choice) => (
+                <button
+                  key={choice}
+                  type="button"
+                  disabled={answering}
+                  onClick={() => {
+                    setAnswering(true)
+                    void respondToInvitation(event, choice).finally(() => setAnswering(false))
+                  }}
+                  className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 cursor-pointer ${
+                    answeredAs(event.my_response, choice)
+                      ? 'border-accent bg-accent text-white'
+                      : 'border-border bg-raised text-primary hover:bg-hover'
+                  }`}
+                >
+                  {choice === 'accept'
+                    ? t('calendar.accept', { defaultValue: 'Accept' })
+                    : choice === 'tentative'
+                      ? t('calendar.maybe', { defaultValue: 'Maybe' })
+                      : t('calendar.decline', { defaultValue: 'Decline' })}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-border/60 px-5 py-3">
           {readOnly ? (
             <p className="mr-auto text-[0.6875rem] text-secondary">
@@ -339,6 +385,16 @@ function formatDuration(
     hours,
     minutes,
   })
+}
+
+/// Whether a stored answer is the one a button offers. Servers spell their
+/// answers differently — "Accept", "accepted", "Tentative" — so they are
+/// compared by what they mean rather than by their letters.
+function answeredAs(stored: string, choice: 'accept' | 'tentative' | 'decline'): boolean {
+  const normalised = stored.toLowerCase()
+  if (choice === 'accept') return normalised.includes('accept')
+  if (choice === 'decline') return normalised.includes('decline')
+  return normalised.includes('tentative')
 }
 
 /// Servers answer with their own vocabulary; these are the three answers that

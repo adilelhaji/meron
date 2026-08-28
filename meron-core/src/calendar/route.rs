@@ -195,6 +195,39 @@ pub async fn delete_event(
     }
 }
 
+/// Answers a meeting invitation, whichever backend holds it.
+pub async fn respond(
+    engine: &Arc<Engine>,
+    account: &str,
+    calendar_id: &str,
+    event_id: &str,
+    change_key: Option<&str>,
+    response: super::Response,
+) -> Result<()> {
+    match route_with_token(engine, account).await? {
+        (Route::Exchange, _) => {
+            let id = event_id.to_string();
+            let change_key = change_key.map(str::to_string);
+            engine
+                .with_write_session(account, |session| {
+                    let id = id.clone();
+                    let change_key = change_key.clone();
+                    Box::pin(async move {
+                        session.respond(&id, change_key.as_deref(), response).await
+                    })
+                })
+                .await
+        }
+        (Route::Google, token) => {
+            let calendar_id = calendar_id.to_string();
+            let event_id = event_id.to_string();
+            blocking(move || super::google::respond(&token, &calendar_id, &event_id, response))
+                .await
+        }
+        (Route::None, _) => anyhow::bail!("this account has no calendar"),
+    }
+}
+
 /// The rule behind the series an occurrence belongs to, or `None` when there
 /// is none to show.
 ///

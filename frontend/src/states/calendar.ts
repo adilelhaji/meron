@@ -458,6 +458,45 @@ export function closeDetails() {
   calendar$.viewing.set(null)
 }
 
+/// An answer to a meeting invitation.
+export type MeetingResponse = 'accept' | 'tentative' | 'decline'
+
+/// Answers a meeting invitation, telling the organiser.
+///
+/// The one calendar action that deliberately reaches another person, so it is
+/// never taken on the reader's behalf — only when they press one of the three.
+export async function respondToInvitation(event: CalendarEvent, response: MeetingResponse) {
+  calendar$.error.set('')
+  try {
+    await invoke('calendar.respond', {
+      account_id: event.accountId,
+      calendar_id: event.calendar_id,
+      event_id: event.id,
+      change_key: event.change_key ?? '',
+      response,
+      start: event.start,
+      end: event.end,
+    })
+    // Shown at once rather than waiting for the sync behind it: the answer is
+    // already on its way, and a button that seems not to have worked invites
+    // pressing it again.
+    calendar$.events.set(
+      calendar$.events
+        .peek()
+        .map((candidate) =>
+          candidate.id === event.id ? { ...candidate, my_response: response } : candidate,
+        ),
+    )
+    const viewing = calendar$.viewing.peek()
+    if (viewing && viewing.id === event.id) {
+      calendar$.viewing.set({ ...viewing, my_response: response })
+    }
+  } catch (err) {
+    calendar$.error.set(String(err))
+    throw err
+  }
+}
+
 /// Reads the rule behind an event's series, for the editor to show.
 ///
 /// Asked for on opening rather than carried with the event: the core keeps

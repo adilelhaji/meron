@@ -346,6 +346,35 @@ impl EwsClient {
         Ok(None)
     }
 
+    /// Answers a meeting invitation.
+    ///
+    /// A response is created, not written onto the appointment: the answer is
+    /// a message to the organizer, and the server updates the calendar from
+    /// it. Sent and saved, because an answer nobody receives is not an answer.
+    pub fn respond(&self, item: &EwsId, response: crate::calendar::Response) -> anyhow::Result<()> {
+        use crate::calendar::Response;
+        let reference = Message {
+            reference_item_id: Some(::ews::ReferenceItemId {
+                id: item.0.clone(),
+                change_key: item.1.clone(),
+            }),
+            ..Message::default()
+        };
+        let answer = match response {
+            Response::Accept => RealItem::AcceptItem(reference),
+            Response::Tentative => RealItem::TentativelyAcceptItem(reference),
+            Response::Decline => RealItem::DeclineItem(reference),
+        };
+        let response = self.call(CreateItem {
+            message_disposition: Some(MessageDisposition::SendAndSaveCopy),
+            send_meeting_invitations: None,
+            saved_item_folder_id: None,
+            items: vec![answer],
+        })?;
+        into_successes(response).context("CreateItem meeting response")?;
+        Ok(())
+    }
+
     pub fn delete_event(&self, item: &EwsId, whole_series: bool) -> anyhow::Result<()> {
         let response = self.call(DeleteItem {
             delete_type: DeleteType::MoveToDeletedItems,
@@ -1319,6 +1348,18 @@ impl EwsSession {
         Ok(())
     }
 
+    /// Answers a meeting invitation.
+    pub async fn respond(
+        &mut self,
+        event_id: &str,
+        change_key: Option<&str>,
+        response: crate::calendar::Response,
+    ) -> anyhow::Result<()> {
+        let item = (event_id.to_string(), change_key.map(str::to_string));
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || client.respond(&item, response)).await?
+    }
+
     /// The rule behind a series, read from the master an occurrence belongs to.
     ///
     /// Fetched on demand rather than stored: the store keeps occurrences, and
@@ -2011,6 +2052,47 @@ mod tests {
             id: id.to_string(),
             change_key: None,
         }
+    }
+
+    #[test]
+    fn an_answer_names_the_request_it_answers_and_which_answer_it_is() {
+        use crate::calendar::Response;
+        let reference = |response: Response| {
+            let item = Message {
+                reference_item_id: Some(::ews::ReferenceItemId {
+                    id: "AAMkRequest=".to_string(),
+                    change_key: Some("CK9".to_string()),
+                }),
+                ..Message::default()
+            };
+            let answer = match response {
+                Response::Accept => RealItem::AcceptItem(item),
+                Response::Tentative => RealItem::TentativelyAcceptItem(item),
+                Response::Decline => RealItem::DeclineItem(item),
+            };
+            let request = build_request(CreateItem {
+                message_disposition: Some(MessageDisposition::SendAndSaveCopy),
+                send_meeting_invitations: None,
+                saved_item_folder_id: None,
+                items: vec![answer],
+            })
+            .expect("serialization should succeed");
+            String::from_utf8(request).expect("UTF-8")
+        };
+
+        let accepted = reference(Response::Accept);
+        assert!(accepted.contains("AcceptItem"), "{accepted}");
+        assert!(accepted.contains("ReferenceItemId"), "the request answered: {accepted}");
+        assert!(accepted.contains("AAMkRequest="), "{accepted}");
+        // Sent, not merely filed: an answer nobody receives is not an answer.
+        assert!(accepted.contains("SendAndSaveCopy"), "{accepted}");
+
+        // The three must not be confused for one another — telling an
+        // organizer the opposite of what was meant is the worst failure here.
+        let declined = reference(Response::Decline);
+        assert!(declined.contains("DeclineItem"), "{declined}");
+        assert!(!declined.contains("AcceptItem"), "{declined}");
+        assert!(reference(Response::Tentative).contains("TentativelyAcceptItem"));
     }
 
     #[test]

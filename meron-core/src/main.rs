@@ -1857,6 +1857,35 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "id": id }))
         }
 
+        // Answering a meeting invitation. Unlike every other calendar write,
+        // this one deliberately reaches people: an answer nobody receives is
+        // not an answer.
+        "calendar.respond" => {
+            let account = req_str(p, "account")?;
+            let calendar_id = p.get("calendar").and_then(Value::as_str).unwrap_or_default();
+            let event_id = req_str(p, "event")?;
+            let change_key = p.get("change_key").and_then(Value::as_str).filter(|k| !k.is_empty());
+            let answer = calendar::Response::parse(&req_str(p, "response")?)
+                .context("response must be accept, tentative or decline")?;
+            calendar::route::respond(
+                &engine,
+                &account,
+                calendar_id,
+                &event_id,
+                change_key,
+                answer,
+            )
+            .await?;
+            // The answer changes what the server holds; re-read the hours it
+            // occupies so the agenda shows the new state.
+            let event_start = p.get("start").and_then(Value::as_i64).unwrap_or_default();
+            let event_end = p.get("end").and_then(Value::as_i64).unwrap_or(event_start + 1);
+            if event_end > event_start {
+                spawn_calendar_sync(engine.clone(), out.clone(), account, event_start, event_end);
+            }
+            Ok(json!({ "ok": true }))
+        }
+
         // The rule behind a series, asked for when a reader opens a repeating
         // event: the store keeps occurrences, never rules.
         "calendar.seriesRule" => {

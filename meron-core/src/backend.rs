@@ -256,6 +256,19 @@ impl Session {
         }
     }
 
+    /// Answers a meeting invitation.
+    pub async fn respond(
+        &mut self,
+        event_id: &str,
+        change_key: Option<&str>,
+        response: crate::calendar::Response,
+    ) -> Result<()> {
+        match self {
+            Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
+            Session::Ews(session) => session.respond(event_id, change_key, response).await,
+        }
+    }
+
     /// The rule behind the series an occurrence belongs to.
     pub async fn series_rule(
         &mut self,

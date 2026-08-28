@@ -387,6 +387,57 @@ pub fn update_event(token: &str, event: &Event, whole_series: bool) -> Result<()
     Ok(())
 }
 
+/// Answers a meeting invitation.
+///
+/// Google keeps the answer on the attendee list, so this reads the event,
+/// changes only the entry belonging to this mailbox, and sends the list back —
+/// PATCHing attendees replaces the whole list, and rebuilding it from a
+/// stale copy would drop whoever joined in between.
+pub fn respond(
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    response: super::Response,
+) -> Result<()> {
+    #[derive(Deserialize)]
+    struct Current {
+        #[serde(default)]
+        attendees: Vec<serde_json::Value>,
+    }
+    let url = format!(
+        "{API}/calendars/{}/events/{}",
+        urlencode(calendar_id),
+        urlencode(event_id),
+    );
+    let current: Current =
+        serde_json::from_str(&call(token, "GET", &url, None)?).context("read event to answer")?;
+
+    let mut attendees = current.attendees;
+    let mut answered = false;
+    for attendee in attendees.iter_mut() {
+        if attendee.get("self").and_then(serde_json::Value::as_bool) == Some(true) {
+            if let Some(object) = attendee.as_object_mut() {
+                object.insert(
+                    "responseStatus".to_string(),
+                    serde_json::Value::String(response.google_status().to_string()),
+                );
+                answered = true;
+            }
+        }
+    }
+    if !answered {
+        anyhow::bail!("this account is not on the invitation");
+    }
+
+    call(
+        token,
+        "PATCH",
+        &url,
+        Some(serde_json::json!({ "attendees": attendees })),
+    )?;
+    Ok(())
+}
+
 pub fn delete_event(token: &str, calendar_id: &str, event_id: &str) -> Result<()> {
     let url = format!(
         "{API}/calendars/{}/events/{}",

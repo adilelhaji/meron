@@ -235,6 +235,35 @@ impl Recurrence {
     }
 }
 
+/// An answer to a meeting invitation.
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum Response {
+    Accept,
+    Tentative,
+    Decline,
+}
+
+impl Response {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.to_ascii_lowercase().as_str() {
+            "accept" | "accepted" => Some(Response::Accept),
+            "tentative" | "tentatively" => Some(Response::Tentative),
+            "decline" | "declined" => Some(Response::Decline),
+            _ => None,
+        }
+    }
+
+    /// What Google calls it.
+    pub fn google_status(self) -> &'static str {
+        match self {
+            Response::Accept => "accepted",
+            Response::Tentative => "tentative",
+            Response::Decline => "declined",
+        }
+    }
+}
+
 /// An event's notes as plain text, whatever the server sent.
 ///
 /// Exchange declares the type of its body, but Google and published `.ics`
