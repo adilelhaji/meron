@@ -190,7 +190,12 @@ impl EwsClient {
     }
 
     /// Creates an event on a calendar and returns its new id.
-    pub fn create_event(&self, calendar: &EwsId, event: &Event) -> anyhow::Result<EwsId> {
+    pub fn create_event(
+        &self,
+        calendar: &EwsId,
+        event: &Event,
+        notify: bool,
+    ) -> anyhow::Result<EwsId> {
         let response = self.call(CreateItem {
             message_disposition: None,
             // The server refuses to create a calendar item without this, even
@@ -198,9 +203,14 @@ impl EwsClient {
             // writing something in your own calendar from mailing anyone:
             // inviting people is a deliberate act, and belongs with meeting
             // invitations rather than with saving an appointment.
-            send_meeting_invitations: Some(
-                ::ews::create_item::SendMeetingInvitations::SendToNone,
-            ),
+            // Nobody is told unless the caller says so, and the caller only
+            // says so when the reader has confirmed it: writing in a calendar
+            // must not mail people by surprise.
+            send_meeting_invitations: Some(if notify {
+                ::ews::create_item::SendMeetingInvitations::SendToAllAndSaveCopy
+            } else {
+                ::ews::create_item::SendMeetingInvitations::SendToNone
+            }),
             saved_item_folder_id: Some(folder_id(calendar)),
             items: vec![RealItem::CalendarItem(event_item(event))],
         })?;
@@ -225,6 +235,7 @@ impl EwsClient {
         item: &EwsId,
         event: &Event,
         whole_series: bool,
+        notify: bool,
     ) -> anyhow::Result<()> {
         // Each change carries exactly one property, inside an item of the
         // type being updated: a calendar field in a Message is rejected.
@@ -307,9 +318,11 @@ impl EwsClient {
             message_disposition: MessageDisposition::SaveOnly,
             // Required on a calendar update for the same reason as on create,
             // and set to notify nobody for the same reason too.
-            send_meeting_invitations_or_cancellations: Some(
-                ::ews::update_item::SendMeetingInvitationsOrCancellations::SendToNone,
-            ),
+            send_meeting_invitations_or_cancellations: Some(if notify {
+                ::ews::update_item::SendMeetingInvitationsOrCancellations::SendToAllAndSaveCopy
+            } else {
+                ::ews::update_item::SendMeetingInvitationsOrCancellations::SendToNone
+            }),
             conflict_resolution: Some(ConflictResolution::AlwaysOverwrite),
             item_changes: vec![ItemChange {
                 item_change: ItemChangeInner {
@@ -375,13 +388,22 @@ impl EwsClient {
         Ok(())
     }
 
-    pub fn delete_event(&self, item: &EwsId, whole_series: bool) -> anyhow::Result<()> {
+    pub fn delete_event(
+        &self,
+        item: &EwsId,
+        whole_series: bool,
+        notify: bool,
+    ) -> anyhow::Result<()> {
         let response = self.call(DeleteItem {
             delete_type: DeleteType::MoveToDeletedItems,
             // Deleting a meeting you organize would normally notify the
             // attendees; this does not, for the same reason the others do not.
             // Cancelling a meeting properly belongs with invitations.
-            send_meeting_cancellations: Some(::ews::delete_item::SendMeetingCancellations::SendToNone),
+            send_meeting_cancellations: Some(if notify {
+                ::ews::delete_item::SendMeetingCancellations::SendToAllAndSaveCopy
+            } else {
+                ::ews::delete_item::SendMeetingCancellations::SendToNone
+            }),
             affected_task_occurrences: None,
             suppress_read_receipts: None,
             item_ids: vec![scoped_item_id(item, whole_series)],
@@ -1279,12 +1301,12 @@ impl EwsSession {
 
     /// Creates an event on a calendar, returning it with the id the server
     /// assigned.
-    pub async fn create_event(&mut self, event: &Event) -> anyhow::Result<Event> {
+    pub async fn create_event(&mut self, event: &Event, notify: bool) -> anyhow::Result<Event> {
         let calendar = self.calendar_ref(&event.calendar_id).await?;
         let client = self.client.clone();
         let payload = event.clone();
         let (id, change_key) =
-            tokio::task::spawn_blocking(move || client.create_event(&calendar, &payload)).await??;
+            tokio::task::spawn_blocking(move || client.create_event(&calendar, &payload, notify)).await??;
         Ok(Event {
             id,
             change_key,
@@ -1293,12 +1315,19 @@ impl EwsSession {
     }
 
     /// Applies a changed event, to the occurrence alone or to its whole series.
-    pub async fn update_event(&mut self, event: &Event, whole_series: bool) -> anyhow::Result<()> {
+    pub async fn update_event(
+        &mut self,
+        event: &Event,
+        whole_series: bool,
+        notify: bool,
+    ) -> anyhow::Result<()> {
         let item = (event.id.clone(), event.change_key.clone());
         let client = self.client.clone();
         let payload = event.clone();
-        tokio::task::spawn_blocking(move || client.update_event(&item, &payload, whole_series))
-            .await?
+        tokio::task::spawn_blocking(move || {
+            client.update_event(&item, &payload, whole_series, notify)
+        })
+        .await?
     }
 
     /// Deletes an event, or the whole series it belongs to.
@@ -1307,10 +1336,11 @@ impl EwsSession {
         event_id: &str,
         change_key: Option<&str>,
         whole_series: bool,
+        notify: bool,
     ) -> anyhow::Result<()> {
         let item = (event_id.to_string(), change_key.map(str::to_string));
         let client = self.client.clone();
-        tokio::task::spawn_blocking(move || client.delete_event(&item, whole_series)).await?
+        tokio::task::spawn_blocking(move || client.delete_event(&item, whole_series, notify)).await?
     }
 
     pub async fn create_calendar(&mut self, name: &str) -> anyhow::Result<String> {
@@ -1582,8 +1612,32 @@ fn event_item(event: &Event) -> Message {
             .recurrence
             .as_ref()
             .and_then(|rule| ews_recurrence(rule, event.start)),
+        required_attendees: attendee_list(&event.attendees),
         ..Message::default()
     }
+}
+
+/// The attendee list a write carries, or `None` when there is nobody on it.
+///
+/// Only those with an address: an attendee the server named only by an
+/// internal directory entry has no address to invite, and sending the list
+/// without them would quietly uninvite them. The caller checks for that case
+/// before writing at all — see `can_carry_attendees`.
+fn attendee_list(people: &[crate::calendar::Participant]) -> Option<::ews::ArrayOfAttendees> {
+    let attendees: Vec<::ews::Attendee> = people
+        .iter()
+        .filter(|person| !person.addr.trim().is_empty())
+        .map(|person| ::ews::Attendee {
+            mailbox: ::ews::Mailbox {
+                name: (!person.name.trim().is_empty()).then(|| person.name.clone()),
+                email_address: Some(person.addr.clone()),
+                ..Default::default()
+            },
+            response_type: None,
+            last_response_time: None,
+        })
+        .collect();
+    (!attendees.is_empty()).then(|| ::ews::ArrayOfAttendees(attendees))
 }
 
 /// The Exchange recurrence for a rule, anchored on the event's own start.

@@ -537,14 +537,18 @@ export function closeEditor() {
 /// series.
 export type EditScope = 'occurrence' | 'series'
 
-export async function saveEvent(draft: EventDraft, scope: EditScope = 'occurrence') {
+export async function saveEvent(
+  draft: EventDraft,
+  scope: EditScope = 'occurrence',
+  notify = false,
+) {
   calendar$.saving.set(true)
   calendar$.error.set('')
   try {
     if (draft.id) {
-      await invoke('calendar.update', { account_id: draft.accountId, event: draft, scope })
+      await invoke('calendar.update', { account_id: draft.accountId, event: draft, scope, notify })
     } else {
-      await invoke('calendar.create', { account_id: draft.accountId, event: draft })
+      await invoke('calendar.create', { account_id: draft.accountId, event: draft, notify })
     }
     closeEditor()
     const { from, to } = calendar$.peek()
@@ -557,7 +561,11 @@ export async function saveEvent(draft: EventDraft, scope: EditScope = 'occurrenc
   }
 }
 
-export async function deleteEvent(event: CalendarEvent, scope: EditScope = 'occurrence') {
+export async function deleteEvent(
+  event: CalendarEvent,
+  scope: EditScope = 'occurrence',
+  notify = false,
+) {
   calendar$.error.set('')
   try {
     await invoke('calendar.delete', {
@@ -569,6 +577,7 @@ export async function deleteEvent(event: CalendarEvent, scope: EditScope = 'occu
       change_key: event.change_key ?? '',
       series_id: event.series_id ?? '',
       scope,
+      notify,
     })
     closeEditor()
     calendar$.viewing.set(null)

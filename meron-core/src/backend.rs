@@ -249,10 +249,11 @@ impl Session {
     pub async fn create_event(
         &mut self,
         event: &crate::calendar::Event,
+        notify: bool,
     ) -> Result<crate::calendar::Event> {
         match self {
             Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
-            Session::Ews(session) => session.create_event(event).await,
+            Session::Ews(session) => session.create_event(event, notify).await,
         }
     }
 
@@ -285,10 +286,11 @@ impl Session {
         &mut self,
         event: &crate::calendar::Event,
         whole_series: bool,
+        notify: bool,
     ) -> Result<()> {
         match self {
             Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
-            Session::Ews(session) => session.update_event(event, whole_series).await,
+            Session::Ews(session) => session.update_event(event, whole_series, notify).await,
         }
     }
 
@@ -297,10 +299,11 @@ impl Session {
         id: &str,
         change_key: Option<&str>,
         whole_series: bool,
+        notify: bool,
     ) -> Result<()> {
         match self {
             Session::Imap(_) => Err(anyhow::anyhow!("this account has no calendar")),
-            Session::Ews(session) => session.delete_event(id, change_key, whole_series).await,
+            Session::Ews(session) => session.delete_event(id, change_key, whole_series, notify).await,
         }
     }
 

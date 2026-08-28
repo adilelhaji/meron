@@ -108,20 +108,27 @@ pub async fn events_in_window(
     }
 }
 
-pub async fn create_event(engine: &Arc<Engine>, account: &str, event: &Event) -> Result<Event> {
+/// Creates an event. `notify` decides whether the people on it are told, and
+/// is only ever true when the reader has said so.
+pub async fn create_event(
+    engine: &Arc<Engine>,
+    account: &str,
+    event: &Event,
+    notify: bool,
+) -> Result<Event> {
     match route_with_token(engine, account).await? {
         (Route::Exchange, _) => {
             let event = event.clone();
             engine
                 .with_write_session(account, |session| {
                     let event = event.clone();
-                    Box::pin(async move { session.create_event(&event).await })
+                    Box::pin(async move { session.create_event(&event, notify).await })
                 })
                 .await
         }
         (Route::Google, token) => {
             let event = event.clone();
-            blocking(move || super::google::create_event(&token, &event)).await
+            blocking(move || super::google::create_event(&token, &event, notify)).await
         }
         (Route::None, _) => anyhow::bail!("this account has no calendar"),
     }
@@ -133,6 +140,7 @@ pub async fn update_event(
     account: &str,
     event: &Event,
     whole_series: bool,
+    notify: bool,
 ) -> Result<()> {
     match route_with_token(engine, account).await? {
         (Route::Exchange, _) => {
@@ -140,13 +148,13 @@ pub async fn update_event(
             engine
                 .with_write_session(account, |session| {
                     let event = event.clone();
-                    Box::pin(async move { session.update_event(&event, whole_series).await })
+                    Box::pin(async move { session.update_event(&event, whole_series, notify).await })
                 })
                 .await
         }
         (Route::Google, token) => {
             let event = event.clone();
-            blocking(move || super::google::update_event(&token, &event, whole_series)).await
+            blocking(move || super::google::update_event(&token, &event, whole_series, notify)).await
         }
         (Route::None, _) => anyhow::bail!("this account has no calendar"),
     }
@@ -164,6 +172,7 @@ pub async fn delete_event(
     change_key: Option<&str>,
     series_id: Option<&str>,
     whole_series: bool,
+    notify: bool,
 ) -> Result<()> {
     match route_with_token(engine, account).await? {
         (Route::Exchange, _) => {
@@ -175,7 +184,7 @@ pub async fn delete_event(
                     let change_key = change_key.clone();
                     Box::pin(async move {
                         session
-                            .delete_event(&id, change_key.as_deref(), whole_series)
+                            .delete_event(&id, change_key.as_deref(), whole_series, notify)
                             .await
                     })
                 })
@@ -189,7 +198,7 @@ pub async fn delete_event(
                 (true, Some(series)) => series.to_string(),
                 _ => event_id.to_string(),
             };
-            blocking(move || super::google::delete_event(&token, &calendar_id, &target)).await
+            blocking(move || super::google::delete_event(&token, &calendar_id, &target, notify)).await
         }
         (Route::None, _) => anyhow::bail!("this account has no calendar"),
     }

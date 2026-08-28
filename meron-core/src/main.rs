@@ -1970,7 +1970,10 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             if event.end < event.start {
                 anyhow::bail!("an event cannot end before it starts");
             }
-            let created = calendar::route::create_event(&engine, &account, &event).await?;
+            // Telling the people on an event is never assumed: the caller says
+            // so only after the reader has confirmed it.
+            let notify = p.get("notify").and_then(Value::as_bool).unwrap_or(false);
+            let created = calendar::route::create_event(&engine, &account, &event, notify).await?;
             spawn_calendar_sync(
                 engine.clone(),
                 out.clone(),
@@ -1997,7 +2000,8 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 .get("scope")
                 .and_then(Value::as_str)
                 .is_some_and(|scope| scope == "series");
-            calendar::route::update_event(&engine, &account, &event, whole_series).await?;
+            let notify = p.get("notify").and_then(Value::as_bool).unwrap_or(false);
+            calendar::route::update_event(&engine, &account, &event, whole_series, notify).await?;
             spawn_calendar_sync(
                 engine.clone(),
                 out.clone(),
@@ -2033,6 +2037,7 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 change_key,
                 series_id,
                 whole_series,
+                p.get("notify").and_then(Value::as_bool).unwrap_or(false),
             )
             .await?;
             // Drop the cached rows now: the agenda should not keep showing what

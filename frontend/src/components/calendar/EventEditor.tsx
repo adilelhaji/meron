@@ -11,9 +11,11 @@ import {
   type EditScope,
   type EventDraft,
   type Frequency,
+  type Participant,
   type Recurrence,
 } from '../../states/calendar'
 import { ScopeAsk } from './ScopeAsk'
+import { NotifyAsk } from './NotifyAsk'
 
 /// Creates or edits one event.
 ///
@@ -30,6 +32,12 @@ export function EventEditor() {
   const calendars = useValue(calendar$.calendars)
   const [local, setLocal] = useState<EventDraft | null>(null)
   const [pendingScope, setPendingScope] = useState<'save' | 'delete' | null>(null)
+  // An action waiting on "should the people on it be told?", with the scope
+  // already decided.
+  const [pendingNotify, setPendingNotify] = useState<{
+    action: 'save' | 'delete'
+    scope: EditScope
+  } | null>(null)
   // The rule is not carried with an occurrence, so it is fetched once when a
   // repeating event is opened.
   const [ruleLoaded, setRuleLoaded] = useState('')
@@ -66,6 +74,19 @@ export function EventEditor() {
   // Only an occurrence of a real series raises the question; a one-off, or an
   // event being created, has only one answer.
   const repeats = !isNew && event.is_recurring && Boolean(event.series_id)
+  // People who could be told. Only those with an address: an attendee the
+  // server named without one cannot be written to.
+  const invitees = event.attendees.map((person) => person.addr.trim()).filter(Boolean)
+
+  /// Runs an action through the questions it raises, in order: which
+  /// occurrences, then whether to tell anyone. Neither is asked when it has
+  /// only one answer.
+  const begin = (action: 'save' | 'delete') => {
+    if (repeats) return setPendingScope(action)
+    if (invitees.length > 0) return setPendingNotify({ action, scope: 'occurrence' })
+    if (action === 'save') void saveEvent(event)
+    else void deleteEvent(event)
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={closeEditor}>
@@ -97,6 +118,32 @@ export function EventEditor() {
           <Labelled label={t('calendar.location', { defaultValue: 'Location' })}>
             <input value={event.location ?? ''} onChange={(e) => set({ location: e.target.value })} className={inputClass} />
           </Labelled>
+
+          {/* Only when creating. Changing who is on an existing meeting is a
+              separate matter: an attendee the server named without an address
+              cannot be written back, and sending the list without them would
+              quietly uninvite them. */}
+          {isNew ? (
+            <Labelled label={t('calendar.attendees', { defaultValue: 'Invite' })}>
+              <Attendees
+                people={event.attendees}
+                onChange={(attendees) => set({ attendees })}
+                placeholder={t('calendar.attendeesHint', {
+                  defaultValue: 'Email address, then Enter',
+                })}
+              />
+            </Labelled>
+          ) : (
+            event.attendees.length > 0 && (
+              <Labelled label={t('calendar.attendees', { defaultValue: 'Invite' })}>
+                <p className="rounded-xl bg-raised px-3 py-2 text-[0.6875rem] text-secondary">
+                  {event.attendees
+                    .map((person) => person.name || person.addr)
+                    .join(', ')}
+                </p>
+              </Labelled>
+            )
+          )}
 
           <Labelled label={t('calendar.reminder', { defaultValue: 'Reminder' })}>
             <select
@@ -225,8 +272,23 @@ export function EventEditor() {
             onCancel={() => setPendingScope(null)}
             onChoose={(scope: EditScope) => {
               setPendingScope(null)
+              if (invitees.length > 0) return setPendingNotify({ action: asking, scope })
               if (asking === 'save') void saveEvent(event, scope)
               else void deleteEvent(event, scope)
+            }}
+          />
+        )}
+
+        {pendingNotify && (
+          <NotifyAsk
+            action={pendingNotify.action}
+            people={invitees}
+            onCancel={() => setPendingNotify(null)}
+            onChoose={(notify) => {
+              const { action, scope } = pendingNotify
+              setPendingNotify(null)
+              if (action === 'save') void saveEvent(event, scope, notify)
+              else void deleteEvent(event, scope, notify)
             }}
           />
         )}
@@ -235,7 +297,7 @@ export function EventEditor() {
           {!isNew ? (
             <button
               type="button"
-              onClick={() => (repeats ? setPendingScope('delete') : void deleteEvent(event))}
+              onClick={() => begin('delete')}
               className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-rose-500 transition-colors hover:bg-rose-500/10 cursor-pointer"
             >
               <Trash2 size={13} />
@@ -255,7 +317,7 @@ export function EventEditor() {
             <button
               type="button"
               disabled={invalid || saving}
-              onClick={() => (repeats ? setPendingScope('save') : void saveEvent(event))}
+              onClick={() => begin('save')}
               className="rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
             >
               {t('calendar.save', { defaultValue: 'Save' })}
@@ -524,6 +586,71 @@ function RepeatFields({
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/// The people invited to an event, added one address at a time.
+///
+/// Addresses are typed rather than picked from a directory: translating an
+/// Exchange directory name into an address needs a lookup this client does not
+/// implement, and a picker that could not find half the organisation would be
+/// worse than a plain field.
+function Attendees({
+  people,
+  onChange,
+  placeholder,
+}: {
+  people: Participant[]
+  onChange: (people: Participant[]) => void
+  placeholder: string
+}) {
+  const [typed, setTyped] = useState('')
+
+  const add = () => {
+    const addr = typed.trim()
+    // Enough of a check to catch a slip, not enough to argue with a valid
+    // address this client has never seen.
+    if (!addr.includes('@') || people.some((person) => person.addr === addr)) return
+    onChange([...people, { name: '', addr, response: '' }])
+    setTyped('')
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {people.length > 0 && (
+        <ul className="flex flex-wrap gap-1">
+          {people.map((person) => (
+            <li
+              key={person.addr}
+              className="flex items-center gap-1 rounded-lg bg-raised px-2 py-1 text-[0.6875rem] text-primary"
+            >
+              <span className="max-w-[12rem] truncate">{person.addr}</span>
+              <button
+                type="button"
+                onClick={() => onChange(people.filter((other) => other.addr !== person.addr))}
+                aria-label={person.addr}
+                className="text-secondary hover:text-rose-500 cursor-pointer"
+              >
+                <X size={11} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <input
+        value={typed}
+        onChange={(event) => setTyped(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ',') {
+            event.preventDefault()
+            add()
+          }
+        }}
+        onBlur={add}
+        placeholder={placeholder}
+        className={inputClass}
+      />
     </div>
   )
 }

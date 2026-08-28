@@ -350,9 +350,21 @@ pub fn events_in_window(
     Ok(events)
 }
 
+/// What Google is told about telling the people on an event.
+///
+/// Explicit either way rather than left to the default, since the default is
+/// the server's opinion and this decision is the reader's.
+fn updates_query(notify: bool) -> &'static str {
+    if notify { "sendUpdates=all" } else { "sendUpdates=none" }
+}
+
 /// Creates an event and returns it with the id the server assigned.
-pub fn create_event(token: &str, event: &Event) -> Result<Event> {
-    let url = format!("{API}/calendars/{}/events", urlencode(&event.calendar_id));
+pub fn create_event(token: &str, event: &Event, notify: bool) -> Result<Event> {
+    let url = format!(
+        "{API}/calendars/{}/events?{}",
+        urlencode(&event.calendar_id),
+        updates_query(notify),
+    );
     let created: CreatedEvent = serde_json::from_str(&call(
         token,
         "POST",
@@ -370,7 +382,7 @@ pub fn create_event(token: &str, event: &Event) -> Result<Event> {
 /// Updates an event in place. PATCH rather than PUT: only the fields this
 /// client owns are sent, so anything Google keeps that Meron does not model —
 /// conferencing links, reminders, colours — survives the edit.
-pub fn update_event(token: &str, event: &Event, whole_series: bool) -> Result<()> {
+pub fn update_event(token: &str, event: &Event, whole_series: bool, notify: bool) -> Result<()> {
     // Changing the series means changing the master it was expanded from;
     // changing this one means changing the instance, which Google records as
     // an exception and leaves the rest of the series alone.
@@ -379,9 +391,10 @@ pub fn update_event(token: &str, event: &Event, whole_series: bool) -> Result<()
         _ => event.id.as_str(),
     };
     let url = format!(
-        "{API}/calendars/{}/events/{}",
+        "{API}/calendars/{}/events/{}?{}",
         urlencode(&event.calendar_id),
         urlencode(target),
+        updates_query(notify),
     );
     call(token, "PATCH", &url, Some(event_body(event)?))?;
     Ok(())
@@ -438,11 +451,17 @@ pub fn respond(
     Ok(())
 }
 
-pub fn delete_event(token: &str, calendar_id: &str, event_id: &str) -> Result<()> {
+pub fn delete_event(
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+    notify: bool,
+) -> Result<()> {
     let url = format!(
-        "{API}/calendars/{}/events/{}",
+        "{API}/calendars/{}/events/{}?{}",
         urlencode(calendar_id),
         urlencode(event_id),
+        updates_query(notify),
     );
     // A delete of something already gone is what was asked for, not a failure.
     match call(token, "DELETE", &url, None) {
@@ -564,6 +583,14 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
         "summary": event.subject,
         "location": event.location.clone().unwrap_or_default(),
         "description": event.description,
+        // Only those with an address: an attendee named without one cannot be
+        // invited, and sending the list without them would uninvite them.
+        "attendees": event
+            .attendees
+            .iter()
+            .filter(|person| !person.addr.trim().is_empty())
+            .map(|person| serde_json::json!({ "email": person.addr }))
+            .collect::<Vec<_>>(),
         "start": start,
         "end": end,
         // Explicit either way: sending overrides when there is a reminder, and
