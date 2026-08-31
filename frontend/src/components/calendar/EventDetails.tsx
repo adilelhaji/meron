@@ -14,17 +14,19 @@ import {
 } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { useEscapeKey } from '../../lib/useEscapeKey'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   allDayLocalDays,
   calendar$,
   eventColor,
+  loadEventDetails,
   respondToInvitation,
   seriesInWindow,
   closeDetails,
   deleteEvent,
   editEvent,
   type CalendarEvent,
+  type Participant,
 } from '../../states/calendar'
 import { ScopeAsk } from './ScopeAsk'
 
@@ -41,13 +43,40 @@ export function EventDetails() {
   const events = useValue(calendar$.events)
   const [asking, setAsking] = useState(false)
   const [answering, setAnswering] = useState(false)
+  // Who is on the event and its notes, which the window it came from does not
+  // carry. Fetched once per opening.
+  const [extra, setExtra] = useState<{
+    id: string
+    attendees: Participant[]
+    description: string
+  } | null>(null)
+
+  useEffect(() => {
+    if (!event?.id || extra?.id === event.id) return
+    let live = true
+    void loadEventDetails(event).then((details) => {
+      if (live && details) {
+        setExtra({ id: event.id, ...details })
+      }
+    })
+    return () => {
+      live = false
+    }
+  }, [event?.id, extra?.id])
   useEscapeKey(closeDetails, Boolean(event))
   if (!event) return null
 
   const series = seriesInWindow(event, events)
+  // What the window knew, completed by what was fetched: the window's copy is
+  // never wrong, only incomplete.
+  const attendees = extra?.id === event.id && extra.attendees.length > 0
+    ? extra.attendees
+    : event.attendees
+  const description =
+    extra?.id === event.id && extra.description ? extra.description : event.description
   // An invitation to answer: someone else convened it and this account is on
   // the list. An event of one's own has nobody to answer to.
-  const invitation = event.attendees.length > 0 && Boolean(event.my_response)
+  const invitation = attendees.length > 0 && Boolean(event.my_response)
   const answered = !/^(none|noresponse|needsaction|unknown)/i.test(event.my_response)
   const calendar = calendars.find(
     (candidate) => candidate.accountId === event.accountId && candidate.id === event.calendar_id,
@@ -161,20 +190,20 @@ export function EventDetails() {
             </Row>
           )}
 
-          {event.description && (
+          {description && (
             <Row icon={<AlignLeft size={14} />}>
               {/* Kept as the plain text it arrived as, with the author's own
                   line breaks: notes are read, not rendered. */}
               <p className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-primary">
-                {event.description}
+                {description}
               </p>
             </Row>
           )}
 
-          {event.attendees.length > 0 && (
+          {attendees.length > 0 && (
             <Row icon={<Users size={14} />}>
               <ul className="flex flex-col gap-1">
-                {event.attendees.map((person, index) => (
+                {attendees.map((person, index) => (
                   <li key={`${person.addr}:${index}`} className="flex items-baseline gap-2">
                     {/* The name is what identifies someone here: an internal
                         directory often gives no address the server will share. */}

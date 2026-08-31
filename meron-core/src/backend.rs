@@ -270,6 +270,18 @@ impl Session {
         }
     }
 
+    /// The attendees and notes of one event, which a window cannot carry.
+    pub async fn event_details(
+        &mut self,
+        event_id: &str,
+        change_key: Option<&str>,
+    ) -> Result<(Vec<crate::calendar::Participant>, String)> {
+        match self {
+            Session::Imap(_) => Ok((Vec::new(), String::new())),
+            Session::Ews(session) => session.event_details(event_id, change_key).await,
+        }
+    }
+
     /// The rule behind the series an occurrence belongs to.
     pub async fn series_rule(
         &mut self,

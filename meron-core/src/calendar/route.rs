@@ -237,6 +237,40 @@ pub async fn respond(
     }
 }
 
+/// What a cached occurrence cannot carry: who is on it, and its notes.
+///
+/// Exchange's window query returns neither, however they are asked for, so
+/// they are fetched when a reader opens an event. Google's window already
+/// carries both, and reading the event again is how this returns them without
+/// the caller having to know which backend it is talking to.
+pub async fn event_details(
+    engine: &Arc<Engine>,
+    account: &str,
+    calendar_id: &str,
+    event_id: &str,
+    change_key: Option<&str>,
+) -> Result<(Vec<super::Participant>, String)> {
+    match route_with_token(engine, account).await? {
+        (Route::Exchange, _) => {
+            let id = event_id.to_string();
+            let change_key = change_key.map(str::to_string);
+            engine
+                .with_read_session(account, |session| {
+                    let id = id.clone();
+                    let change_key = change_key.clone();
+                    Box::pin(async move { session.event_details(&id, change_key.as_deref()).await })
+                })
+                .await
+        }
+        (Route::Google, token) => {
+            let calendar_id = calendar_id.to_string();
+            let event_id = event_id.to_string();
+            blocking(move || super::google::event_details(&token, &calendar_id, &event_id)).await
+        }
+        (Route::None, _) => Ok((Vec::new(), String::new())),
+    }
+}
+
 /// The rule behind the series an occurrence belongs to, or `None` when there
 /// is none to show.
 ///

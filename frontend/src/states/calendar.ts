@@ -512,6 +512,32 @@ export async function retrySync() {
   if (to > from) await loadWindow(from, to, true)
 }
 
+/// Reads what a cached occurrence cannot carry: who is on the event and its
+/// notes.
+///
+/// Exchange's window query returns neither — its FindItem never returns
+/// collections or bodies, however they are asked for — so an event's people
+/// and notes are fetched when it is opened rather than shown as absent.
+export async function loadEventDetails(
+  event: CalendarEvent,
+): Promise<{ attendees: Participant[]; description: string } | null> {
+  try {
+    return await invoke<{ attendees: Participant[]; description: string }>(
+      'calendar.eventDetails',
+      {
+        account_id: event.accountId,
+        calendar_id: event.calendar_id,
+        event_id: event.id,
+        change_key: event.change_key ?? '',
+      },
+    )
+  } catch {
+    // Not reaching them is survivable: the event still shows what the window
+    // knew, which is everything except these two.
+    return null
+  }
+}
+
 /// Reads the rule behind an event's series, for the editor to show.
 ///
 /// Asked for on opening rather than carried with the event: the core keeps

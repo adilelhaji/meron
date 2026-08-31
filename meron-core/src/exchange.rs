@@ -336,6 +336,57 @@ impl EwsClient {
     }
 
     /// Deletes an event.
+    /// What a window cannot carry: the attendees and the notes.
+    ///
+    /// `FindItem` — which is what a `CalendarView` is — never returns
+    /// collections or bodies, however carefully they are asked for. They come
+    /// from a `GetItem` on the event itself, made when a reader opens one
+    /// rather than for every event in a window.
+    pub fn event_details(
+        &self,
+        item: &EwsId,
+    ) -> anyhow::Result<(Vec<crate::calendar::Participant>, String)> {
+        let response = self.call(GetItem {
+            item_shape: ItemShape {
+                base_shape: BaseShape::IdOnly,
+                include_mime_content: None,
+                additional_properties: Some(
+                    [
+                        "item:Body",
+                        "calendar:RequiredAttendees",
+                        "calendar:OptionalAttendees",
+                    ]
+                    .into_iter()
+                    .map(|uri| PathToElement::FieldURI {
+                        field_URI: uri.to_string(),
+                    })
+                    .collect(),
+                ),
+            },
+            item_ids: vec![item_id(item)],
+        })?;
+        for message in into_successes(response).context("GetItem event details")? {
+            for entry in message.items.inner {
+                let item = entry.inner_message();
+                let attendees = item
+                    .required_attendees
+                    .iter()
+                    .chain(item.optional_attendees.iter())
+                    .flat_map(|list| list.attendee.iter())
+                    .map(|attendee| participant(&attendee.mailbox, attendee.response_type))
+                    .collect();
+                let description = item
+                    .body
+                    .as_ref()
+                    .and_then(|body| body.content.as_deref())
+                    .map(crate::calendar::plain_notes)
+                    .unwrap_or_default();
+                return Ok((attendees, description));
+            }
+        }
+        Ok((Vec::new(), String::new()))
+    }
+
     /// The recurrence of the series an occurrence belongs to.
     pub fn series_rule(&self, item: &EwsId) -> anyhow::Result<Option<crate::calendar::Recurrence>> {
         let response = self.call(GetItem {
@@ -1388,6 +1439,17 @@ impl EwsSession {
         let item = (event_id.to_string(), change_key.map(str::to_string));
         let client = self.client.clone();
         tokio::task::spawn_blocking(move || client.respond(&item, response)).await?
+    }
+
+    /// The attendees and notes of one event.
+    pub async fn event_details(
+        &mut self,
+        event_id: &str,
+        change_key: Option<&str>,
+    ) -> anyhow::Result<(Vec<crate::calendar::Participant>, String)> {
+        let item = (event_id.to_string(), change_key.map(str::to_string));
+        let client = self.client.clone();
+        tokio::task::spawn_blocking(move || client.event_details(&item)).await?
     }
 
     /// The rule behind a series, read from the master an occurrence belongs to.

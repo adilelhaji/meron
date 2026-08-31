@@ -612,6 +612,40 @@ fn event_body(event: &Event) -> Result<serde_json::Value> {
     }))
 }
 
+/// Who is on an event, and its notes.
+///
+/// Google's window already carries both; reading the event again keeps the
+/// caller from having to know that, and costs one request when an event is
+/// opened.
+pub fn event_details(
+    token: &str,
+    calendar_id: &str,
+    event_id: &str,
+) -> Result<(Vec<super::Participant>, String)> {
+    let url = format!(
+        "{API}/calendars/{}/events/{}",
+        urlencode(calendar_id),
+        urlencode(event_id),
+    );
+    let source: GoogleEvent =
+        serde_json::from_str(&call(token, "GET", &url, None)?).context("read event")?;
+    let description = source
+        .description
+        .as_deref()
+        .map(super::plain_notes)
+        .unwrap_or_default();
+    let attendees = source
+        .attendees
+        .iter()
+        .map(|attendee| super::Participant {
+            name: attendee.display_name.clone().unwrap_or_default(),
+            addr: attendee.email.clone().unwrap_or_default(),
+            response: attendee.response_status.clone().unwrap_or_default(),
+        })
+        .collect();
+    Ok((attendees, description))
+}
+
 /// The rule behind a series, read from its master.
 ///
 /// An expanded instance does not carry the rule — only the id of the master it

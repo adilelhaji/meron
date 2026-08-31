@@ -1897,6 +1897,28 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "ok": true }))
         }
 
+        // What a cached occurrence cannot carry: who is on the event and its
+        // notes. Exchange's window query returns neither, so they are fetched
+        // when a reader opens one.
+        "calendar.eventDetails" => {
+            let account = req_str(p, "account")?;
+            let calendar_id = p.get("calendar").and_then(Value::as_str).unwrap_or_default();
+            let event_id = req_str(p, "event")?;
+            let change_key = p.get("change_key").and_then(Value::as_str).filter(|k| !k.is_empty());
+            let (attendees, description) = calendar::route::event_details(
+                &engine,
+                &account,
+                calendar_id,
+                &event_id,
+                change_key,
+            )
+            .await?;
+            Ok(json!({
+                "attendees": serde_json::to_value(attendees)?,
+                "description": description,
+            }))
+        }
+
         // The rule behind a series, asked for when a reader opens a repeating
         // event: the store keeps occurrences, never rules.
         "calendar.seriesRule" => {

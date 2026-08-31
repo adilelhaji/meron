@@ -176,6 +176,29 @@ func (a *App) calendarRespond(payload map[string]any) (any, error) {
 	})
 }
 
+// calendarEventDetails reads what a cached occurrence cannot carry: who is on
+// the event and its notes. Exchange's window query returns neither.
+func (a *App) calendarEventDetails(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID  string `json:"account_id"`
+		CalendarID string `json:"calendar_id"`
+		EventID    string `json:"event_id"`
+		ChangeKey  string `json:"change_key"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.eventDetails", map[string]any{
+		"account":    req.AccountID,
+		"calendar":   req.CalendarID,
+		"event":      req.EventID,
+		"change_key": req.ChangeKey,
+	})
+}
+
 // calendarSeriesRule reads the rule behind the series an occurrence belongs
 // to. Asked for when a repeating event is opened: the core keeps occurrences,
 // never rules, so this is one request rather than a stored second copy.
