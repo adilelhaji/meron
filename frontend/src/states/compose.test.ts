@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import type { Message } from '../types'
 import {
+  cancelQuickReplyDraftSave,
   activateConversationTab,
   closeMessageTab,
   compose$,
@@ -23,6 +24,7 @@ import {
   seedQuickReplySignature,
   sendReply,
   withoutHydratedQuickReplyDraft,
+  undoSend,
 } from './compose'
 import { accounts$ } from './accounts'
 import { settings$ } from './settings'
@@ -55,6 +57,14 @@ describe('openThreadTabById', () => {
     // These exercise what happens once a send has left; the grace period is
     // its own subject, tested separately.
     settings$.undoSendSeconds.set(0)
+    // Draft identity does not carry between tests: one that sets it up would
+    // otherwise hand it to the next, which is how a passing suite starts
+    // depending on its own order.
+    compose$.quickReplyDraftId.set('')
+    compose$.quickReplyDraftSaved.set(false)
+    // And no autosave left running from the test before: it would fire into
+    // the next test's mock and answer a call that test never made.
+    cancelQuickReplyDraftSave()
     compose$.tabs.set([])
     compose$.activeTab.set('')
     compose$.conversationThread.set('')
@@ -422,6 +432,10 @@ describe('quick reply draft sharing', () => {
   const calls: { command: string; payload: unknown }[] = []
 
   beforeEach(() => {
+    // A grace period left over from another test would hold this one's
+    // send instead of sending it, which is not what these are about.
+    settings$.undoSendSeconds.set(0)
+    cancelQuickReplyDraftSave()
     calls.length = 0
     compose$.tabs.set([])
     compose$.activeTab.set('')
@@ -680,6 +694,48 @@ describe('quick reply draft sharing', () => {
     expect(compose$.composer.get()).toBe('')
     expect(compose$.quickReplyDraftId.get()).toBe('')
     expect(compose$.quickReplyDraftSaved.get()).toBe(false)
+  })
+
+  it('undoing a held send keeps one draft, not two', async () => {
+    const thread = message({
+      id: 'root',
+      account_id: 'acc-1',
+      thread_id: 't-1',
+      folder_id: 'INBOX',
+      from_addr: 'them@example.com',
+      message_id: 'root@example.com',
+      date: 1000,
+    })
+    mail$.threads.set([thread])
+    mail$.messages.set([thread])
+    ui$.selectedThread.set('t-1')
+    compose$.composer.set('Wait, no')
+    // Written into a draft already saved on the server, which is the case the
+    // duplicate could arise in.
+    compose$.quickReplyDraftId.set('reply-draft@example.com')
+    compose$.quickReplyDraftSaved.set(true)
+    settings$.signature.set('')
+    // Long enough that it is still waiting when the undo arrives.
+    settings$.undoSendSeconds.set(30)
+
+    await sendReply()
+
+    const sentBubble = mail$.messages.get().find((m) => m.id.startsWith('sent-'))
+    expect(sentBubble?.send_status).toBe('queued')
+    // Cleared while the send is in flight, as a sent reply's draft is.
+    expect(compose$.quickReplyDraftId.get()).toBe('')
+
+    undoSend(sentBubble!.id)
+
+    // The bubble is gone and the text is back where it was written.
+    expect(mail$.messages.get().some((m) => m.id.startsWith('sent-'))).toBe(false)
+    expect(compose$.composer.get()).toBe('Wait, no')
+    // And on the same draft it was written in: the draft is only discarded
+    // once a send succeeds, so a new one here would leave the reply twice.
+    expect(compose$.quickReplyDraftId.get()).toBe('reply-draft@example.com')
+    expect(compose$.quickReplyDraftSaved.get()).toBe(true)
+    // Nothing was sent.
+    expect(calls.some((c) => c.command === 'mail.send')).toBe(false)
   })
 
   it('keeps the consumed draft guarded while the post-send discard is still in flight', async () => {

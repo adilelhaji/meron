@@ -1645,7 +1645,12 @@ export async function sendReply() {
   // this thread gets a signature just like the one just sent did.
   seedQuickReplySignature()
 
-  await holdThenSend(tempId)
+  // Held only when a grace period is configured; otherwise dispatched here,
+  // at the same depth as it always was — an extra async frame changes when a
+  // caller's continuation runs relative to the send's own follow-up work.
+  const graceSeconds = settings$.undoSendSeconds.peek()
+  if (graceSeconds > 0) holdSend(tempId, graceSeconds)
+  else await dispatchSend(tempId)
 }
 
 /// Holds a send for its grace period, then dispatches it.
@@ -1653,14 +1658,7 @@ export async function sendReply() {
 /// The message is already in the thread, marked as waiting: pressing Send has
 /// done everything except the irrevocable part, which is the only part worth
 /// pausing. With no grace period configured it goes at once.
-async function holdThenSend(tempId: string) {
-  const seconds = settings$.undoSendSeconds.peek()
-  if (seconds <= 0) {
-    // Awaited, so callers that expect the send to have happened still can:
-    // with no grace period there is nothing to wait for but the send itself.
-    await dispatchSend(tempId)
-    return
-  }
+function holdSend(tempId: string, seconds: number) {
   setSendStatus(tempId, 'queued')
   queueSend(
     tempId,
@@ -1678,12 +1676,34 @@ export function undoSend(tempId: string) {
 
 function undoOptimisticSend(tempId: string) {
   const payload = getPendingSend(tempId)
+  const guard = quickReplySendHydrationGuards.get(tempId)
   discardPendingSend(tempId)
   quickReplySendHydrationGuards.delete(tempId)
   mail$.messages.set(mail$.messages.peek().filter((message) => message.id !== tempId))
   if (!payload) return
+
   // Back into the composer, so nothing written has to be written again.
   compose$.composer.set(payload.html ? htmlToText(payload.html) : payload.body)
+  compose$.composerAttachments.set(
+    payload.attachments.map((file, index) => ({
+      id: `${tempId}-${index}`,
+      filename: file.filename,
+      mime: file.mime,
+      // The bytes are what was about to be sent; their length is the size.
+      size: Math.floor((file.data.length * 3) / 4),
+      data: file.data,
+      inlineId: file.inline_id || undefined,
+    })),
+  )
+
+  // And back onto the draft the reply was written in. The draft is only
+  // discarded once a send succeeds, so it is still on the server: without
+  // naming it again the next autosave would write a second one beside it,
+  // and the reader would find their reply twice.
+  if (guard?.draftId) {
+    compose$.quickReplyDraftId.set(guard.draftId)
+    compose$.quickReplyDraftSaved.set(true)
+  }
 }
 
 // Set the send lifecycle status on the optimistic message with the given id.
