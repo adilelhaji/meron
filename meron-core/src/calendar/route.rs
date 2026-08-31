@@ -134,6 +134,52 @@ pub async fn create_event(
     }
 }
 
+/// Fills in the addresses of attendees the server named without one.
+///
+/// Writing an attendee list replaces it, so an attendee this client cannot
+/// name would be dropped — quietly uninviting someone who is on the meeting.
+/// The directory is asked for each, and anyone still unresolved stops the
+/// write with their name in the message: refusing to save is recoverable,
+/// uninviting a colleague silently is not.
+async fn with_addresses(
+    engine: &Arc<Engine>,
+    account: &str,
+    event: &Event,
+) -> Result<Event> {
+    if event.attendees.iter().all(|person| !person.addr.trim().is_empty()) {
+        return Ok(event.clone());
+    }
+    let mut resolved = event.clone();
+    let mut unresolved = Vec::new();
+    for person in resolved.attendees.iter_mut() {
+        if !person.addr.trim().is_empty() {
+            continue;
+        }
+        let name = person.name.trim().to_string();
+        if name.is_empty() {
+            continue;
+        }
+        // The first match: the directory orders them by how well they match,
+        // and a display name taken from the meeting itself is exact.
+        match resolve_names(engine, account, &name).await {
+            Ok(matches) if !matches.is_empty() => person.addr = matches[0].addr.clone(),
+            _ => unresolved.push(name),
+        }
+    }
+    // Attendees with neither name nor address were never identifiable; they
+    // carry nothing to look up and nothing to lose.
+    resolved
+        .attendees
+        .retain(|person| !person.addr.trim().is_empty() || !person.name.trim().is_empty());
+    if !unresolved.is_empty() {
+        anyhow::bail!(
+            "could not find an address for {}; saving would have removed them from the meeting",
+            unresolved.join(", ")
+        );
+    }
+    Ok(resolved)
+}
+
 /// Applies a changed event to the occurrence alone, or to its whole series.
 pub async fn update_event(
     engine: &Arc<Engine>,
@@ -142,6 +188,9 @@ pub async fn update_event(
     whole_series: bool,
     notify: bool,
 ) -> Result<()> {
+    // Everyone on it must be nameable before the list is written, or writing
+    // it would remove those who are not.
+    let event = &with_addresses(engine, account, event).await?;
     match route_with_token(engine, account).await? {
         (Route::Exchange, _) => {
             let event = event.clone();
@@ -235,6 +284,44 @@ pub async fn respond(
         }
         (Route::None, _) => anyhow::bail!("this account has no calendar"),
     }
+}
+
+/// People matching a name or partial address, for choosing who to invite.
+///
+/// Exchange answers from its directory. Google has no equivalent this client
+/// can reach, so an address typed in full is passed straight back: a lookup
+/// that returns nothing would look like "no such person" for an address that
+/// is perfectly valid.
+pub async fn resolve_names(
+    engine: &Arc<Engine>,
+    account: &str,
+    query: &str,
+) -> Result<Vec<super::Participant>> {
+    match route_with_token(engine, account).await? {
+        (Route::Exchange, _) => {
+            let query = query.to_string();
+            engine
+                .with_read_session(account, |session| {
+                    let query = query.clone();
+                    Box::pin(async move { session.resolve_names(&query).await })
+                })
+                .await
+        }
+        _ => Ok(typed_address(query)),
+    }
+}
+
+/// A query that is already an address, as the only match for itself.
+fn typed_address(query: &str) -> Vec<super::Participant> {
+    let query = query.trim();
+    if query.contains('@') && !query.contains(char::is_whitespace) {
+        return vec![super::Participant {
+            name: String::new(),
+            addr: query.to_string(),
+            response: String::new(),
+        }];
+    }
+    Vec::new()
 }
 
 /// What a cached occurrence cannot carry: who is on it, and its notes.

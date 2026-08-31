@@ -270,6 +270,19 @@ impl Session {
         }
     }
 
+    /// Directory entries matching a name or partial address. An account with
+    /// no directory behind it answers with nothing rather than an error: there
+    /// is nobody to find, which is not a failure.
+    pub async fn resolve_names(
+        &mut self,
+        query: &str,
+    ) -> Result<Vec<crate::calendar::Participant>> {
+        match self {
+            Session::Imap(_) => Ok(Vec::new()),
+            Session::Ews(session) => session.resolve_names(query).await,
+        }
+    }
+
     /// The attendees and notes of one event, which a window cannot carry.
     pub async fn event_details(
         &mut self,

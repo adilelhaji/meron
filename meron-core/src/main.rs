@@ -1897,6 +1897,20 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
             Ok(json!({ "ok": true }))
         }
 
+        // People matching a name or partial address, for choosing who to
+        // invite. Exchange answers from its directory.
+        "calendar.resolveNames" => {
+            let account = req_str(p, "account")?;
+            let query = req_str(p, "query")?;
+            if query.trim().len() < 2 {
+                // Two letters is where a directory search starts being a
+                // search rather than a dump of the organisation.
+                return Ok(json!({ "people": [] }));
+            }
+            let people = calendar::route::resolve_names(&engine, &account, query.trim()).await?;
+            Ok(json!({ "people": serde_json::to_value(people)? }))
+        }
+
         // What a cached occurrence cannot carry: who is on the event and its
         // notes. Exchange's window query returns neither, so they are fetched
         // when a reader opens one.

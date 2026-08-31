@@ -124,7 +124,7 @@
   "calendar.addCalendar": "Ajouter un agenda",
   "calendar.allDay": "Toute la journée",
   "calendar.attendees": "Inviter",
-  "calendar.attendeesHint": "Adresse e-mail, puis Entrée",
+  "calendar.attendeesHint": "Nom ou adresse e-mail",
   "calendar.attendeesNote": "Cet événement a {count} invités. Le modifier ici ne les prévient pas.",
   "calendar.calendar": "Agenda",
   "calendar.calendarsAppearOnSync": "Les agendas du compte apparaissent ici dès la fin de sa première synchronisation.",

@@ -512,6 +512,26 @@ export async function retrySync() {
   if (to > from) await loadWindow(from, to, true)
 }
 
+/// People matching what has been typed, for choosing who to invite.
+///
+/// Exchange answers from its directory; elsewhere an address typed in full is
+/// its own match, so a field that finds nothing does not look like "no such
+/// person" for an address that is perfectly valid.
+export async function resolveNames(accountId: string, query: string): Promise<Participant[]> {
+  if (query.trim().length < 2) return []
+  try {
+    const res = await invoke<{ people: Participant[] }>('calendar.resolveNames', {
+      account_id: accountId,
+      query,
+    })
+    return res.people ?? []
+  } catch {
+    // A directory that cannot be reached must not stop someone typing an
+    // address they already know.
+    return []
+  }
+}
+
 /// Reads what a cached occurrence cannot carry: who is on the event and its
 /// notes.
 ///

@@ -7,6 +7,7 @@ import {
   closeEditor,
   deleteEvent,
   loadSeriesRule,
+  resolveNames,
   saveEvent,
   type EditScope,
   type EventDraft,
@@ -119,31 +120,16 @@ export function EventEditor() {
             <input value={event.location ?? ''} onChange={(e) => set({ location: e.target.value })} className={inputClass} />
           </Labelled>
 
-          {/* Only when creating. Changing who is on an existing meeting is a
-              separate matter: an attendee the server named without an address
-              cannot be written back, and sending the list without them would
-              quietly uninvite them. */}
-          {isNew ? (
-            <Labelled label={t('calendar.attendees', { defaultValue: 'Invite' })}>
-              <Attendees
-                people={event.attendees}
-                onChange={(attendees) => set({ attendees })}
-                placeholder={t('calendar.attendeesHint', {
-                  defaultValue: 'Email address, then Enter',
-                })}
-              />
-            </Labelled>
-          ) : (
-            event.attendees.length > 0 && (
-              <Labelled label={t('calendar.attendees', { defaultValue: 'Invite' })}>
-                <p className="rounded-xl bg-raised px-3 py-2 text-[0.6875rem] text-secondary">
-                  {event.attendees
-                    .map((person) => person.name || person.addr)
-                    .join(', ')}
-                </p>
-              </Labelled>
-            )
-          )}
+          <Labelled label={t('calendar.attendees', { defaultValue: 'Invite' })}>
+            <Attendees
+              accountId={event.accountId}
+              people={event.attendees}
+              onChange={(attendees) => set({ attendees })}
+              placeholder={t('calendar.attendeesHint', {
+                defaultValue: 'Name or email address',
+              })}
+            />
+          </Labelled>
 
           <Labelled label={t('calendar.reminder', { defaultValue: 'Reminder' })}>
             <select
@@ -597,23 +583,52 @@ function RepeatFields({
 /// implement, and a picker that could not find half the organisation would be
 /// worse than a plain field.
 function Attendees({
+  accountId,
   people,
   onChange,
   placeholder,
 }: {
+  accountId: string
   people: Participant[]
   onChange: (people: Participant[]) => void
   placeholder: string
 }) {
   const [typed, setTyped] = useState('')
+  const [matches, setMatches] = useState<Participant[]>([])
+
+  // Asked after a pause, not on every keystroke: each answer is a round trip
+  // to a directory, and nobody types a colleague's name one letter at a time.
+  useEffect(() => {
+    const query = typed.trim()
+    if (query.length < 2) {
+      setMatches([])
+      return
+    }
+    let live = true
+    const timer = setTimeout(() => {
+      void resolveNames(accountId, query).then((found) => {
+        if (live) setMatches(found.filter((one) => !people.some((p) => p.addr === one.addr)))
+      })
+    }, 250)
+    return () => {
+      live = false
+      clearTimeout(timer)
+    }
+  }, [accountId, typed, people])
+
+  const addPerson = (person: Participant) => {
+    if (!person.addr || people.some((other) => other.addr === person.addr)) return
+    onChange([...people, person])
+    setTyped('')
+    setMatches([])
+  }
 
   const add = () => {
+    // What was typed, when it is already an address. A name with no match is
+    // not added: an attendee without an address cannot be invited.
     const addr = typed.trim()
-    // Enough of a check to catch a slip, not enough to argue with a valid
-    // address this client has never seen.
     if (!addr.includes('@') || people.some((person) => person.addr === addr)) return
-    onChange([...people, { name: '', addr, response: '' }])
-    setTyped('')
+    addPerson({ name: '', addr, response: '' })
   }
 
   return (
@@ -644,13 +659,35 @@ function Attendees({
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ',') {
             event.preventDefault()
-            add()
+            // The first match when the directory found one, since that is what
+            // the reader was looking at; otherwise what they typed.
+            if (matches.length > 0) addPerson(matches[0])
+            else add()
           }
         }}
-        onBlur={add}
         placeholder={placeholder}
         className={inputClass}
       />
+      {matches.length > 0 && (
+        <ul className="max-h-32 overflow-y-auto rounded-xl border border-border bg-raised">
+          {matches.slice(0, 8).map((person) => (
+            <li key={person.addr}>
+              <button
+                type="button"
+                onClick={() => addPerson(person)}
+                className="flex w-full flex-col items-start px-3 py-1.5 text-left transition-colors hover:bg-hover cursor-pointer"
+              >
+                <span className="text-[0.6875rem] font-medium text-primary">
+                  {person.name || person.addr}
+                </span>
+                {person.name && (
+                  <span className="text-[0.625rem] text-secondary">{person.addr}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

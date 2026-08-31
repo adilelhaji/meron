@@ -237,82 +237,7 @@ impl EwsClient {
         whole_series: bool,
         notify: bool,
     ) -> anyhow::Result<()> {
-        // Each change carries exactly one property, inside an item of the
-        // type being updated: a calendar field in a Message is rejected.
-        let field = |uri: &str, item: Message| ItemChangeDescription::SetItemField {
-            field_uri: PathToElement::FieldURI {
-                field_URI: uri.to_string(),
-            },
-            item: RealItem::CalendarItem(item),
-        };
-        let mut updates = vec![
-            field(
-                "item:Subject",
-                Message {
-                    subject: Some(event.subject.clone()),
-                    ..Message::default()
-                },
-            ),
-            field(
-                "calendar:Start",
-                Message {
-                    start: Some(ews_time(event.start)),
-                    ..Message::default()
-                },
-            ),
-            field(
-                "calendar:End",
-                Message {
-                    end: Some(ews_time(event.end)),
-                    ..Message::default()
-                },
-            ),
-            field(
-                "calendar:IsAllDayEvent",
-                Message {
-                    is_all_day_event: Some(event.all_day),
-                    ..Message::default()
-                },
-            ),
-            field(
-                "item:Body",
-                Message {
-                    body: Some(::ews::Body {
-                        body_type: ::ews::BodyType::Text,
-                        is_truncated: None,
-                        content: Some(event.description.clone()),
-                    }),
-                    ..Message::default()
-                },
-            ),
-            field(
-                "item:ReminderIsSet",
-                Message {
-                    reminder_is_set: Some(event.reminder_minutes.is_some()),
-                    ..Message::default()
-                },
-            ),
-        ];
-        if let Some(minutes) = event.reminder_minutes {
-            // Only sent when there is one: the minutes mean nothing on an item
-            // whose reminder is off.
-            updates.push(field(
-                "item:ReminderMinutesBeforeStart",
-                Message {
-                    reminder_minutes_before_start: Some(minutes.max(0) as usize),
-                    ..Message::default()
-                },
-            ));
-        }
-        if let Some(location) = &event.location {
-            updates.push(field(
-                "calendar:Location",
-                Message {
-                    location: Some(location.clone()),
-                    ..Message::default()
-                },
-            ));
-        }
+        let updates = update_fields(event);
 
         let response = self.call(UpdateItem {
             message_disposition: MessageDisposition::SaveOnly,
@@ -336,6 +261,47 @@ impl EwsClient {
     }
 
     /// Deletes an event.
+    /// Directory entries matching a name or partial address.
+    ///
+    /// The lookup that turns a display name into something that can be written
+    /// to. Exchange carries internal people as directory entries with no
+    /// address at all, so without this they can be read and never written
+    /// back — which is what kept attendee lists read-only.
+    pub fn resolve_names(
+        &self,
+        query: &str,
+    ) -> anyhow::Result<Vec<crate::calendar::Participant>> {
+        let response = self.call(::ews::resolve_names::ResolveNames {
+            return_full_contact_data: false,
+            // The directory first, then this mailbox's own contacts: a
+            // colleague is the likelier answer at work, and the server orders
+            // its matches accordingly.
+            search_scope: Some(
+                ::ews::resolve_names::ResolveNamesSearchScope::ActiveDirectoryContacts,
+            ),
+            unresolved_entry: query.to_string(),
+        })?;
+        let mut people = Vec::new();
+        for message in into_successes(response).context("ResolveNames")? {
+            let Some(set) = message.resolution_set else {
+                continue;
+            };
+            for entry in set.resolution {
+                // Only entries that can actually be written to: one without an
+                // address is the very problem this is meant to solve.
+                if entry
+                    .mailbox
+                    .email_address
+                    .as_deref()
+                    .is_some_and(|addr| !addr.trim().is_empty())
+                {
+                    people.push(participant(&entry.mailbox, None));
+                }
+            }
+        }
+        Ok(people)
+    }
+
     /// What a window cannot carry: the attendees and the notes.
     ///
     /// `FindItem` — which is what a `CalendarView` is — never returns
@@ -372,7 +338,7 @@ impl EwsClient {
                     .required_attendees
                     .iter()
                     .chain(item.optional_attendees.iter())
-                    .flat_map(|list| list.attendee.iter())
+                    .flat_map(|list| list.iter().map(|entry| &entry.attendee))
                     .map(|attendee| participant(&attendee.mailbox, attendee.response_type))
                     .collect();
                 let description = item
@@ -1441,6 +1407,16 @@ impl EwsSession {
         tokio::task::spawn_blocking(move || client.respond(&item, response)).await?
     }
 
+    /// Directory entries matching a name or partial address.
+    pub async fn resolve_names(
+        &mut self,
+        query: &str,
+    ) -> anyhow::Result<Vec<crate::calendar::Participant>> {
+        let client = self.client.clone();
+        let query = query.to_string();
+        tokio::task::spawn_blocking(move || client.resolve_names(&query)).await?
+    }
+
     /// The attendees and notes of one event.
     pub async fn event_details(
         &mut self,
@@ -1686,22 +1662,22 @@ fn event_item(event: &Event) -> Message {
 /// without them would quietly uninvite them. The caller checks for that case
 /// before writing at all — see `can_carry_attendees`.
 fn attendee_list(people: &[crate::calendar::Participant]) -> Option<::ews::ArrayOfAttendees> {
-    let attendees: Vec<::ews::Attendee> = people
+    let attendees: Vec<::ews::AttendeeEntry> = people
         .iter()
         .filter(|person| !person.addr.trim().is_empty())
-        .map(|person| ::ews::Attendee {
-            mailbox: ::ews::Mailbox {
-                name: (!person.name.trim().is_empty()).then(|| person.name.clone()),
-                email_address: Some(person.addr.clone()),
-                ..Default::default()
+        .map(|person| ::ews::AttendeeEntry {
+            attendee: ::ews::Attendee {
+                mailbox: ::ews::Mailbox {
+                    name: (!person.name.trim().is_empty()).then(|| person.name.clone()),
+                    email_address: Some(person.addr.clone()),
+                    ..Default::default()
+                },
+                response_type: None,
+                last_response_time: None,
             },
-            response_type: None,
-            last_response_time: None,
         })
         .collect();
-    (!attendees.is_empty()).then(|| ::ews::ArrayOfAttendees {
-        attendee: attendees,
-    })
+    (!attendees.is_empty()).then(|| ::ews::ArrayOfAttendees(attendees))
 }
 
 /// The Exchange recurrence for a rule, anchored on the event's own start.
@@ -1922,7 +1898,7 @@ fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
             .required_attendees
             .iter()
             .chain(item.optional_attendees.iter())
-            .flat_map(|list| list.attendee.iter())
+            .flat_map(|list| list.iter().map(|entry| &entry.attendee))
             .map(|attendee| participant(&attendee.mailbox, attendee.response_type))
             .collect(),
     })
@@ -2116,6 +2092,102 @@ fn folder_id(reference: &EwsId) -> BaseFolderId {
     }
 }
 
+/// The changes an update carries, one property each.
+///
+/// A function of its own so the payload can be tested: every silent failure
+/// this backend has had was a field that looked right and was not.
+fn update_fields(event: &Event) -> Vec<ItemChangeDescription> {
+        // Each change carries exactly one property, inside an item of the
+    // type being updated: a calendar field in a Message is rejected.
+    let field = |uri: &str, item: Message| ItemChangeDescription::SetItemField {
+        field_uri: PathToElement::FieldURI {
+            field_URI: uri.to_string(),
+        },
+        item: RealItem::CalendarItem(item),
+    };
+    let mut updates = vec![
+        field(
+            "item:Subject",
+            Message {
+                subject: Some(event.subject.clone()),
+                ..Message::default()
+            },
+        ),
+        field(
+            "calendar:Start",
+            Message {
+                start: Some(ews_time(event.start)),
+                ..Message::default()
+            },
+        ),
+        field(
+            "calendar:End",
+            Message {
+                end: Some(ews_time(event.end)),
+                ..Message::default()
+            },
+        ),
+        field(
+            "calendar:IsAllDayEvent",
+            Message {
+                is_all_day_event: Some(event.all_day),
+                ..Message::default()
+            },
+        ),
+        field(
+            "item:Body",
+            Message {
+                body: Some(::ews::Body {
+                    body_type: ::ews::BodyType::Text,
+                    is_truncated: None,
+                    content: Some(event.description.clone()),
+                }),
+                ..Message::default()
+            },
+        ),
+        // Written now that everyone on it can be named: the caller resolves
+        // directory-only attendees first, and refuses rather than let this
+        // replace the list with an incomplete one.
+        field(
+            "calendar:RequiredAttendees",
+            Message {
+                required_attendees: attendee_list(&event.attendees)
+                    .or(Some(::ews::ArrayOfAttendees(Vec::new()))),
+                ..Message::default()
+            },
+        ),
+        field(
+            "item:ReminderIsSet",
+            Message {
+                reminder_is_set: Some(event.reminder_minutes.is_some()),
+                ..Message::default()
+            },
+        ),
+    ];
+    if let Some(minutes) = event.reminder_minutes {
+        // Only sent when there is one: the minutes mean nothing on an item
+        // whose reminder is off.
+        updates.push(field(
+            "item:ReminderMinutesBeforeStart",
+            Message {
+                reminder_minutes_before_start: Some(minutes.max(0) as usize),
+                ..Message::default()
+            },
+        ));
+    }
+    if let Some(location) = &event.location {
+        updates.push(field(
+            "calendar:Location",
+            Message {
+                location: Some(location.clone()),
+                ..Message::default()
+            },
+        ));
+    }
+
+    updates
+}
+
 fn item_id(reference: &EwsId) -> BaseItemId {
     BaseItemId::ItemId {
         id: reference.0.clone(),
@@ -2173,6 +2245,51 @@ mod tests {
     }
 
     #[test]
+    fn an_edit_writes_the_whole_attendee_list_or_nothing_of_it() {
+        use crate::calendar::Participant;
+        let with = |people: Vec<Participant>| {
+            let event = Event {
+                subject: "Reunió".to_string(),
+                start: 1_788_249_600,
+                end: 1_788_253_200,
+                attendees: people,
+                ..Default::default()
+            };
+            let request = build_request(UpdateItem {
+                message_disposition: MessageDisposition::SaveOnly,
+                send_meeting_invitations_or_cancellations: Some(
+                    ::ews::update_item::SendMeetingInvitationsOrCancellations::SendToNone,
+                ),
+                conflict_resolution: None,
+                item_changes: vec![ItemChange {
+                    item_change: ItemChangeInner {
+                        item_id: item_id(&("AAMk=".to_string(), None)),
+                        updates: Updates {
+                            inner: update_fields(&event),
+                        },
+                    },
+                }],
+            })
+            .expect("serialization should succeed");
+            String::from_utf8(request).expect("UTF-8")
+        };
+
+        let xml = with(vec![Participant {
+            name: "Algú".to_string(),
+            addr: "algu@example.org".to_string(),
+            response: String::new(),
+        }]);
+        assert!(xml.contains("<t:Attendee><t:Mailbox>"), "{xml}");
+        assert!(xml.contains("algu@example.org"), "{xml}");
+
+        // Nobody on it: the field is still sent, empty, so removing the last
+        // attendee removes them rather than leaving the server's list standing.
+        let xml = with(Vec::new());
+        assert!(xml.contains("RequiredAttendees"), "an empty list is still a list: {xml}");
+        assert!(!xml.contains("<t:Attendee>"), "{xml}");
+    }
+
+    #[test]
     fn an_invitation_names_its_attendees_the_way_the_schema_requires() {
         use crate::calendar::Participant;
         let event = Event {
@@ -2183,6 +2300,11 @@ mod tests {
                 Participant {
                     name: "Algú".to_string(),
                     addr: "algu@example.org".to_string(),
+                    response: String::new(),
+                },
+                Participant {
+                    name: "Altre".to_string(),
+                    addr: "altre@example.org".to_string(),
                     response: String::new(),
                 },
                 // Named by the directory with no address: cannot be written
@@ -2214,7 +2336,15 @@ mod tests {
             "attendees must be wrapped: {xml}"
         );
         assert!(xml.contains("algu@example.org"), "{xml}");
-        assert_eq!(xml.matches("<t:Attendee>").count(), 1, "only the one with an address: {xml}");
+        // One element each. A sequence that shared a single element put both
+        // mailboxes inside it, which the server reads as one malformed
+        // attendee — and the person left out is never told.
+        assert_eq!(
+            xml.matches("<t:Attendee>").count(),
+            2,
+            "one element per attendee, and none for the one with no address: {xml}"
+        );
+        assert!(xml.contains("altre@example.org"), "{xml}");
         assert!(xml.contains("SendToAllAndSaveCopy"), "{xml}");
     }
 

@@ -124,7 +124,7 @@
   "calendar.addCalendar": "Add calendar",
   "calendar.allDay": "All day",
   "calendar.attendees": "Invite",
-  "calendar.attendeesHint": "Email address, then Enter",
+  "calendar.attendeesHint": "Name or email address",
   "calendar.attendeesNote": "This event has {count} guests. Editing it here does not notify them.",
   "calendar.calendar": "Calendar",
   "calendar.calendarsAppearOnSync": "The account's calendars appear here once its first sync finishes.",

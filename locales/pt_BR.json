@@ -124,7 +124,7 @@
   "calendar.addCalendar": "Adicionar calendário",
   "calendar.allDay": "Dia inteiro",
   "calendar.attendees": "Convidar",
-  "calendar.attendeesHint": "Endereço de e-mail e Enter",
+  "calendar.attendeesHint": "Nome ou endereço de e-mail",
   "calendar.attendeesNote": "Este evento tem {count} convidados. Editá-lo aqui não os notifica.",
   "calendar.calendar": "Calendário",
   "calendar.calendarsAppearOnSync": "Os calendários da conta aparecem aqui quando a primeira sincronização termina.",

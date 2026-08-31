@@ -284,6 +284,8 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.calendarRenameCalendar(payload)
 	case "calendar.respond":
 		return a.calendarRespond(payload)
+	case "calendar.resolveNames":
+		return a.calendarResolveNames(payload)
 	case "calendar.eventDetails":
 		return a.calendarEventDetails(payload)
 	case "calendar.seriesRule":

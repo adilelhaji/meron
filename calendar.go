@@ -176,6 +176,25 @@ func (a *App) calendarRespond(payload map[string]any) (any, error) {
 	})
 }
 
+// calendarResolveNames finds people matching a name or partial address, so an
+// invitation can be addressed to someone the mailbox knows by name alone.
+func (a *App) calendarResolveNames(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string `json:"account_id"`
+		Query     string `json:"query"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("calendar.resolveNames", map[string]any{
+		"account": req.AccountID,
+		"query":   req.Query,
+	})
+}
+
 // calendarEventDetails reads what a cached occurrence cannot carry: who is on
 // the event and its notes. Exchange's window query returns neither.
 func (a *App) calendarEventDetails(payload map[string]any) (any, error) {

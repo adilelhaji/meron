@@ -124,7 +124,7 @@
   "calendar.addCalendar": "Kalender hinzufügen",
   "calendar.allDay": "Ganztägig",
   "calendar.attendees": "Einladen",
-  "calendar.attendeesHint": "E-Mail-Adresse, dann Enter",
+  "calendar.attendeesHint": "Name oder E-Mail-Adresse",
   "calendar.attendeesNote": "Dieser Termin hat {count} Gäste. Änderungen hier benachrichtigen sie nicht.",
   "calendar.calendar": "Kalender",
   "calendar.calendarsAppearOnSync": "Die Kalender des Kontos erscheinen hier, sobald die erste Synchronisierung abgeschlossen ist.",
