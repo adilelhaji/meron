@@ -23,7 +23,16 @@ export function AgendaList({
   const { t } = useTranslation()
   const events = useValue(calendar$.events)
   const loading = useValue(calendar$.loading)
-  const days = useMemo(() => groupByDay(events), [events])
+  const days = useMemo(() => {
+    // Today onwards. An agenda answers "what is coming", and a long event
+    // that began last week overlaps the window and would otherwise open the
+    // list with a heading for the day it started — a past date, at the top of
+    // a list of what is ahead. It still appears on today, marked as
+    // continuing, which is what is true of it now.
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
+    return groupByDay(events).filter((group) => group.day >= today)
+  }, [events])
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
