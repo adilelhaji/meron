@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { MoreVertical, Inbox, Mail, Star, CheckCheck, EyeOff, FolderX, RefreshCw, Search, Trash2 } from 'lucide-react'
+import { MoreVertical, Inbox, Mail, Star, CheckCheck, EyeOff, FolderX, RefreshCw, Search, Trash2 , Clock} from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import type { FilterMode } from '../../states/ui'
 import { useDismissOnOutside } from '../menu/useDismissOnOutside'
@@ -22,6 +22,8 @@ export type ThreadActionsMenuItemsProps = {
   syncLabel?: string
   syncingLabel?: string
   allLabel?: string
+  /** Feeds have nothing to set aside, so they are not offered the view. */
+  hideSnoozed?: boolean
   onRemove?: () => void
   onSearch?: () => void
   searchLabel?: string
@@ -43,6 +45,7 @@ export function ThreadActionsMenuItems({
   syncLabel,
   syncingLabel,
   allLabel,
+  hideSnoozed,
   onRemove,
   onSearch,
   searchLabel,
@@ -73,6 +76,14 @@ export function ThreadActionsMenuItems({
           {filterItem('all', allLabel ?? t('filters.all'), <Inbox size={13} className="text-secondary shrink-0" />)}
           {filterItem('unread', t('filters.unread'), <Mail size={13} className="text-secondary shrink-0" />)}
           {filterItem('starred', t('filters.starred'), <Star size={13} className="text-secondary shrink-0" />)}
+          {/* Where what was set aside can be found. Without it, putting a
+              thread away is trusting that it comes back. */}
+          {!hideSnoozed &&
+            filterItem(
+              'snoozed',
+              t('filters.snoozed', { defaultValue: 'Snoozed' }),
+              <Clock size={13} className="text-secondary shrink-0" />,
+            )}
           <div className="my-1 border-t border-border" />
         </>
       )}
@@ -183,6 +194,7 @@ export function ThreadActionsMenu({
   syncLabel,
   syncingLabel,
   allLabel,
+  hideSnoozed,
   onRemove,
   onSearch,
   searchLabel,
@@ -201,6 +213,7 @@ export function ThreadActionsMenu({
   syncLabel?: string
   syncingLabel?: string
   allLabel?: string
+  hideSnoozed?: boolean
   onRemove?: () => void
   onSearch?: () => void
   searchLabel?: string
@@ -251,6 +264,7 @@ export function ThreadActionsMenu({
             syncLabel={syncLabel}
             syncingLabel={syncingLabel}
             allLabel={allLabel}
+            hideSnoozed={hideSnoozed}
             onRemove={onRemove}
             onSearch={onSearch}
             searchLabel={searchLabel}

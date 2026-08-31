@@ -9,10 +9,10 @@ import { persistedField } from '../lib/sessionPref'
 // here and restored at boot (see the bottom of this file). Server data lives in
 // the domain state modules; user preferences live in states/settings.
 
-export type FilterMode = 'all' | 'unread' | 'starred'
+export type FilterMode = 'all' | 'unread' | 'starred' | 'snoozed'
 
 export const isFilterMode = (value: unknown): value is FilterMode =>
-  value === 'all' || value === 'unread' || value === 'starred'
+  value === 'all' || value === 'unread' || value === 'starred' || value === 'snoozed'
 export type SetupMode = 'gmail' | 'outlook' | 'custom' | 'ews' | 'rss'
 export type MobilePane = 'threads' | 'conversation'
 export type ToastTone = 'success' | 'error'

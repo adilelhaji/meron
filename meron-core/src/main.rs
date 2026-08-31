@@ -2397,6 +2397,10 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                         None,
                     )
                 }
+                thread_list::MailSource::Snoozed => (
+                    store::get_snoozed_headers(&engine.db.lock().unwrap(), &account)?,
+                    None,
+                ),
                 thread_list::MailSource::Recent { unread_only } => store::get_recent_page(
                     &engine.db.lock().unwrap(),
                     &account,
@@ -2451,6 +2455,8 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 messages,
                 next_cursor,
                 p.get("group").and_then(Value::as_bool).unwrap_or(false),
+                // Except in the view whose whole purpose is to show them.
+                !matches!(request.source(), thread_list::MailSource::Snoozed),
             )?;
             page.as_object_mut().unwrap().insert(
                 "folder_synced".to_string(),

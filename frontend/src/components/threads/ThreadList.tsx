@@ -352,6 +352,7 @@ export function ThreadList({ width, onResizeStart }: ThreadListProps = {}) {
                     onSync={syncMail}
                     syncing={busy}
                     allLabel={isRSSAccount ? t('filters.allFeeds') : t('filters.all')}
+                    hideSnoozed={isRSSAccount}
                     syncLabel={isRSSAccount ? t('feeds.actions.syncFeeds') : t('threads.actions.syncMailbox')}
                     syncingLabel={isRSSAccount ? t('feeds.actions.syncingFeeds') : t('threads.actions.syncing')}
                   />

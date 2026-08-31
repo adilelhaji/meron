@@ -1169,6 +1169,30 @@ pub fn newest_thread_uids(
     Ok(newest.map(|header| header.uid).into_iter().collect())
 }
 
+/// The newest message of each thread put aside, soonest to return first.
+///
+/// Read from wherever the thread was when it was set aside, so the list can
+/// show what it actually is rather than a bare subject line.
+pub fn get_snoozed_headers(conn: &Connection, account: &str) -> Result<Vec<MessageHeader>> {
+    let mut stmt = conn.prepare(
+        "SELECT m.uid, m.subject, m.from_name, m.from_addr, m.date, m.seen, m.starred,
+                m.thread_key, json_extract(m.json, '$.to')
+           FROM snoozed_threads s
+           JOIN messages m
+             ON m.account = s.account
+            AND m.folder = s.folder
+            AND COALESCE(NULLIF(m.thread_key, ''), 'uid:' || m.uid) = s.thread_key
+          WHERE s.account = ?1 AND m.uid <> 0
+            AND m.date = (
+                  SELECT MAX(m2.date) FROM messages m2
+                   WHERE m2.account = m.account AND m2.folder = m.folder
+                     AND COALESCE(NULLIF(m2.thread_key, ''), 'uid:' || m2.uid) = s.thread_key)
+          ORDER BY s.until",
+    )?;
+    let rows = stmt.query_map(params![account], message_header_from_row)?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
 /// Puts a thread aside until an instant.
 ///
 /// The folder it was in travels with it: coming back means coming back where

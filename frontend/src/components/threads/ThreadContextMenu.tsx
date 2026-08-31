@@ -15,6 +15,7 @@ import {
   Clock,
 } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
+import { ui$ } from '../../states/ui'
 import { moveFeed, openFeedEdit } from '../../states/feeds'
 import { FloatingContextMenu } from '../menu/FloatingContextMenu'
 import { FolderMenuTree } from '../menu/FolderMenuTree'
@@ -33,6 +34,7 @@ import {
   starThread,
   snoozeThread,
   snoozeChoices,
+  unsnoozeThread,
 } from '../../states/mail'
 import { accounts$, isSendableAccount } from '../../states/accounts'
 import { isRssAccount } from '../../lib/threadActions'
@@ -186,6 +188,9 @@ export function ThreadContextMenu({
   onOpenThread: (threadId: string) => void
   onSelectThread?: (threadId: string) => void
 }) {
+  // Read here rather than threaded through every caller: which view is open
+  // decides whether setting aside or bringing back is the useful offer.
+  const filterMode = useValue(ui$.filterMode)
   const { t } = useTranslation()
   const { menu, close } = controller
   const foldersByAccount = useValue(mail$.foldersByAccount)
@@ -446,7 +451,20 @@ export function ThreadContextMenu({
       {/* Put aside rather than dealt with: the thread leaves the list and
           comes back on its own. Offered above archiving, which is the answer
           for what is finished. */}
-      {snoozeChoices().map((choice) => (
+      {/* Already set aside: the useful action is bringing it back, not
+          putting it away again. */}
+      {filterMode === 'snoozed' ? (
+        <MenuItem
+          icon={<Clock size={13} className="text-secondary" />}
+          label={t('threads.snooze.bringBack', { defaultValue: 'Bring back now' })}
+          onClick={() => {
+            const threadId = menu.threadId
+            close()
+            void unsnoozeThread(threadId).then(() => after('snooze', threadId))
+          }}
+        />
+      ) : (
+        snoozeChoices().map((choice) => (
         <MenuItem
           key={choice.key}
           icon={<Clock size={13} className="text-secondary" />}
@@ -460,7 +478,8 @@ export function ThreadContextMenu({
             void snoozeThread(threadId, choice.at).then(() => after('snooze', threadId))
           }}
         />
-      ))}
+        ))
+      )}
       <div className="my-1 border-t border-border" />
       <MenuItem
         icon={<Archive size={13} className="text-secondary" />}

@@ -630,6 +630,10 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
             get_cached_mobile_starred(data_dir, &account_id, &folder_id, limit)?,
             None,
         ),
+        // Setting a thread aside is a desktop gesture for now; mobile answers
+        // with nothing rather than pretending the view is empty of its own
+        // accord.
+        thread_list::MailSource::Snoozed => (Vec::new(), None),
         thread_list::MailSource::Recent { unread_only } => get_cached_mobile_mail_page(
             data_dir,
             &account_id,
@@ -698,6 +702,7 @@ pub(crate) fn list_mobile_threads(data_dir: &str, params: &Value) -> Result<Valu
             messages,
             next_cursor,
             // A mobile mailbox view is always a thread list.
+            true,
             true,
         )
         .map_err(|err| format!("{err:#}"))

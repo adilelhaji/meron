@@ -91,6 +91,7 @@ impl ThreadListQuery {
         }
         match self.filter.as_str() {
             "starred" => MailSource::Starred,
+            "snoozed" => MailSource::Snoozed,
             "unread" => MailSource::Recent { unread_only: true },
             _ => MailSource::Recent { unread_only: false },
         }
@@ -110,6 +111,10 @@ impl ThreadListQuery {
 pub enum MailSource {
     /// Starred-only view, unpaginated.
     Starred,
+    /// Threads put aside, with the ones due back soonest first. Unpaginated:
+    /// what someone has set aside is a short list by nature, and a long one is
+    /// a sign they need to see all of it.
+    Snoozed,
     /// Newest-first page, cursor paged, optionally unread-only.
     Recent { unread_only: bool },
     /// Text search across the folder plus Sent, cursor-paginated.
@@ -203,6 +208,9 @@ pub fn mail_page(
     mut messages: Vec<MessageHeader>,
     next_cursor: Option<String>,
     group: bool,
+    // Whether threads put aside should be left out. False for the view whose
+    // whole purpose is to show them.
+    hide_snoozed: bool,
 ) -> Result<Value> {
     // Rewrite each card's identity to the correspondent so a thread shows the
     // same person/avatar in every folder (outbound copies show the recipient).
@@ -218,19 +226,23 @@ pub fn mail_page(
         // Threads put aside are left out until their time comes. Filtered on
         // the cards rather than in the query behind them: a thread is put
         // aside as a whole, and the query works in messages.
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|epoch| epoch.as_secs() as i64)
-            .unwrap_or_default();
-        let asleep = store::snoozed_thread_keys(conn, account, now)?;
-        let threads: Vec<Value> = threads
-            .into_iter()
-            .filter(|card| {
-                card.get("threadKey")
-                    .and_then(Value::as_str)
-                    .is_none_or(|key| !asleep.contains(key))
-            })
-            .collect();
+        let threads: Vec<Value> = if hide_snoozed {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|epoch| epoch.as_secs() as i64)
+                .unwrap_or_default();
+            let asleep = store::snoozed_thread_keys(conn, account, now)?;
+            threads
+                .into_iter()
+                .filter(|card| {
+                    card.get("threadKey")
+                        .and_then(Value::as_str)
+                        .is_none_or(|key| !asleep.contains(key))
+                })
+                .collect()
+        } else {
+            threads
+        };
         json!({ "threads": threads, "folder_unread": folder_unread, "folder_synced": folder_synced })
     } else {
         json!({
@@ -261,6 +273,13 @@ mod tests {
         assert_eq!(
             query(json!({"filter": "unread"})).source(),
             MailSource::Recent { unread_only: true }
+        );
+        assert_eq!(query(json!({"filter": "snoozed"})).source(), MailSource::Snoozed);
+        // A search names its own source whatever the filter says, so looking
+        // for something does not silently search only what is set aside.
+        assert_eq!(
+            query(json!({"filter": "snoozed", "query": "factura"})).source(),
+            MailSource::Search
         );
         assert_eq!(
             query(json!({"filter": "starred"})).source(),
