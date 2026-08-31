@@ -66,7 +66,13 @@ describe('Composer', () => {
     }
   })
 
-  afterEach(cleanup)
+  afterEach(() => {
+    cleanup()
+    // The bridge mock goes with the tests that installed it. Left in place it
+    // answers other files' calls with an empty object, which reads as a
+    // successful request that returned nothing — and they fail far from here.
+    delete (window as any).go
+  })
 
   const draftOf = (tabId: string) => compose$.tabs.peek().find((tab) => tab.id === tabId)?.compose
   const bodyHtml = () => document.querySelector('.tiptap-body')?.innerHTML ?? ''

@@ -1736,7 +1736,13 @@ export async function deleteThread(threadId: string, options: { permanent?: bool
 // Prefer the core-provided folder role. The name fallback is only for call
 // sites that have a bare folder id before folder metadata is loaded.
 export function isDraftFolder(folderId: string, accountId?: string): boolean {
-  const candidates = [...(accountId ? (mail$.foldersByAccount[accountId].get() ?? []) : []), ...mail$.folders.get()]
+  // Both guarded: folders may not have loaded yet, and spreading nothing threw
+  // while rendering a message — which takes the whole conversation with it,
+  // for a lookup that has a perfectly good fallback a line below.
+  const candidates = [
+    ...(accountId ? (mail$.foldersByAccount[accountId].get() ?? []) : []),
+    ...(mail$.folders.get() ?? []),
+  ]
   const folder = candidates.find((item) => item.id === folderId || item.name === folderId)
   if (folder?.role) return folder.role === 'drafts'
   return ['drafts', 'draft', 'inbox.drafts', 'inbox.draft', '[gmail]/drafts', '[gmail]/draft'].includes(
