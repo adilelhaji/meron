@@ -1637,7 +1637,9 @@ fn attendee_list(people: &[crate::calendar::Participant]) -> Option<::ews::Array
             last_response_time: None,
         })
         .collect();
-    (!attendees.is_empty()).then(|| ::ews::ArrayOfAttendees(attendees))
+    (!attendees.is_empty()).then(|| ::ews::ArrayOfAttendees {
+        attendee: attendees,
+    })
 }
 
 /// The Exchange recurrence for a rule, anchored on the event's own start.
@@ -1858,7 +1860,7 @@ fn to_event(item: &Message, calendar_id: &str) -> anyhow::Result<Event> {
             .required_attendees
             .iter()
             .chain(item.optional_attendees.iter())
-            .flat_map(|list| list.0.iter())
+            .flat_map(|list| list.attendee.iter())
             .map(|attendee| participant(&attendee.mailbox, attendee.response_type))
             .collect(),
     })
@@ -2106,6 +2108,52 @@ mod tests {
             id: id.to_string(),
             change_key: None,
         }
+    }
+
+    #[test]
+    fn an_invitation_names_its_attendees_the_way_the_schema_requires() {
+        use crate::calendar::Participant;
+        let event = Event {
+            subject: "Prova".to_string(),
+            start: 1_788_249_600,
+            end: 1_788_253_200,
+            attendees: vec![
+                Participant {
+                    name: "Algú".to_string(),
+                    addr: "algu@example.org".to_string(),
+                    response: String::new(),
+                },
+                // Named by the directory with no address: cannot be written
+                // back, and must not be sent as an empty mailbox either.
+                Participant {
+                    name: "Clave Civit, Pedro".to_string(),
+                    addr: String::new(),
+                    response: String::new(),
+                },
+            ],
+            ..Default::default()
+        };
+        let request = build_request(CreateItem {
+            message_disposition: None,
+            send_meeting_invitations: Some(
+                ::ews::create_item::SendMeetingInvitations::SendToAllAndSaveCopy,
+            ),
+            saved_item_folder_id: None,
+            items: vec![RealItem::CalendarItem(event_item(&event))],
+        })
+        .expect("serialization should succeed");
+        let xml = String::from_utf8(request).expect("UTF-8");
+
+        // Each attendee inside its own element. Without the wrapper the server
+        // accepts the request, ignores the attendee, and sends no invitation —
+        // a silence that looks exactly like success.
+        assert!(
+            xml.contains("<t:RequiredAttendees><t:Attendee><t:Mailbox>"),
+            "attendees must be wrapped: {xml}"
+        );
+        assert!(xml.contains("algu@example.org"), "{xml}");
+        assert_eq!(xml.matches("<t:Attendee>").count(), 1, "only the one with an address: {xml}");
+        assert!(xml.contains("SendToAllAndSaveCopy"), "{xml}");
     }
 
     #[test]
