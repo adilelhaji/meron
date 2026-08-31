@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import type { MouseEvent } from 'react'
 import { useTranslation } from '../../lib/i18n'
-import { AlertCircle, ChevronDown, ExternalLink, Loader2, MoreHorizontal, Paperclip, Star } from 'lucide-react'
+import { AlertCircle, ChevronDown, ExternalLink, Loader2, MoreHorizontal, Paperclip, Star , Undo2} from 'lucide-react'
 
-import { openDraftCompose, openMessageTab, retrySend } from '../../states/compose'
+import { openDraftCompose, openMessageTab, retrySend , undoSend} from '../../states/compose'
 import type { Message } from '../../types'
 import { Avatar } from '../avatar/Avatar'
 import { AddressRow } from './AddressList'
@@ -79,7 +79,21 @@ export function MessageRow({
   // a full-width mail row has no need for a "delivered" tick on every message.
   const statusIcon =
     outgoing && !isDraft ? (
-      message.send_status === 'sending' ? (
+      message.send_status === 'queued' ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation()
+            undoSend(message.id)
+          }}
+          className="flex items-center gap-0.5 text-accent hover:opacity-80 cursor-pointer"
+        >
+          <Undo2 size={12} />
+          <span className="text-[0.625rem] font-semibold">
+            {t('chat.undoSend', { defaultValue: 'Undo' })}
+          </span>
+        </button>
+      ) : message.send_status === 'sending' ? (
         <Loader2 size={12} className="text-secondary/70 animate-spin" />
       ) : message.send_status === 'failed' ? (
         <button

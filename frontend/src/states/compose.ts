@@ -7,6 +7,7 @@ import { ui$, showToast } from './ui'
 import { accounts$, isSendableAccount, accountIdentities } from './accounts'
 import { mail$, getActiveThread, isDraftFolder, isInboxFolder, loadThread, discardSavedDraftCopy } from './mail'
 import { LOCAL_SEND_PREFIX, type PendingSend, setPendingSend, getPendingSend, discardPendingSend } from './pendingSends'
+import { queueSend, undoQueuedSend } from './sendQueue'
 import { htmlToText, resolveInlineCids } from '../lib/html'
 import { parseMailto } from '../lib/mailto'
 import { splitAddressList, bareAddr } from '../lib/address'
@@ -1644,7 +1645,45 @@ export async function sendReply() {
   // this thread gets a signature just like the one just sent did.
   seedQuickReplySignature()
 
-  await dispatchSend(tempId)
+  await holdThenSend(tempId)
+}
+
+/// Holds a send for its grace period, then dispatches it.
+///
+/// The message is already in the thread, marked as waiting: pressing Send has
+/// done everything except the irrevocable part, which is the only part worth
+/// pausing. With no grace period configured it goes at once.
+async function holdThenSend(tempId: string) {
+  const seconds = settings$.undoSendSeconds.peek()
+  if (seconds <= 0) {
+    // Awaited, so callers that expect the send to have happened still can:
+    // with no grace period there is nothing to wait for but the send itself.
+    await dispatchSend(tempId)
+    return
+  }
+  setSendStatus(tempId, 'queued')
+  queueSend(
+    tempId,
+    seconds,
+    () => void dispatchSend(tempId),
+    () => undoOptimisticSend(tempId),
+  )
+}
+
+/// Takes a held reply back: the message leaves the thread and its text returns
+/// to the box it was written in, which is where the reader will look for it.
+export function undoSend(tempId: string) {
+  undoQueuedSend(tempId)
+}
+
+function undoOptimisticSend(tempId: string) {
+  const payload = getPendingSend(tempId)
+  discardPendingSend(tempId)
+  quickReplySendHydrationGuards.delete(tempId)
+  mail$.messages.set(mail$.messages.peek().filter((message) => message.id !== tempId))
+  if (!payload) return
+  // Back into the composer, so nothing written has to be written again.
+  compose$.composer.set(payload.html ? htmlToText(payload.html) : payload.body)
 }
 
 // Set the send lifecycle status on the optimistic message with the given id.

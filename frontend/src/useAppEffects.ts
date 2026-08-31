@@ -4,6 +4,7 @@ import { boot } from './boot'
 import { invoke } from './lib/bridge'
 import { ui$, showToast } from './states/ui'
 import { calendar$, loadCalendars, loadWindow } from './states/calendar'
+import { flushQueuedSends } from './states/sendQueue'
 import {
   mail$,
   loadFolders,
@@ -50,6 +51,19 @@ export function useAppEffects() {
   const language = useValue(settings$.language)
   const showUnreadBadge = useValue(settings$.showUnreadAccountBadge)
   const autoUpdateCheck = useValue(settings$.autoUpdateCheck)
+
+  // A held send must not be lost to the app closing. The window hides to the
+  // tray rather than quitting, so this is the rarer path of an actual quit —
+  // best effort, and the reason the grace periods on offer are short.
+  useEffect(() => {
+    const flush = () => flushQueuedSends()
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+    }
+  }, [])
 
   useEffect(() => {
     const systemLanguage = resolveI18nLanguageFromWebLocale(navigator.language) || 'en'

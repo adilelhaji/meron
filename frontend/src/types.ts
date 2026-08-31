@@ -177,7 +177,7 @@ export type Message = {
   recipient_overflow?: number
   /** Local send lifecycle for an optimistically-rendered outgoing message.
    * Absent on messages loaded from the engine (treated as already sent). */
-  send_status?: 'sending' | 'sent' | 'failed'
+  send_status?: 'queued' | 'sending' | 'sent' | 'failed'
 }
 
 // Editable state for a compose/reply draft living inside a compose tab.

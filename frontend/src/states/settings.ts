@@ -102,6 +102,11 @@ export type Settings = {
   sendShortcut: SendShortcut
   /** Chat bubbles or the traditional stacked reading view (desktop only). */
   conversationLayout: ConversationLayout
+  /**
+   * Seconds a sent message waits before it actually goes, so it can be taken
+   * back. Zero sends at once.
+   */
+  undoSendSeconds: number
   /** Whether native spell checking is requested in composer prose fields. */
   spellCheck: boolean
   /**
@@ -136,6 +141,9 @@ export type Settings = {
   proxy: ProxySettings
 }
 
+/** The windows a sent message can wait in, in seconds. Zero sends at once. */
+export const UNDO_SEND_CHOICES = [0, 5, 10, 20, 30] as const
+
 export const KANBAN_COLUMN_DEFAULT_WIDTH = 360
 export const KANBAN_COLUMN_MIN_WIDTH = 240
 export const KANBAN_COLUMN_MAX_WIDTH = 700
@@ -153,6 +161,7 @@ const DB_KEY = {
   showUnreadAccountBadge: 'show_unread_account_badge',
   sendShortcut: 'send_shortcut',
   conversationLayout: 'conversation_layout',
+  undoSendSeconds: 'undo_send_seconds',
   spellCheck: 'spell_check',
   signature: 'signature',
   kanbanBoards: 'kanban_boards',
@@ -318,6 +327,9 @@ export const settings$ = observable<Settings>({
   showUnreadAccountBadge: false,
   sendShortcut: 'mod_enter',
   conversationLayout: 'chat',
+  // A few seconds by default: long enough to catch the reply sent to the wrong
+  // thread, short enough that nobody waits on it.
+  undoSendSeconds: 5,
   spellCheck: true,
   signature: '',
   kanbanBoards: [],
@@ -592,6 +604,13 @@ export function hydrateSettings(prefs: Record<string, unknown>) {
     const sendShortcut = prefs[DB_KEY.sendShortcut]
     if (sendShortcut === 'enter' || sendShortcut === 'mod_enter') {
       settings$.sendShortcut.set(sendShortcut)
+    }
+
+    // Only a window this app offers: a stored value from a future version, or
+    // a hand-edited one, must not leave a message waiting for an hour.
+    const undoSend = Number(prefs[DB_KEY.undoSendSeconds])
+    if (UNDO_SEND_CHOICES.includes(undoSend as (typeof UNDO_SEND_CHOICES)[number])) {
+      settings$.undoSendSeconds.set(undoSend)
     }
 
     const conversationLayout = prefs[DB_KEY.conversationLayout]

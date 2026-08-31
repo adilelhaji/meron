@@ -52,6 +52,9 @@ describe('openThreadTabById', () => {
 
   beforeEach(() => {
     calls.length = 0
+    // These exercise what happens once a send has left; the grace period is
+    // its own subject, tested separately.
+    settings$.undoSendSeconds.set(0)
     compose$.tabs.set([])
     compose$.activeTab.set('')
     compose$.conversationThread.set('')

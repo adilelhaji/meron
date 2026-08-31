@@ -40,6 +40,7 @@ import {
   Server,
   CalendarDays,
   Lock,
+  Undo2,
 } from 'lucide-react'
 import { useValue } from '@legendapp/state/react'
 import { importOpml, exportOpml } from '../../states/feeds'
@@ -57,6 +58,7 @@ import {
   type ConversationLayout,
   type KanbanBoard,
   type SendShortcut,
+  UNDO_SEND_CHOICES,
 } from '../../states/settings'
 import { createKanbanBoard } from '../../states/kanban'
 import { update$ } from '../../states/update'
@@ -774,6 +776,7 @@ function GeneralSection() {
   const showUnreadAccountBadge = useValue(settings$.showUnreadAccountBadge)
   const conversationLayout = useValue(settings$.conversationLayout)
   const sendShortcut = useValue(settings$.sendShortcut)
+  const undoSendSeconds = useValue(settings$.undoSendSeconds)
   const spellCheck = useValue(settings$.spellCheck)
   const showUnifiedInbox = useValue(settings$.showUnifiedInboxInSideNav)
   const kanbanColumnWidth = useValue(settings$.kanbanColumnWidth)
@@ -876,6 +879,25 @@ function GeneralSection() {
           value={sendShortcut}
           options={SEND_SHORTCUT_OPTIONS}
           onChange={(value) => settings$.sendShortcut.set(value)}
+        />
+        <SelectRow
+          icon={<Undo2 size={15} />}
+          title={t('settings.composer.undoSend', { defaultValue: 'Undo send' })}
+          hint={t('settings.composer.undoSendHint', {
+            defaultValue: 'How long a sent message waits, so it can be taken back.',
+          })}
+          value={String(undoSendSeconds)}
+          options={UNDO_SEND_CHOICES.map((seconds) => ({
+            value: String(seconds),
+            label:
+              seconds === 0
+                ? t('settings.composer.undoSendOff', { defaultValue: 'Send at once' })
+                : t('settings.composer.undoSendSeconds', {
+                    defaultValue: '{count} seconds',
+                    count: seconds,
+                  }),
+          }))}
+          onChange={(value) => settings$.undoSendSeconds.set(Number(value))}
         />
       </SettingsGroup>
 
