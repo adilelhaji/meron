@@ -1707,15 +1707,15 @@ pub(crate) fn format_thread_id(account_id: &str, folder: &str, thread_key: &str)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ParsedThreadId {
-    pub(crate) account: String,
-    pub(crate) folder: String,
-    pub(crate) thread_key: String,
-    pub(crate) uid: Option<u32>,
-    pub(crate) subject_filter: Option<String>,
+pub struct ParsedThreadId {
+    pub account: String,
+    pub folder: String,
+    pub thread_key: String,
+    pub uid: Option<u32>,
+    pub subject_filter: Option<String>,
 }
 
-pub(crate) fn parse_thread_id(thread_id: &str) -> Option<ParsedThreadId> {
+pub fn parse_thread_id(thread_id: &str) -> Option<ParsedThreadId> {
     let first = thread_id.find('#')?;
     let last = thread_id.rfind('#')?;
     if first == 0 || last <= first {

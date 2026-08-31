@@ -493,6 +493,53 @@ func (a *App) markRead(payload map[string]any) (any, error) {
 	return map[string]any{"ok": true}, nil
 }
 
+// mailSnooze puts a thread aside until a time. The folder travels with it so
+// it can come back where it was.
+func (a *App) mailSnooze(payload map[string]any) (any, error) {
+	var req struct {
+		ThreadID string `json:"thread_id"`
+		Until    int64  `json:"until"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("mail.snooze", map[string]any{
+		"thread_id": req.ThreadID,
+		"until":     req.Until,
+	})
+}
+
+// mailUnsnooze brings a thread back now, whatever it was waiting for.
+func (a *App) mailUnsnooze(payload map[string]any) (any, error) {
+	var req struct {
+		ThreadID string `json:"thread_id"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return nil, a.engineUnavailable()
+	}
+	return a.sidecar.Call("mail.unsnooze", map[string]any{"thread_id": req.ThreadID})
+}
+
+// mailSnoozed lists what has been put aside, so it can be found again.
+func (a *App) mailSnoozed(payload map[string]any) (any, error) {
+	var req struct {
+		AccountID string `json:"account_id"`
+	}
+	if err := decode(payload, &req); err != nil {
+		return nil, err
+	}
+	if a.sidecar == nil || !a.sidecar.Started() {
+		return map[string]any{"threads": []any{}}, nil
+	}
+	return a.sidecar.Call("mail.snoozed", map[string]any{"account": req.AccountID})
+}
+
 func (a *App) markStarred(payload map[string]any) (any, error) {
 	threadID, _ := payload["thread_id"].(string)
 	if threadID == "" {

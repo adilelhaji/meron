@@ -579,6 +579,9 @@ pub(super) fn run_migrations(conn: &Connection) -> Result<()> {
     if version < 14 {
         migrate_v14(&tx)?;
     }
+    if version < 15 {
+        migrate_v15(&tx)?;
+    }
 
     tx.commit()?;
     Ok(())
@@ -753,6 +756,33 @@ fn migrate_v14(conn: &Connection) -> Result<()> {
          );",
     )?;
     conn.execute_batch("PRAGMA user_version = 14;")?;
+    Ok(())
+}
+
+/// Threads put aside until a time, and messages waiting to be sent.
+///
+/// Both outlive the app: a thread that comes back only while Oreneta happens
+/// to be running would be a promise kept by luck, and a message due at eight
+/// must go whether or not the app was open at eight.
+fn migrate_v15(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS snoozed_threads (
+           account    TEXT NOT NULL,
+           thread_key TEXT NOT NULL,
+           folder     TEXT NOT NULL,
+           until      INTEGER NOT NULL,
+           PRIMARY KEY (account, thread_key)
+         );
+         CREATE TABLE IF NOT EXISTS scheduled_sends (
+           id      TEXT PRIMARY KEY,
+           account TEXT NOT NULL,
+           due_at  INTEGER NOT NULL,
+           subject TEXT NOT NULL,
+           payload TEXT NOT NULL
+         );
+         CREATE INDEX IF NOT EXISTS scheduled_sends_due ON scheduled_sends(due_at);",
+    )?;
+    conn.execute_batch("PRAGMA user_version = 15;")?;
     Ok(())
 }
 

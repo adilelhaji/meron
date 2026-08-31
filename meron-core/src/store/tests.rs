@@ -173,6 +173,46 @@ fn folder_role_assignment_uses_special_use_then_name_fallback() {
 }
 
 #[test]
+fn a_thread_put_aside_stays_out_of_the_way_until_its_time() {
+    let conn = test_conn();
+    let now = 1_700_000_000i64;
+
+    snooze_thread(&conn, "acct", "t-1", "INBOX", now + 3600).unwrap();
+    snooze_thread(&conn, "acct", "t-2", "Archive", now - 60).unwrap();
+
+    // Out of the list while it waits, back in it once the moment passes.
+    let hidden = snoozed_thread_keys(&conn, "acct", now).unwrap();
+    assert!(hidden.contains("t-1"));
+    assert!(!hidden.contains("t-2"), "its time has come, so it is not hidden");
+
+    // And findable meanwhile: a thread that vanishes with no way to look it
+    // up is lost, not postponed.
+    let listed = snoozed_threads(&conn, "acct").unwrap();
+    assert_eq!(listed.len(), 2);
+
+    // What is due carries where to put it back.
+    let due = due_snoozes(&conn, now).unwrap();
+    assert_eq!(due.len(), 1);
+    assert_eq!(due[0], ("acct".to_string(), "t-2".to_string(), "Archive".to_string()));
+
+    unsnooze_thread(&conn, "acct", "t-2").unwrap();
+    assert!(due_snoozes(&conn, now).unwrap().is_empty());
+    assert_eq!(snoozed_threads(&conn, "acct").unwrap().len(), 1);
+}
+
+#[test]
+fn putting_one_thread_aside_twice_replaces_the_first_answer() {
+    let conn = test_conn();
+    let now = 1_700_000_000i64;
+    snooze_thread(&conn, "acct", "t-1", "INBOX", now + 3600).unwrap();
+    snooze_thread(&conn, "acct", "t-1", "INBOX", now + 7200).unwrap();
+
+    let listed = snoozed_threads(&conn, "acct").unwrap();
+    assert_eq!(listed.len(), 1, "one thread is set aside once, for one time");
+    assert_eq!(listed[0].2, now + 7200, "and the later answer is the one that stands");
+}
+
+#[test]
 fn draft_thread_keys_detects_special_use_and_name_fallback() {
     let conn = test_conn();
     upsert_folders(
@@ -1624,7 +1664,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
 
     for table in [
         "accounts",
@@ -1659,7 +1699,7 @@ fn run_migrations_creates_schema_and_bumps_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
 }
 
 #[test]
@@ -1687,7 +1727,7 @@ fn concurrent_first_open_runs_migrations_once() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 14);
+    assert_eq!(version, 15);
 
     let _ = std::fs::remove_dir_all(dir);
 }

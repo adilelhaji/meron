@@ -1735,6 +1735,59 @@ export async function deleteThread(threadId: string, options: { permanent?: bool
 
 // Prefer the core-provided folder role. The name fallback is only for call
 // sites that have a bare folder id before folder metadata is loaded.
+/// The moments a thread can be put aside until, as offsets a reader thinks in.
+///
+/// Absolute times rather than durations: "tomorrow morning" means nine, not
+/// twenty-four hours from whenever this was clicked.
+export function snoozeChoices(now = new Date()): { key: string; at: number }[] {
+  const at = (date: Date) => Math.floor(date.getTime() / 1000)
+  const laterToday = new Date(now)
+  laterToday.setHours(now.getHours() + 3, 0, 0, 0)
+
+  const tomorrow = new Date(now)
+  tomorrow.setDate(now.getDate() + 1)
+  tomorrow.setHours(9, 0, 0, 0)
+
+  const nextWeek = new Date(now)
+  // The coming Monday, which is what "next week" means to a working calendar.
+  nextWeek.setDate(now.getDate() + ((8 - now.getDay()) % 7 || 7))
+  nextWeek.setHours(9, 0, 0, 0)
+
+  const choices = [
+    { key: 'laterToday', at: at(laterToday) },
+    { key: 'tomorrow', at: at(tomorrow) },
+    { key: 'nextWeek', at: at(nextWeek) },
+  ]
+  // Later today is dropped once it would land before now — late in the evening
+  // it is not "later today" at all.
+  return choices.filter((choice) => choice.at > at(now))
+}
+
+/// Puts a thread aside until a time. It leaves the list until then.
+export async function snoozeThread(threadId: string, until: number) {
+  await invoke('mail.snooze', { thread_id: threadId, until })
+  mail$.threads.set(mail$.threads.peek().filter((thread) => thread.thread_id !== threadId))
+}
+
+/// Brings a thread back now, whatever it was waiting for.
+export async function unsnoozeThread(threadId: string) {
+  await invoke('mail.unsnooze', { thread_id: threadId })
+}
+
+/// What has been put aside, so it can be found again.
+export async function listSnoozed(
+  accountId: string,
+): Promise<{ threadKey: string; folder: string; until: number }[]> {
+  try {
+    const res = await invoke<{
+      threads: { threadKey: string; folder: string; until: number }[]
+    }>('mail.snoozed', { account_id: accountId })
+    return res.threads ?? []
+  } catch {
+    return []
+  }
+}
+
 export function isDraftFolder(folderId: string, accountId?: string): boolean {
   // Both guarded: folders may not have loaded yet, and spreading nothing threw
   // while rendering a message — which takes the whole conversation with it,

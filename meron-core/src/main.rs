@@ -573,6 +573,43 @@ fn spawn_rss_sync(engine: Arc<Engine>, out: Writer, account: String) {
 /// set to, and coarse enough to cost nothing.
 const REMINDER_TICK: Duration = Duration::from_secs(60);
 
+/// Brings back threads whose time has come, and sends messages that are due.
+///
+/// Shares the reminder watch's shape — a query on a tick, not a timer per item
+/// — and for the same reason: what is due is a question the store can answer,
+/// so nothing has to be kept in sync with it. Both survive restarts, because
+/// both were promises made for a time, not for a session.
+fn spawn_deferred_watch(engine: Arc<Engine>, out: Writer) {
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(REMINDER_TICK);
+        loop {
+            ticker.tick().await;
+            let now = now_seconds();
+
+            let due = {
+                let db = engine.db.lock().unwrap();
+                store::due_snoozes(&db, now).unwrap_or_default()
+            };
+            for (account, thread_key, folder) in due {
+                {
+                    let db = engine.db.lock().unwrap();
+                    // Cleared before it is announced: a thread brought back
+                    // twice is noise, and the second one has nothing to add.
+                    if store::unsnooze_thread(&db, &account, &thread_key).is_err() {
+                        continue;
+                    }
+                }
+                emit(
+                    &out,
+                    "mail.unsnoozed",
+                    json!({ "account": account, "threadKey": thread_key, "folder": folder }),
+                )
+                .await;
+            }
+        }
+    });
+}
+
 /// Raises calendar reminders as they come due, for as long as the core runs.
 ///
 /// The work is a query, not a timer per event: reminders are found by asking
@@ -1157,6 +1194,7 @@ async fn main() {
     // Reminders are watched for as long as the core runs, not per account:
     // the query already knows which accounts have anything due.
     spawn_reminder_watch(engine.clone(), out.clone());
+    spawn_deferred_watch(engine.clone(), out.clone());
 
     emit(&out, "ready", ready_event()).await;
 
@@ -1268,6 +1306,59 @@ async fn dispatch(engine: &Arc<Engine>, req: &Request, out: &Writer) -> anyhow::
                 proxy::set_global(proxy::parse_global(&value));
             }
             Ok(json!({ "ok": true }))
+        }
+
+        // Puts a thread aside until a time, and takes it out of the list until
+        // then. Its folder travels with it: coming back means coming back
+        // where it was.
+        "mail.snooze" => {
+            // Addressed by the thread id the interface already holds; the key
+            // and folder inside it are what the store needs, and deriving them
+            // here keeps that encoding in one place.
+            let thread_id = req_str(p, "thread_id")?;
+            let parsed = meron_core::protocol::mail::parse_thread_id(&thread_id)
+                .context("invalid thread_id")?;
+            let account = parsed.account.clone();
+            let thread_key = parsed.thread_key.clone();
+            let folder = parsed.folder.clone();
+            let until = p.get("until").and_then(Value::as_i64).context("missing param: until")?;
+            if until <= now_seconds() {
+                anyhow::bail!("a thread cannot be put aside until a moment already past");
+            }
+            store::snooze_thread(
+                &engine.db.lock().unwrap(),
+                &account,
+                &thread_key,
+                &folder,
+                until,
+            )?;
+            Ok(json!({ "ok": true }))
+        }
+
+        "mail.unsnooze" => {
+            let thread_id = req_str(p, "thread_id")?;
+            let parsed = meron_core::protocol::mail::parse_thread_id(&thread_id)
+                .context("invalid thread_id")?;
+            let (account, thread_key) = (parsed.account.clone(), parsed.thread_key.clone());
+            store::unsnooze_thread(&engine.db.lock().unwrap(), &account, &thread_key)?;
+            Ok(json!({ "ok": true }))
+        }
+
+        // What has been put aside, so it can be found again: a thread that
+        // vanishes with no way to look it up is lost, not postponed.
+        "mail.snoozed" => {
+            let account = req_str(p, "account")?;
+            let rows = store::snoozed_threads(&engine.db.lock().unwrap(), &account)?;
+            Ok(json!({
+                "threads": rows
+                    .into_iter()
+                    .map(|(thread_key, folder, until)| json!({
+                        "threadKey": thread_key,
+                        "folder": folder,
+                        "until": until,
+                    }))
+                    .collect::<Vec<_>>()
+            }))
         }
 
         // Serialize accounts, prefs, feeds and settings to a backup document

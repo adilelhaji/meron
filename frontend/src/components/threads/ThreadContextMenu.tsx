@@ -12,6 +12,7 @@ import {
   Pencil,
   Star,
   Trash2,
+  Clock,
 } from 'lucide-react'
 import { useTranslation } from '../../lib/i18n'
 import { moveFeed, openFeedEdit } from '../../states/feeds'
@@ -30,6 +31,8 @@ import {
   markThreadUnread,
   moveThreadToFolder,
   starThread,
+  snoozeThread,
+  snoozeChoices,
 } from '../../states/mail'
 import { accounts$, isSendableAccount } from '../../states/accounts'
 import { isRssAccount } from '../../lib/threadActions'
@@ -67,6 +70,7 @@ export type ThreadMenuState =
     }
 
 export type ThreadContextAction =
+  | 'snooze'
   | 'mark-read'
   | 'mark-unread'
   | 'star'
@@ -144,6 +148,20 @@ export function useThreadContextMenu(accounts: Account[]): ThreadContextMenuCont
       })
     },
   }
+}
+
+/// The hour a choice lands on, so "tomorrow" is not left to the imagination.
+function formatSnoozeWhen(at: number): string {
+  const date = new Date(at * 1000)
+  const today = new Date()
+  const sameDay = date.toDateString() === today.toDateString()
+  return sameDay
+    ? date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleString(undefined, {
+        weekday: 'short',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
 }
 
 export function ThreadContextMenu({
@@ -424,6 +442,25 @@ export function ThreadContextMenu({
           }}
         />
       )}
+      <div className="my-1 border-t border-border" />
+      {/* Put aside rather than dealt with: the thread leaves the list and
+          comes back on its own. Offered above archiving, which is the answer
+          for what is finished. */}
+      {snoozeChoices().map((choice) => (
+        <MenuItem
+          key={choice.key}
+          icon={<Clock size={13} className="text-secondary" />}
+          label={t(`threads.snooze.${choice.key}`, {
+            defaultValue: choice.key,
+            when: formatSnoozeWhen(choice.at),
+          })}
+          onClick={() => {
+            const threadId = menu.threadId
+            close()
+            void snoozeThread(threadId, choice.at).then(() => after('snooze', threadId))
+          }}
+        />
+      ))}
       <div className="my-1 border-t border-border" />
       <MenuItem
         icon={<Archive size={13} className="text-secondary" />}

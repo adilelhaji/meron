@@ -1169,6 +1169,72 @@ pub fn newest_thread_uids(
     Ok(newest.map(|header| header.uid).into_iter().collect())
 }
 
+/// Puts a thread aside until an instant.
+///
+/// The folder it was in travels with it: coming back means coming back where
+/// it was, and a thread cannot be returned to a folder nobody recorded.
+pub fn snooze_thread(
+    conn: &Connection,
+    account: &str,
+    thread_key: &str,
+    folder: &str,
+    until: i64,
+) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO snoozed_threads(account, thread_key, folder, until)
+         VALUES(?1, ?2, ?3, ?4)",
+        params![account, thread_key, folder, until],
+    )?;
+    Ok(())
+}
+
+/// Brings a thread back now, whatever it was waiting for.
+pub fn unsnooze_thread(conn: &Connection, account: &str, thread_key: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM snoozed_threads WHERE account = ?1 AND thread_key = ?2",
+        params![account, thread_key],
+    )?;
+    Ok(())
+}
+
+/// The threads still put aside at `now`, for the list to leave out.
+pub fn snoozed_thread_keys(
+    conn: &Connection,
+    account: &str,
+    now: i64,
+) -> Result<HashSet<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT thread_key FROM snoozed_threads WHERE account = ?1 AND until > ?2",
+    )?;
+    let rows = stmt.query_map(params![account, now], |row| row.get::<_, String>(0))?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
+/// Every thread put aside, whether or not its time has come, so a reader can
+/// find what they set aside — a thread that vanishes with no way to look it up
+/// is a thread lost, not postponed.
+pub fn snoozed_threads(conn: &Connection, account: &str) -> Result<Vec<(String, String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT thread_key, folder, until FROM snoozed_threads
+          WHERE account = ?1 ORDER BY until",
+    )?;
+    let rows = stmt.query_map(params![account], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    })?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
+/// Threads whose time has come, with the account and folder to return them to.
+pub fn due_snoozes(conn: &Connection, now: i64) -> Result<Vec<(String, String, String)>> {
+    let mut stmt = conn.prepare(
+        "SELECT account, thread_key, folder FROM snoozed_threads WHERE until <= ?1",
+    )?;
+    let rows = stmt.query_map(params![now], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    })?;
+    Ok(rows.filter_map(Result::ok).collect())
+}
+
 pub fn draft_thread_keys(conn: &Connection, account: &str) -> Result<HashSet<String>> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT COALESCE(NULLIF(m.thread_key, ''), 'uid:' || m.uid), m.folder, f.special_use

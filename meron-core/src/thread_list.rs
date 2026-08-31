@@ -215,6 +215,22 @@ pub fn mail_page(
         let draft_thread_keys = store::draft_thread_keys(conn, account)?;
         let threads =
             mail_model::thread_cards_json(conn, account, folder, messages, &draft_thread_keys)?;
+        // Threads put aside are left out until their time comes. Filtered on
+        // the cards rather than in the query behind them: a thread is put
+        // aside as a whole, and the query works in messages.
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|epoch| epoch.as_secs() as i64)
+            .unwrap_or_default();
+        let asleep = store::snoozed_thread_keys(conn, account, now)?;
+        let threads: Vec<Value> = threads
+            .into_iter()
+            .filter(|card| {
+                card.get("threadKey")
+                    .and_then(Value::as_str)
+                    .is_none_or(|key| !asleep.contains(key))
+            })
+            .collect();
         json!({ "threads": threads, "folder_unread": folder_unread, "folder_synced": folder_synced })
     } else {
         json!({

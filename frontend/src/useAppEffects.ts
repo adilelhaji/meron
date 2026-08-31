@@ -348,6 +348,14 @@ export function useAppEffects() {
     // A calendar refresh that failed. Nothing consumed this before, so the
     // agenda simply went stale in silence — the worst way for it to be wrong,
     // since it still looks current.
+    // A thread whose time has come. The core cleared it already; the list
+    // just has to look again, or it would stay hidden until something else
+    // happened to refresh it.
+    const offUnsnoozed = eventsOn('mail.unsnoozed', () => {
+      showToast(t('threads.snooze.returned', { defaultValue: 'Back in your inbox' }))
+      void refreshCurrentMailbox().catch(console.error)
+    })
+
     const offCalendarError = eventsOn(
       'calendar.syncError',
       (detail: { message?: string }) => {
@@ -399,6 +407,7 @@ export function useAppEffects() {
       if (typeof offSynced === 'function') offSynced()
       if (typeof offCalendarSynced === 'function') offCalendarSynced()
       if (typeof offCalendarError === 'function') offCalendarError()
+      if (typeof offUnsnoozed === 'function') offUnsnoozed()
     }
   }, [selectedAccount, selectedFolder, query])
 }

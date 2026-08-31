@@ -14,7 +14,7 @@ mod accounts;
 mod backup;
 mod feeds;
 mod helpers;
-mod mail;
+pub mod mail;
 mod media;
 mod oauth;
 mod prefs;

@@ -319,6 +319,12 @@ func (a *App) invoke(command string, payload map[string]any) (any, error) {
 		return a.mailDiscardDraft(payload)
 	case "mail.markRead":
 		return a.markRead(payload)
+	case "mail.snooze":
+		return a.mailSnooze(payload)
+	case "mail.unsnooze":
+		return a.mailUnsnooze(payload)
+	case "mail.snoozed":
+		return a.mailSnoozed(payload)
 	case "mail.markStarred":
 		return a.markStarred(payload)
 	case "mail.markAllRead":
