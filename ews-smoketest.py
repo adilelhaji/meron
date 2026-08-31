@@ -328,13 +328,22 @@ def main():
                     print(f"        an invitation should now be in {args.invite}")
                     # Read it back: the attendee must have survived the round
                     # trip, or the invitation went out to nobody.
-                    window = core.call("calendar.events", {
-                        "account": account, "from": start - 3600,
-                        "to": start + 7200, "refresh": True})
-                    events = (window or {}).get("result", {}).get("events", [])
-                    found = next((e for e in events if e.get("id") == event["id"]), None)
+                    # calendar.events answers from the cache and refreshes
+                    # behind the request, so the meeting just created is not
+                    # there the instant it returns. Asked a few times rather
+                    # than once, or the check reports a race as a failure.
+                    found = None
+                    for _ in range(6):
+                        window = core.call("calendar.events", {
+                            "account": account, "from": start - 3600,
+                            "to": start + 7200, "refresh": True})
+                        events = (window or {}).get("result", {}).get("events", [])
+                        found = next((e for e in events if e.get("id") == event["id"]), None)
+                        if found is not None:
+                            break
+                        time.sleep(2)
                     if found is None:
-                        print("  WARN  could not read the meeting back")
+                        print("  WARN  could not read the meeting back within 12s")
                     else:
                         people = [a.get("addr") or a.get("name")
                                   for a in found.get("attendees", [])]
